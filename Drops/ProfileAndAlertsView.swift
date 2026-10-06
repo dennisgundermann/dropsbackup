@@ -76,28 +76,97 @@ struct FreundeView: View {
                 ScrollView(showsIndicators: false) {
                     LazyVStack(spacing: 16) {
 
-                        // Rondesignlab-Style Hero
-                        VStack(alignment: .leading, spacing: 20) {
+                        // Rondesignlab-Style Hero — Headline links, Avatar oben rechts.
+                        // Name + Alter sitzen DIREKT unter dem Profilbild, Badges
+                        // in einer eigenen Reihe darunter.
+                        VStack(alignment: .leading, spacing: 14) {
                             HStack {
                                 DazuWordmark(color: .brandNight, dotColor: .brandOrange)
                                     .frame(height: 24)
                                 Spacer()
                             }
-                            VStack(alignment: .leading, spacing: -4) {
-                                Text("Dein")
-                                    .foregroundColor(.brandNight)
-                                Text("Kreis.")
-                                    .foregroundColor(.brandViolet)
+
+                            HStack(alignment: .top, spacing: 16) {
+                                VStack(alignment: .leading, spacing: -4) {
+                                    Text("Freunde.")
+                                        .foregroundColor(.brandViolet)
+                                }
+                                .font(.system(size: 42, weight: .bold, design: .rounded))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+
+                                // Avatar oben rechts + Name/Alter + Badges darunter.
+                                VStack(alignment: .trailing, spacing: 8) {
+                                    Button(action: { showImageSourceSheet = true }) {
+                                        ZStack(alignment: .bottomTrailing) {
+                                            Group {
+                                                if let img = store.selfieImage {
+                                                    Image(uiImage: img).resizable().scaledToFill()
+                                                        .frame(width: 76, height: 76).clipShape(Circle())
+                                                } else {
+                                                    RemoteProfileImage(url: store.profileImageURL,
+                                                                       fallbackEmoji: store.currentUser.emoji,
+                                                                       size: 76, strokeColor: .clear)
+                                                }
+                                            }
+                                            .overlay(Circle().stroke(Color.brandLavender, lineWidth: 3))
+
+                                            ZStack {
+                                                Circle().fill(Color.brandViolet).frame(width: 22, height: 22)
+                                                Image(systemName: "camera.fill")
+                                                    .font(.system(size: 9, weight: .bold)).foregroundColor(.white)
+                                            }
+                                        }
+                                    }
+                                    .dropsPressable()
+
+                                    HStack(spacing: 4) {
+                                        Text(store.pendingNameChange ?? store.currentUser.name)
+                                            .font(.system(size: 15, weight: .bold, design: .rounded))
+                                            .foregroundColor(.brandNight)
+                                            .lineLimit(1)
+                                        if let age = store.userAge {
+                                            Text("· \(age)")
+                                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                                .foregroundColor(.brandNight.opacity(0.55))
+                                        }
+                                    }
+
+                                    // Badges rechtsbündig unter Name.
+                                    HStack(spacing: 4) {
+                                        if qualifiesForBetaBadge { BetaBadge() }
+                                        if FeatureFlags.dropsPlusEnabled && store.isDropsPlusActive {
+                                            HStack(spacing: 3) {
+                                                Image(systemName: "bolt.fill")
+                                                    .font(.system(size: 9, weight: .bold))
+                                                Text("PLUS")
+                                                    .font(.system(size: 9, weight: .bold, design: .rounded))
+                                                    .kerning(0.4)
+                                            }
+                                            .foregroundColor(.brandOrange)
+                                            .padding(.horizontal, 7).padding(.vertical, 3)
+                                            .background(Capsule().fill(Color.brandOrange.opacity(0.14)))
+                                        }
+                                        if FeatureFlags.communitiesEnabled && store.isCommunityCreator {
+                                            CommunityCreatorBadge(community: store.myCommunity, compact: true)
+                                        }
+                                        if ReliabilityScore.isTrusted(forPoints: store.reliabilityScore.points) {
+                                            HStack(spacing: 3) {
+                                                Image(systemName: "checkmark.seal.fill")
+                                                    .font(.system(size: 10, weight: .bold))
+                                                Text(tr("tier.trusted"))
+                                                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                                            }
+                                            .foregroundColor(.brandViolet)
+                                            .padding(.horizontal, 7).padding(.vertical, 3)
+                                            .background(Capsule().fill(Color.brandLavender))
+                                        }
+                                    }
+                                }
                             }
-                            .font(.system(size: 42, weight: .bold, design: .rounded))
-                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .padding(.horizontal, 24)
                         .padding(.top, 16)
-                        .padding(.bottom, 20)
-
-                        // Eigener Status
-                        myStatusCard
+                        .padding(.bottom, 16)
 
                         // Drop-Statistiken
                         dropStatsSection
@@ -756,27 +825,21 @@ struct FreundeView: View {
                     // Inline-Empty-State — vorher renderte die Card komplett
                     // leer, was wie ein Layout-Bug aussah. Jetzt klarer
                     // Hint, wie Begegnungen entstehen.
-                    HStack(spacing: 14) {
-                        ZStack {
-                            Circle()
-                                .fill(Color.brandLavender)
-                                .frame(width: 40, height: 40)
-                            Image(systemName: "person.2.wave.2.fill")
-                                .font(.system(size: 16, weight: .bold))
-                                .foregroundColor(.brandViolet)
-                        }
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(tr("profile.no_encounters_yet"))
-                                .font(.system(size: 15, weight: .bold, design: .rounded))
-                                .foregroundColor(.brandNight)
-                            Text(tr("profile.no_encounters_sub"))
-                                .font(.system(size: 13, weight: .medium, design: .rounded))
-                                .foregroundColor(.brandNight.opacity(0.6))
-                                .lineLimit(2)
-                        }
-                        Spacer()
+                    // Minimalistischer Empty-State — nur zentrierter Text,
+                    // kein Icon-Row. Fügt sich ruhig ins Rondesignlab-Design.
+                    VStack(spacing: 6) {
+                        Text(tr("profile.no_encounters_yet"))
+                            .font(.system(size: 16, weight: .bold, design: .rounded))
+                            .foregroundColor(.brandNight)
+                        Text(tr("profile.no_encounters_sub"))
+                            .font(.system(size: 13, weight: .medium, design: .rounded))
+                            .foregroundColor(.brandNight.opacity(0.5))
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
-                    .padding(.horizontal, 16).padding(.vertical, 14)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 28)
                 } else {
                     ForEach(Array(sorted.enumerated()), id: \.element.id) { i, encounter in
                         EncounterRow(encounter: encounter)
@@ -1996,7 +2059,6 @@ struct ProfileView: View {
     private var profileHeroTemplate: ProfileHeroTemplate {
         ProfileHeroTemplate(rawValue: profileHeroTemplateRaw) ?? .aurora
     }
-    @AppStorage("settingLocationSharing") private var locationSharing = true
     @AppStorage("settingNotificationsOn") private var notificationsOn = true
     @AppStorage("ud_presenceShareEnabled") private var presenceSharing = false
     @State private var showPresenceOptInSheet = false
@@ -2070,14 +2132,10 @@ struct ProfileView: View {
                                     .frame(height: 24)
                                 Spacer()
                             }
-                            VStack(alignment: .leading, spacing: -4) {
-                                Text("Deine")
-                                    .foregroundColor(.brandNight)
-                                Text("Welt.")
-                                    .foregroundColor(.brandViolet)
-                            }
-                            .font(.system(size: 42, weight: .bold, design: .rounded))
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            Text("Einstellungen.")
+                                .font(.system(size: 42, weight: .bold, design: .rounded))
+                                .foregroundColor(.brandViolet)
+                                .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .padding(.horizontal, 24)
                         .padding(.top, 16)
@@ -3305,14 +3363,6 @@ struct ProfileView: View {
     // MARK: - Location Section
 
     @ViewBuilder private var locationSection: some View {
-        inlineToggle(tr("settings.location_sharing"),
-                     subtitle: tr("settings.visibility_info"),
-                     icon: "location.fill",
-                     color: .onlineGreen,
-                     isOn: $locationSharing)
-
-        Divider().padding(.leading, 60)
-
         inlineToggle("Auf der Karte sichtbar",
                      subtitle: "Andere Dazu-Nutzer sehen dein Profilbild auf der Karte — mit 20 Min Verzögerung und auf ~500m gerundet. Freunde sehen zusätzlich deinen Namen, Fremde nur das Bild.",
                      icon: "figure.wave",
