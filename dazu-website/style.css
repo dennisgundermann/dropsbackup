@@ -69,7 +69,7 @@ h1, h2, h3 { font-family: var(--font-h); }
 .nav ul a.btn:hover { color: #fff; }
 
 /* ── Hero ───────────────────────────────────── */
-.hero { position: relative; padding: 84px 0 72px; overflow: hidden; }
+.hero { position: relative; padding: 84px 0 72px; overflow: clip; }
 .hero::before, .hero::after { content: ''; position: absolute; border-radius: 50%; filter: blur(80px); pointer-events: none; z-index: 0; }
 .hero::before { width: 520px; height: 520px; right: -140px; top: -120px; background: rgba(124, 92, 255, .30); animation: drift 14s ease-in-out infinite alternate; }
 .hero::after { width: 380px; height: 380px; left: -140px; bottom: -120px; background: rgba(255, 160, 46, .30); animation: drift 11s ease-in-out infinite alternate-reverse; }
@@ -295,14 +295,14 @@ footer a:hover { color: var(--violett); }
 .hero .wrap > div { max-width: 600px; }
 .mapbg {
   position: absolute; top: 0; right: 0; width: 78%; height: 100%; z-index: 0; pointer-events: none;
-  -webkit-mask-image: linear-gradient(90deg, transparent 0%, transparent 24%, rgba(0,0,0,.55) 42%, #000 64%), linear-gradient(180deg, transparent 0%, #000 12%, #000 86%, transparent 100%);
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, transparent 24%, rgba(0,0,0,.55) 42%, #000 64%), linear-gradient(180deg, transparent 0%, #000 8%, #000 88%, transparent 100%);
   -webkit-mask-composite: source-in; mask-composite: intersect;
-  mask-image: linear-gradient(90deg, transparent 0%, transparent 24%, rgba(0,0,0,.55) 42%, #000 64%), linear-gradient(180deg, transparent 0%, #000 12%, #000 86%, transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0%, transparent 24%, rgba(0,0,0,.55) 42%, #000 64%), linear-gradient(180deg, transparent 0%, #000 8%, #000 88%, transparent 100%);
 }
 @media (max-width: 880px) {
-  .hero { min-height: 0; align-items: flex-start; padding-bottom: 300px; }
-  .mapbg { width: 100%; height: 320px; top: auto; bottom: 0;
+  .hero { min-height: 0; align-items: flex-start; padding-bottom: 350px; }
+  .mapbg { width: 190%; right: -21%; height: 390px; top: auto; bottom: 0;
     -webkit-mask-image: linear-gradient(180deg, transparent 0%, #000 28%, #000 80%, transparent 100%); mask-image: linear-gradient(180deg, transparent 0%, #000 28%, #000 80%, transparent 100%); -webkit-mask-composite: source-over; mask-composite: add; }
 }
 
-.mapbg .pt { font: 600 14px var(--font-h); fill: var(--nacht); }
+.mapbg .pt { font: 700 17px var(--font-h); fill: var(--nacht); }
