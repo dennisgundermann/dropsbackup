@@ -236,37 +236,49 @@ final class PushNotificationManager {
                     // a) Pre-Notification 1h vor Start
                     let preHour = window.startHour - 1
                     if preHour >= 0 {
-                        try? await scheduleRecurring(
-                            on: center,
-                            id: "\(ID.powerHourPrefix)\(weekday)_\(window.startHour)_pre",
-                            weekday: weekday, hour: preHour, minute: 0,
-                            messages: preMessages,
-                            type: "powerhour_pre",
-                            windowLabel: window.label
-                        )
+                        do {
+                            try await scheduleRecurring(
+                                on: center,
+                                id: "\(ID.powerHourPrefix)\(weekday)_\(window.startHour)_pre",
+                                weekday: weekday, hour: preHour, minute: 0,
+                                messages: preMessages,
+                                type: "powerhour_pre",
+                                windowLabel: window.label
+                            )
+                        } catch {
+                            print("[powerHour] ⚠️ pre wd=\(weekday) h=\(preHour) failed: \(error.localizedDescription)")
+                        }
                     }
 
                     // b) Start-Notification
-                    try? await scheduleRecurring(
-                        on: center,
-                        id: "\(ID.powerHourPrefix)\(weekday)_\(window.startHour)_start",
-                        weekday: weekday, hour: window.startHour, minute: 0,
-                        messages: startMessages,
-                        type: "powerhour_start",
-                        windowLabel: window.label
-                    )
+                    do {
+                        try await scheduleRecurring(
+                            on: center,
+                            id: "\(ID.powerHourPrefix)\(weekday)_\(window.startHour)_start",
+                            weekday: weekday, hour: window.startHour, minute: 0,
+                            messages: startMessages,
+                            type: "powerhour_start",
+                            windowLabel: window.label
+                        )
+                    } catch {
+                        print("[powerHour] ⚠️ start wd=\(weekday) h=\(window.startHour) failed: \(error.localizedDescription)")
+                    }
 
                     // c) End-Warn-Notification 1h vor Ende
                     let endWarnHour = window.endHour - 1
                     if endWarnHour > window.startHour {
-                        try? await scheduleRecurring(
-                            on: center,
-                            id: "\(ID.powerHourPrefix)\(weekday)_\(window.startHour)_endwarn",
-                            weekday: weekday, hour: endWarnHour, minute: 0,
-                            messages: endMessages,
-                            type: "powerhour_endwarn",
-                            windowLabel: window.label
-                        )
+                        do {
+                            try await scheduleRecurring(
+                                on: center,
+                                id: "\(ID.powerHourPrefix)\(weekday)_\(window.startHour)_endwarn",
+                                weekday: weekday, hour: endWarnHour, minute: 0,
+                                messages: endMessages,
+                                type: "powerhour_endwarn",
+                                windowLabel: window.label
+                            )
+                        } catch {
+                            print("[powerHour] ⚠️ endwarn wd=\(weekday) h=\(endWarnHour) failed: \(error.localizedDescription)")
+                        }
                     }
                 }
             }
@@ -360,7 +372,11 @@ final class PushNotificationManager {
                     content: content,
                     trigger: trigger
                 )
-                try? await center.add(req)
+                do {
+                    try await center.add(req)
+                } catch {
+                    print("[eveningPrompt] ⚠️ wd=\(weekday) failed: \(error.localizedDescription)")
+                }
             }
         }
     }
@@ -625,45 +641,7 @@ final class PushNotificationManager {
         UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: UDKey.registeredAt)
     }
 
-    /// Plant eine lokale Erinnerung falls kein Profilbild gesetzt ist.
-    /// - Neuuser: feuert 48 h nach Registrierung.
-    /// - Bestandsuser: Restzeit bis 48 h ab Registrierung, spätestens 5 Min wenn
-    ///   die 48 h schon vergangen sind (registeredAt unbekannt → 1 h Puffer).
-    /// Sicher mehrfach aufrufbar — plant nur einmal (Guard via UserDefaults).
-    func scheduleProfilePictureReminderIfNeeded(hasProfileImage: Bool) {
-        if hasProfileImage {
-            cancelProfilePictureReminder()
-            return
-        }
-        // Nur einmal planen
-        guard !UserDefaults.standard.bool(forKey: UDKey.profilePicScheduled) else { return }
-
-        let twoDays: TimeInterval = 48 * 3_600
-        let registeredAt = UserDefaults.standard.double(forKey: UDKey.registeredAt)
-
-        let delay: TimeInterval
-        if registeredAt == 0 {
-            // Bestandsuser vor diesem Feature — 1 h Puffer, nicht sofort
-            delay = 3_600
-        } else {
-            let elapsed   = Date().timeIntervalSince1970 - registeredAt
-            let remaining = twoDays - elapsed
-            // Noch Zeit bis 48 h → warten; sonst mind. 5 Min
-            delay = remaining > 60 ? remaining : 300
-        }
-
-        let content = UNMutableNotificationContent()
-        content.title    = tr("push.profile_pic_title")
-        content.body     = tr("push.profile_pic_body")
-        content.sound    = .default
-        content.userInfo = ["type": "profile_pic_reminder"]
-
-        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: delay, repeats: false)
-        schedule(content, id: ID.profilePic, trigger: trigger)
-        UserDefaults.standard.set(true, forKey: UDKey.profilePicScheduled)
-    }
-
-    /// Abbrechen sobald der User ein Profilbild hinterlegt hat.
+    /// Entfernt eine ggf. noch ausstehende Profilbild-Erinnerung (Feature entfällt, Bild ist freiwillig).
     func cancelProfilePictureReminder() {
         UNUserNotificationCenter.current()
             .removePendingNotificationRequests(withIdentifiers: [ID.profilePic])

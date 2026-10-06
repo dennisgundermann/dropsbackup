@@ -16,7 +16,7 @@ struct DropsPlusView: View {
         ZStack(alignment: .topTrailing) {
 
             // ── Hintergrund — warmes Cream mit sanftem Gold-Schimmer ─────
-            Color(UIColor.systemGroupedBackground).ignoresSafeArea()
+            Color.bgGrouped.ignoresSafeArea()
             RadialGradient(
                 colors: [Color.auroraAmber.opacity(0.10), .clear],
                 center: .topLeading,
@@ -89,7 +89,7 @@ struct DropsPlusView: View {
             }
 
             // Titel — im Premium-Light: dunkles Monogramm + Gold-Plus-Zeichen
-            (Text("Drops")
+            (Text("dazu")
                 .foregroundColor(.textPrimary)
              + Text("+")
                 .foregroundStyle(
@@ -189,7 +189,7 @@ struct DropsPlusView: View {
                 .frame(maxWidth: .infinity)
                 .background(
                     RoundedRectangle(cornerRadius: 20)
-                        .fill(Color(UIColor.secondarySystemGroupedBackground))
+                        .fill(Color.bgCard)
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 20)
@@ -275,7 +275,7 @@ struct DropsPlusSuccessView: View {
     var body: some View {
         ZStack {
             // ── Premium-Light Hintergrund ─────────────────────────────────
-            Color(UIColor.systemGroupedBackground).ignoresSafeArea()
+            Color.bgGrouped.ignoresSafeArea()
             RadialGradient(
                 colors: [Color.auroraAmber.opacity(0.10), .clear],
                 center: .top,
@@ -337,7 +337,7 @@ struct DropsPlusSuccessView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(
                     RoundedRectangle(cornerRadius: Radius.lg)
-                        .fill(Color(UIColor.secondarySystemGroupedBackground))
+                        .fill(Color.bgCard)
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: Radius.lg)
@@ -429,7 +429,7 @@ private struct PlusFeatureRow: View {
         .padding(16)
         .background(
             RoundedRectangle(cornerRadius: Radius.lg)
-                .fill(Color(UIColor.secondarySystemGroupedBackground))
+                .fill(Color.bgCard)
         )
         .overlay(
             RoundedRectangle(cornerRadius: Radius.lg)

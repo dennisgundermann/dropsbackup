@@ -10,6 +10,8 @@
 	</array>
 	<key>com.apple.developer.associated-domains</key>
 	<array>
+		<string>applinks:dazuapp.com</string>
+		<string>applinks:www.dazuapp.com</string>
 		<string>applinks:drops-app.de</string>
 		<string>applinks:www.drops-app.de</string>
 	</array>

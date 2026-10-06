@@ -5,6 +5,20 @@ import StoreKit
 import TipKit
 import GoogleSignIn
 
+// MARK: - App-Links Konfiguration
+
+/// Zentraler Ort für die App-Website-URLs. Wenn die Domain wechselt
+/// (aktuell dazuapp.com; drops-app.de bleibt für alte Links erlaubt), nur hier ändern.
+/// User-facing copy (Legal, Settings, Localization) ist intentional
+/// hardcoded und bleibt unverändert — wird in der Migration manuell
+/// nachgezogen.
+enum AppLinks {
+    static let baseURL  = "https://dazuapp.com"
+    static let allowedHosts: Set<String> = ["dazuapp.com", "www.dazuapp.com", "drops-app.de", "www.drops-app.de"]
+    static func dropShareURL(dropID: String) -> String { "\(baseURL)/drop/\(dropID)" }
+    static func inviteShareURL(inviterUID: String) -> String { "\(baseURL)/invite/\(inviterUID)" }
+}
+
 @main
 struct LinkUpApp: App {
 
@@ -19,6 +33,7 @@ struct LinkUpApp: App {
             .displayFrequency(.immediate),
             .datastoreLocation(.applicationDefault)
         ])
+
     }
 
     @StateObject private var store: AppStore = {
@@ -67,6 +82,13 @@ struct LinkUpApp: App {
         let param: String
 
         if url.scheme == "drops" {
+            // Widget-Deep-Link ohne Parameter: drops://map → nur auf den
+            // Karten-Tab schalten, keine weitere Aktion. Wird vom
+            // Radar-Widget beim Tap ausgelöst.
+            if url.host == "map" {
+                store.selectedTab = .map
+                return
+            }
             // Custom URL scheme: drops://drop/<UUID> oder drops://invite/<UID>
             // host = "drop"/"invite", pathComponents = ["/", "<param>"]
             guard let host = url.host,
@@ -75,8 +97,7 @@ struct LinkUpApp: App {
             param   = url.pathComponents[1]
         } else {
             // Universal Link: https://www.drops-app.de/drop/<UUID>
-            let allowedHosts: Set<String> = ["drops-app.de", "www.drops-app.de"]
-            guard let host = url.host, allowedHosts.contains(host),
+            guard let host = url.host, AppLinks.allowedHosts.contains(host),
                   url.pathComponents.count >= 3 else { return }
             section = url.pathComponents[1]
             param   = url.pathComponents[2]

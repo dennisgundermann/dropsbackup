@@ -3,42 +3,87 @@ import SwiftUI
 // MARK: - Color Palette
 
 extension Color {
-    static let bgPrimary     = Color(UIColor.systemBackground)
-    static let bgSecondary   = Color(UIColor.secondarySystemBackground)
+    // Flächen: neutrale iOS-Systemhintergründe. Die Creme-/Lavendel-/Nacht-
+    // Flächen aus dem Redesign 10/2026 sind wieder entfernt.
+    /// Primärer Hintergrund — Creme statt reinem Weiß im Light-Mode.
+    static let bgPrimary     = Color.adaptive(light: (1.000, 0.965, 0.918),   // #FFF6EA Creme
+                                              dark:  (0.090, 0.067, 0.180))   // #17112E Nacht
+    /// Sekundärer Hintergrund — leicht wärmer als System-Grau.
+    static let bgSecondary   = Color.adaptive(light: (0.969, 0.933, 0.878),   // leicht dunkler als Creme
+                                              dark:  (0.140, 0.110, 0.230))
     static let bgTertiary    = Color(UIColor.tertiarySystemBackground)
-    static let brand         = Color(hex: "3FB852")
+    /// Seitenhintergrund gruppierter Screens.
+    /// Grouped-Hintergrund (für Sheets/Modals) — Creme statt kaltem Grau.
+    static let bgGrouped     = Color.adaptive(light: (1.000, 0.965, 0.918),   // #FFF6EA Creme
+                                              dark:  (0.090, 0.067, 0.180))
+    /// Karten auf gruppierten Screens.
+    static let bgCard        = Color(UIColor.secondarySystemGroupedBackground)
+    /// Marken-Violett. Im Dark Mode heller, damit Text/Icons in `.brand`
+    /// auf dunklem Grund lesbar bleiben (Redesign 10/2026, vorher Grün #3FB852).
+    static let brand         = Color.adaptive(light: (0.357, 0.239, 0.961),   // #5B3DF5
+                                              dark:  (0.522, 0.439, 1.000))   // #8570FF
     static let brandInverse  = Color.white
-    static let accentGreen   = Color(hex: "3FB852")
+    static let accentGreen   = brandMint
     static let accentRed     = Color(hex: "FF3B30")
-    static let accentOrange  = Color(hex: "FF9500")
-    static let textPrimary   = Color(UIColor.label)
+    /// Warmer Akzent (Koralle) — mappt auf brandCoral.
+    static let accentOrange  = brandCoral
+    /// Haupttext: Nacht statt reinem Schwarz, im Dark Mode Weiß.
+    static let textPrimary   = Color.adaptive(light: (0.090, 0.067, 0.180),   // #17112E
+                                              dark:  (1.000, 1.000, 1.000))
     static let textSecondary = Color(UIColor.secondaryLabel)
     static let textTertiary  = Color(UIColor.tertiaryLabel)
     static let textMuted     = Color(UIColor.quaternaryLabel)
-    static let onlineGreen   = Color(hex: "34C759")
-    /// Clero-Brand-Grün (hell, vibrant) — wird für Community-Drops & Community-
-    /// Pins auf der Map verwendet, damit sie sich von normalen Drops abheben.
-    static let cleroGreen    = Color(hex: "6FE85A")
+    /// Live-/Online-Status in Marken-Mint.
+    static let onlineGreen   = brandMint
+    /// Community-Marker — jetzt in Mint statt Clero-Grün für konsistente Palette.
+    static let cleroGreen    = brandMint
     static let glassBorder   = Color(UIColor.separator)
 
-    // Aurora-Palette — App-Icon-Anker (Orange/Grün) + häufige Akzente
-    // (Amber für Boost, Gold für Drops+). Direkt-RGB statt Color(hex:),
-    // damit die Tokens bei Hex→Token-Migrationen nicht durch replace_all
-    // selbst zerschossen werden. Werte = exakte Umrechnung der Hexes.
-    static let auroraOrange    = Color(red: 0.894, green: 0.549, blue: 0.227) // #E48C3A
-    static let auroraGreen     = Color(red: 0.373, green: 0.663, blue: 0.216) // #5FA937
-    static let auroraAmber     = Color(red: 0.961, green: 0.620, blue: 0.043) // #f59e0b
-    static let auroraGoldLight = Color(red: 0.831, green: 0.627, blue: 0.090) // #d4a017
-    static let auroraGoldDark  = Color(red: 0.659, green: 0.455, blue: 0.031) // #a87408
-    // Erweiterte Aurora-Akzente — für Hintergründe, Badges, Hero-Gradients.
-    // Alle als direkt-RGB damit Hex→Token-Replace sicher ist.
-    static let auroraPink      = Color(red: 0.941, green: 0.608, blue: 0.639) // #F08FA3 (rose-glow)
-    static let auroraViolet    = Color(red: 0.706, green: 0.608, blue: 0.878) // #B49BE0 (lavender)
-    static let auroraCyan      = Color(red: 0.055, green: 0.714, blue: 0.831) // #0eb6d4 (cyan)
-    static let auroraTeal      = Color(red: 0.082, green: 0.722, blue: 0.647) // #14b8a6 (teal)
-    static let auroraBlue      = Color(red: 0.231, green: 0.510, blue: 0.965) // #3b82f6 (blue)
+    // Marken-Palette (Redesign 10/2026) — Violett + Mint, dazu Creme, Nacht,
+    // Lavendel und Koralle. Direkt-RGB statt Color(hex:), damit die Tokens bei
+    // Hex→Token-Migrationen nicht durch replace_all selbst zerschossen werden.
+    static let brandViolet      = Color(red: 0.357, green: 0.239, blue: 0.961) // #5B3DF5
+    static let brandVioletLight = Color(red: 0.486, green: 0.361, blue: 1.000) // #7C5CFF
+    /// „dazu"-Orange: zweite Hauptfarbe (statt Mint seit Rebrand).
+    static let brandOrange      = Color(red: 1.000, green: 0.627, blue: 0.180) // #FFA02E
+    /// Mint bleibt als Alias auf Orange — damit alle Call-Sites automatisch
+    /// die neue Palette bekommen ohne manuellen Rename.
+    static let brandMint        = brandOrange
+    static let brandCream       = Color(red: 1.000, green: 0.965, blue: 0.918) // #FFF6EA
+    /// „Nacht" als TEXT-Farbe — adaptiv: dunkel im Light-Mode, Creme im Dark-Mode.
+    /// Dadurch sind alle Haupt-Texte in beiden Modi lesbar.
+    static let brandNight       = Color.adaptive(light: (0.090, 0.067, 0.180),  // #17112E Nacht
+                                                  dark:  (1.000, 0.965, 0.918))  // #FFF6EA Creme
+    /// Fixer dunkler Nacht-Wert (für backgrounds etc. die immer dunkel sein müssen).
+    static let brandNightFixed  = Color(red: 0.090, green: 0.067, blue: 0.180)
+    static let brandLavender    = Color(red: 0.914, green: 0.890, blue: 1.000) // #E9E3FF
+    /// Koralle (deprecated — zugunsten Orange). Zeigt auf brandOrange.
+    static let brandCoral       = brandOrange
+
+    // Legacy Aurora-Namen → zeigen alle auf die neue Drops-Palette.
+    // Dadurch rebrandet die ganze App automatisch — jede View die aurora*
+    // nutzt bekommt sofort das neue Look-and-Feel ohne Code-Änderung.
+    static let auroraOrange    = brandViolet            // war Icon-Anker, jetzt Primary
+    static let auroraGreen     = brandMint              // war Icon-Anker, jetzt Live-Accent
+    static let auroraAmber     = brandCoral             // war Boost-Amber, jetzt Koralle
+    static let auroraGoldLight = brandCoral             // ehemalige Drops+ Gold
+    static let auroraGoldDark  = brandCoral.opacity(0.75)
+    static let auroraPink      = brandCoral             // war Rose-Glow
+    static let auroraViolet    = brandVioletLight       // war Lavender
+    static let auroraCyan      = brandMint              // war Cyan
+    static let auroraTeal      = brandMint              // war Teal
+    static let auroraBlue      = brandViolet            // war Blue
     static let auroraPurple    = Color(red: 0.659, green: 0.333, blue: 0.969) // #a855f7 (purple)
-    static let auroraCoral     = Color(red: 0.957, green: 0.584, blue: 0.416) // #F4956A (peach-coral)
+    static let auroraCoral     = Color(red: 1.000, green: 0.478, blue: 0.349) // #FF7A59 (Marken-Koralle)
+
+    /// Farbe mit eigener Hell-/Dunkel-Variante (RGB 0…1).
+    static func adaptive(light: (Double, Double, Double),
+                         dark: (Double, Double, Double)) -> Color {
+        Color(UIColor { trait in
+            let c = trait.userInterfaceStyle == .dark ? dark : light
+            return UIColor(red: CGFloat(c.0), green: CGFloat(c.1), blue: CGFloat(c.2), alpha: 1)
+        })
+    }
 
     init(hex: String) {
         let h = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
@@ -88,7 +133,7 @@ extension View {
     func shadowLg(color: Color = .black) -> some View {
         self.shadow(color: color.opacity(0.18), radius: 16, x: 0, y: 6)
     }
-    /// Aurora-Glow — Brand-Gradient-Buttons (grün/orange).
+    /// Aurora-Glow — Brand-Gradient-Buttons (Violett).
     func auroraGlow(active: Bool, color: Color = .brand) -> some View {
         self.shadow(color: active ? color.opacity(0.35) : .clear, radius: 10, x: 0, y: 4)
     }
@@ -96,26 +141,30 @@ extension View {
 
 // MARK: - Aurora Gradient Helper
 extension LinearGradient {
-    /// Standard-Aurora-Gradient (Orange → Grün) — für Primary-CTAs.
+    /// Standard-Aurora-Gradient (helles Violett → Marken-Violett) — für Primary-CTAs.
     static let aurora = LinearGradient(
         colors: [Color.auroraOrange, Color.auroraGreen],
         startPoint: .leading, endPoint: .trailing
     )
-    /// Sunset-Variante (Orange → Pink) — für sekundäre Hero-Elemente.
+    /// Sunset-Variante (Violett → Pink) — für sekundäre Hero-Elemente.
     static let sunset = LinearGradient(
         colors: [Color.auroraOrange, Color.auroraPink],
         startPoint: .leading, endPoint: .trailing
     )
 }
 
-// MARK: - iOS 26 Glass Helpers
+// MARK: - Liquid Glass Helpers (iOS 26+)
+//
+// iOS 27 Note: Apple hat den Glass-Rendering-Algorithmus in iOS 27 verbessert
+// (mehr Kontrast, einheitlichere Refraktion). Das System-Slider-Setting für
+// „Ultraklar bis vollständig getönt" wird von `.glassEffect()` automatisch
+// respektiert — kein App-seitiger Code nötig.
 
 /// ViewModifier für `liquidGlass`. Wrapped als Modifier mit
-/// @Environment(\.colorScheme), damit der iOS-26-`.glassEffect()`
-/// zwingend neu gerendert wird, wenn der User die App-Darstellung
-/// umschaltet. Vorher behielt der Glass-Block sein Hell-Material-
-/// Rendering nach Wechsel auf Dunkel — `.id(colorScheme)` erzwingt
-/// ein clean re-mount der Material-View.
+/// @Environment(\.colorScheme), damit das `.glassEffect()` zwingend
+/// neu gerendert wird, wenn der User die App-Darstellung umschaltet.
+/// Vorher behielt der Glass-Block sein Hell-Material-Rendering nach
+/// Wechsel auf Dunkel — `.id(colorScheme)` erzwingt ein clean re-mount.
 private struct LiquidGlassModifier: ViewModifier {
     let cornerRadius: CGFloat
     let shadowRadius: CGFloat
@@ -123,95 +172,75 @@ private struct LiquidGlassModifier: ViewModifier {
 
     @ViewBuilder
     func body(content: Content) -> some View {
-        if #available(iOS 26, *) {
-            content
-                .glassEffect(in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                .id(scheme)
-        } else {
-            content
-                .background(
-                    ZStack {
-                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .fill(.thinMaterial)
-                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .fill(Color.brand.opacity(0.04))
-                    }
-                    .shadow(color: Color.brand.opacity(0.08), radius: shadowRadius, x: 0, y: 6)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .stroke(
-                            LinearGradient(
-                                colors: [Color.brand.opacity(0.25), .white.opacity(0.08)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: 1
-                        )
-                )
-                .id(scheme)
-        }
+        // Flat Card mit Lavendel-Tint — passt zum Dazu-Design, kein hartes Weiß.
+        content
+            .background(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(scheme == .dark
+                          ? Color.brandViolet.opacity(0.15)
+                          : Color.brandLavender.opacity(0.55))
+                    .shadow(color: Color.brandViolet.opacity(scheme == .dark ? 0.12 : 0.05),
+                            radius: 8, x: 0, y: 3)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(Color.brandViolet.opacity(scheme == .dark ? 0.25 : 0.10),
+                            lineWidth: 0.5)
+            )
+            .id(scheme)
     }
 }
 
 extension View {
-    /// Applies Liquid Glass background — uses native .glassEffect() on iOS 26,
-    /// falls back to ultraThinMaterial on earlier OS versions.
+    /// Applies Liquid Glass background — uses native .glassEffect() on iOS 26+
+    /// (including iOS 27 with improved rendering), falls back to thinMaterial on earlier OS.
     func liquidGlass(cornerRadius: CGFloat = 18, shadowRadius: CGFloat = 16) -> some View {
         modifier(LiquidGlassModifier(cornerRadius: cornerRadius, shadowRadius: shadowRadius))
     }
 
-    /// Capsule Liquid Glass — for pill-shaped buttons/chips.
-    @ViewBuilder
-    func liquidGlassCapsule(shadowRadius: CGFloat = 10) -> some View {
-        if #available(iOS 26, *) {
-            self
-                .glassEffect(in: Capsule())
-        } else {
-            self
-                .background(
-                    ZStack {
-                        Capsule().fill(.thinMaterial)
-                        Capsule().fill(Color.brand.opacity(0.04))
-                    }
-                    .shadow(color: Color.brand.opacity(0.06), radius: shadowRadius, x: 0, y: 4)
-                )
-                .overlay(
-                    Capsule().stroke(
-                        LinearGradient(
-                            colors: [Color.brand.opacity(0.25), .white.opacity(0.06)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 1
-                    )
-                )
-        }
+    /// Drops Chip Style — konsistente Pills im Create-Flow + überall.
+    /// isLive=true nutzt Mint (für „Jetzt"-ähnliche Live-States),
+    /// sonst Violett. Inactive = Lavendel-Pill.
+    func dropsChip(isActive: Bool, isLive: Bool = false) -> some View {
+        modifier(DropsChipModifier(isActive: isActive, isLive: isLive))
     }
 
-    /// Circle Liquid Glass.
-    @ViewBuilder
+    /// Press-Animation + leichter Haptic — macht jeden Button lebendig.
+    /// Spring-Scale beim Drücken, Haptic.selection() beim Release.
+    func dropsPressable(scale: CGFloat = 0.93) -> some View {
+        buttonStyle(DropsPressableButtonStyle(scale: scale))
+    }
+
+    /// Primary CTA — großer Violett→Mint Gradient-Button mit Press-Animation.
+    /// Nutzung: Button(action: ...) { Text("Weiter") }.dropsPrimaryButton()
+    func dropsPrimaryButton(isLoading: Bool = false, isEnabled: Bool = true) -> some View {
+        modifier(DropsPrimaryButtonModifier(isLoading: isLoading, isEnabled: isEnabled))
+    }
+
+    /// Capsule Pill — flat, plattform-agnostisch (Flutter-portierbar).
+    func liquidGlassCapsule(shadowRadius: CGFloat = 10) -> some View {
+        self
+            .background(
+                Capsule().fill(Color.white.opacity(0.75))
+                    .shadow(color: Color.brandNight.opacity(0.08),
+                            radius: shadowRadius * 0.6, x: 0, y: 3)
+            )
+            .overlay(
+                Capsule().stroke(Color.brandNight.opacity(0.08), lineWidth: 0.5)
+            )
+    }
+
+    /// Circle — flat, plattform-agnostisch.
     func liquidGlassCircle(shadowRadius: CGFloat = 10) -> some View {
-        if #available(iOS 26, *) {
-            self
-                .glassEffect(in: Circle())
-        } else {
-            self
-                .background(
-                    Circle().fill(.ultraThinMaterial)
-                        .shadow(color: .black.opacity(0.08), radius: shadowRadius, x: 0, y: 4)
-                )
-                .overlay(
-                    Circle().stroke(
-                        LinearGradient(
-                            colors: [.white.opacity(0.4), .white.opacity(0.08)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 1
-                    )
-                )
-        }
+        self
+            .background(
+                Circle().fill(Color.white.opacity(0.78))
+                    .shadow(color: Color.brandNight.opacity(0.08),
+                            radius: shadowRadius * 0.6, x: 0, y: 3)
+            )
+            .overlay(
+                Circle().stroke(Color.brandNight.opacity(0.08), lineWidth: 0.5)
+            )
     }
 
     /// Sheet background — ultraThinMaterial für Frosted-Glass-Effekt,
@@ -219,7 +248,7 @@ extension View {
     @ViewBuilder
     func sheetBackground() -> some View {
         if #available(iOS 16.4, *) {
-            self.presentationBackground(.ultraThinMaterial)
+            self.presentationBackground(Color.brandCream)
         } else {
             self
         }
@@ -253,14 +282,14 @@ struct AuroraCardBorder: View {
 
     @State private var hue: Double = 0
 
-    // Animierter Border — Palette aufs App-Icon abgestimmt: warmes Orange,
-    // Coral-Übergang, frisches Grün, zusätzlicher Amber-Akzent. Loop endet
-    // mit Orange (Start-Farbe), damit der Hue-Rotation-Cycle nahtlos läuft.
+    // Animierter Border — Palette aufs App-Icon abgestimmt: Violett,
+    // Koralle-Übergang, Mint, zusätzlicher Lavendel-Akzent. Loop endet
+    // mit der Start-Farbe, damit der Hue-Rotation-Cycle nahtlos läuft.
     private let gradient: AngularGradient = .init(
         colors: [
             Color.auroraOrange, Color.auroraCoral,
-            Color.auroraGreen, Color(hex: "8FCC4F"),
-            Color(hex: "F6BD4D"), Color.auroraOrange,
+            Color.auroraGreen, Color.brandMint,
+            Color.brandLavender, Color.auroraOrange,
         ],
         center: .center
     )
@@ -295,39 +324,23 @@ struct AuroraDropButton: View {
     let action: () -> Void
     @AppStorage("appLanguage") private var appLanguage = "de"
 
-    @State private var hue: Double = 0
-
     var body: some View {
         Button(action: { guard isEnabled && !isLoading else { return }; action() }) {
             ZStack {
-                // Subtiler Aurora-Gradient aufs App-Icon abgestimmt:
-                // Orange → Coral → Grün → Orange (loop nahtlos). Vorher
-                // grün/cyan/violet — neu warmer Sunset-Verlauf.
+                // Flat dazu-Button: solid Violett, kein Aurora-Gradient.
                 Capsule()
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color.auroraOrange.opacity(0.85),
-                                Color.auroraCoral.opacity(0.85),
-                                Color.auroraGreen.opacity(0.85),
-                                Color.auroraOrange.opacity(0.85),
-                            ],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-                    .hueRotation(.degrees(hue))
-                    // Glas-Schimmer für Tiefe ohne zu viel Knall
-                    .overlay(Capsule().fill(Color.white.opacity(0.08)))
-                    // Glow auf Orange angepasst — passt zur Hauptfarbe
-                    .shadow(color: Color.auroraOrange.opacity(0.30), radius: 12, x: 0, y: 4)
+                    .fill(Color.brandViolet)
 
                 if isLoading {
                     ProgressView().tint(.white)
                 } else {
-                    Text("Drop starten")
-                        .font(.system(size: 16, weight: .semibold, design: .rounded))
-                        .foregroundColor(.white)
+                    HStack(spacing: 8) {
+                        Text("Komm dazu")
+                            .font(.system(size: 17, weight: .bold, design: .rounded))
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: 14, weight: .heavy))
+                    }
+                    .foregroundColor(.white)
                 }
             }
             .frame(maxWidth: .infinity)
@@ -335,12 +348,6 @@ struct AuroraDropButton: View {
             .opacity(isEnabled ? 1 : 0.35)
         }
         .buttonStyle(AuroraButtonStyle())
-        .onAppear {
-            // 8s Loop statt 5s — ruhiger, weniger aufdringlich
-            withAnimation(.linear(duration: 8).repeatForever(autoreverses: false)) {
-                hue = 360
-            }
-        }
     }
 }
 
@@ -421,7 +428,7 @@ struct AvatarBadge: View {
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
             Circle()
-                .fill(.ultraThinMaterial)
+                .fill(Color.white.opacity(0.75))
                 .frame(width: size, height: size)
                 .overlay(Text(emoji).font(.system(size: size * 0.5)))
                 .overlay(
@@ -472,7 +479,7 @@ struct ActivityChip: View {
                             Capsule().fill(Color.brand)
                                 .shadow(color: Color.brand.opacity(0.3), radius: 8, y: 3)
                         } else {
-                            Capsule().fill(.ultraThinMaterial)
+                            Capsule().fill(Color.white.opacity(0.75))
                         }
                     }
                 )
@@ -575,11 +582,11 @@ struct ReliabilityScore {
 
     var badge: String {
         switch points {
-        case ..<0:      return "Dropout"
-        case 0..<50:    return "Neustart"
-        case 50..<200:  return "Drop-Entdecker"
-        case 200..<500: return "Stammgast"
-        default:        return "Drop-Legende"
+        case ..<0:      return tr("tier.dropout")
+        case 0..<50:    return tr("tier.restart")
+        case 50..<200:  return tr("tier.explorer")
+        case 200..<500: return tr("tier.regular")
+        default:        return tr("tier.legend")
         }
     }
 
@@ -599,7 +606,7 @@ struct ReliabilityScore {
 
     /// Sekundär-Label.
     var displayLabel: String {
-        totalCommits == 0 ? "Willkommen bei Drops" : badge
+        totalCommits == 0 ? tr("tier.welcome") : badge
     }
 
     /// Wie viele Punkte bis zum nächsten Tier. nil = höchstes erreicht.
@@ -615,10 +622,10 @@ struct ReliabilityScore {
 
     var nextTierName: String? {
         switch points {
-        case ..<0:      return "Neustart"
-        case 0..<50:    return "Drop-Entdecker"
-        case 50..<200:  return "Stammgast"
-        case 200..<500: return "Drop-Legende"
+        case ..<0:      return tr("tier.restart")
+        case 0..<50:    return tr("tier.explorer")
+        case 50..<200:  return tr("tier.regular")
+        case 200..<500: return tr("tier.legend")
         default:        return nil
         }
     }
@@ -634,46 +641,40 @@ struct ReliabilityScore {
         }
     }
 
-    // MARK: - Static helpers (ohne Event-Daten, nur aus Punktzahl)
+    // MARK: - Trust-Model (vereinfacht: nur ein binäres „Verlässlich"-Badge)
+    //
+    // Statt 5 Tier-Stufen mit Punkte-Rechnerei zeigen wir nur noch ein
+    // ✓-Badge für User die eine gewisse Historie haben. Der Punkte-
+    // Score läuft im Backend weiter (für Spam-Detection, später evtl.
+    // wieder einblenden), ist aber im UI nicht sichtbar.
 
+    /// Schwelle ab der ein User als „verlässlich" gilt.
+    static let trustThreshold: Int = 200
+
+    static func isTrusted(forPoints points: Int) -> Bool {
+        points >= trustThreshold
+    }
+
+    /// Badge-Text — leer wenn nicht trusted. Caller zeigt das Badge nur
+    /// wenn der String nicht leer ist.
     static func badge(forPoints points: Int) -> String {
-        switch points {
-        case ..<0:      return "Dropout"
-        case 0..<50:    return "Neustart"
-        case 50..<200:  return "Drop-Entdecker"
-        case 200..<500: return "Stammgast"
-        default:        return "Drop-Legende"
-        }
+        isTrusted(forPoints: points) ? tr("tier.trusted") : ""
     }
 
-    static func color(forPoints points: Int) -> Color {
-        switch points {
-        case ..<0:      return .accentRed
-        case 0..<50:    return .accentOrange
-        case 50..<200:  return Color.auroraAmber
-        case 200..<500: return .onlineGreen
-        default:        return .brand
-        }
-    }
-
+    /// Icon für das Trust-Badge — leer wenn nicht trusted.
     static func badgeIcon(forPoints points: Int) -> String {
-        switch points {
-        case ..<0:      return "exclamationmark.triangle.fill"
-        case 0..<50:    return "leaf.fill"
-        case 50..<200:  return "binoculars.fill"
-        case 200..<500: return "star.fill"
-        default:        return "crown.fill"
-        }
+        isTrusted(forPoints: points) ? "checkmark.seal.fill" : ""
     }
 
+    /// Farbe für das Trust-Badge — klar wenn nicht trusted (unsichtbar).
+    static func color(forPoints points: Int) -> Color {
+        isTrusted(forPoints: points) ? Color.brandViolet : Color.clear
+    }
+
+    /// Progress-API bleibt für den Settings-Progress-Balken erhalten
+    /// (0 bis trustThreshold → noch nicht verlässlich; danach 1).
     static func tierProgress(forPoints points: Int) -> Double {
-        switch points {
-        case ..<0:      return 0
-        case 0..<50:    return Double(points) / 50.0
-        case 50..<200:  return Double(points - 50) / 150.0
-        case 200..<500: return Double(points - 200) / 300.0
-        default:        return 1.0
-        }
+        min(1.0, max(0.0, Double(points) / Double(trustThreshold)))
     }
 }
 
@@ -692,7 +693,7 @@ struct ReliabilityBadgeView: View {
                 Text(score.badge)
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
                     .foregroundColor(.textPrimary)
-                Text("\(score.points) Pkt · \(score.showUps) Drops")
+                Text("\(score.points) \(tr("design.points_short")) · \(score.showUps) Pläne")
                     .font(.system(size: 11)).foregroundColor(.textSecondary)
             }
         }
@@ -711,32 +712,40 @@ struct SafetySheetView: View {
     var body: some View {
         NavigationView {
             ZStack {
-                // Glass backdrop
-                Color.clear.ignoresSafeArea()
+                Color.brandCream.ignoresSafeArea()
 
                 ScrollView(showsIndicators: false) {
-                    VStack(spacing: 12) {
-                        // Icon-Header
+                    VStack(alignment: .leading, spacing: 20) {
                         ZStack {
                             Circle()
-                                .fill(Color.accentRed.opacity(0.12))
-                                .frame(width: 60, height: 60)
+                                .fill(Color.brandLavender.opacity(0.9))
+                                .frame(width: 92, height: 92)
                             Image(systemName: "shield.fill")
-                                .font(.system(size: 26, weight: .semibold))
-                                .foregroundColor(.accentRed)
+                                .font(.system(size: 40, weight: .heavy))
+                                .foregroundColor(.brandOrange)
                         }
-                        .padding(.top, 8)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.top, 12)
 
-                        VStack(spacing: 0) {
-                            SafetyRow(icon: "star.circle.fill", color: .accentOrange,
+                        VStack(alignment: .leading, spacing: -2) {
+                            Text("Sicher")
+                                .foregroundColor(.brandNight)
+                            Text("unterwegs.")
+                                .foregroundColor(.brandViolet)
+                        }
+                        .font(.system(size: 30, weight: .heavy, design: .rounded))
+                        .padding(.horizontal, 24)
+
+                        VStack(spacing: 10) {
+                            SafetyRow(icon: "star.circle.fill",
                                       title: tr("design.reliability_score"),
                                       subtitle: tr("design.no_show_30"))
-                            SafetyRow(icon: "hand.raised.circle.fill", color: .accentRed,
+                            SafetyRow(icon: "hand.raised.circle.fill",
                                       title: tr("design.one_tap_block"),
                                       subtitle: tr("design.instant_no_explanation"))
                         }
-                        .liquidGlass(cornerRadius: 18)
                         .padding(.horizontal, 20)
+                        .padding(.bottom, 20)
                     }
                 }
             }
@@ -746,7 +755,7 @@ struct SafetySheetView: View {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Fertig") { dismiss() }
                         .fontWeight(.semibold)
-                        .foregroundColor(.brand)
+                        .foregroundColor(.brandViolet)
                 }
             }
         }
@@ -757,30 +766,28 @@ struct SafetySheetView: View {
 
 struct SafetyRow: View {
     let icon: String
-    let color: Color
     let title: String
     let subtitle: String
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 14) {
-                ZStack {
-                    Circle().fill(color.opacity(0.12)).frame(width: 38, height: 38)
-                    Image(systemName: icon).font(.system(size: 18))
-                        .foregroundColor(color)
-                }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(.system(size: 14, weight: .semibold, design: .rounded))
-                        .foregroundColor(.textPrimary)
-                    Text(subtitle)
-                        .font(.system(size: 12))
-                        .foregroundColor(.textSecondary)
-                }
-                Spacer()
+        HStack(spacing: 14) {
+            Image(systemName: icon)
+                .font(.system(size: 16, weight: .bold))
+                .foregroundColor(.brandViolet)
+                .frame(width: 36, height: 36)
+                .background(Circle().fill(Color.brandLavender))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .foregroundColor(.brandNight)
+                Text(subtitle)
+                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                    .foregroundColor(.brandNight.opacity(0.6))
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(.horizontal, 16).padding(.vertical, 12)
-            Divider().padding(.leading, 66)
+            Spacer(minLength: 0)
         }
+        .padding(.horizontal, 14).padding(.vertical, 12)
+        .liquidGlass(cornerRadius: 18)
     }
 }
 
@@ -807,11 +814,11 @@ struct ReliabilityInfoSheet: View {
     @State private var animateProgress = false
 
     private let tiers: [(label: String, threshold: Int, color: Color, icon: String)] = [
-        ("Dropout",         -999, .accentRed,              "exclamationmark.triangle.fill"),
+        ("Ghost",         -999, .accentRed,              "exclamationmark.triangle.fill"),
         ("Neustart",         0,   .accentOrange,           "leaf.fill"),
-        ("Drop-Entdecker",   50,  Color.auroraAmber,    "binoculars.fill"),
+        ("Entdecker",   50,  Color.auroraAmber,    "binoculars.fill"),
         ("Stammgast",        200, .onlineGreen,            "star.fill"),
-        ("Drop-Legende",     500, .brand,                  "crown.fill"),
+        ("Legende",     500, .brand,                  "crown.fill"),
     ]
 
     private var currentTierIndex: Int {
@@ -833,7 +840,7 @@ struct ReliabilityInfoSheet: View {
                 .padding(.top, 4)
                 .padding(.bottom, 32)
             }
-            .background(Color(UIColor.systemGroupedBackground).ignoresSafeArea())
+            .background(Color.bgGrouped.ignoresSafeArea())
             .navigationTitle(tr("design.reliability"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -863,7 +870,7 @@ struct ReliabilityInfoSheet: View {
                     .foregroundColor(.textPrimary)
                 HStack(alignment: .firstTextBaseline, spacing: 3) {
                     Text("\(score.points)")
-                        .font(.system(size: 20, weight: .heavy, design: .rounded))
+                        .font(.system(size: 20, weight: .bold, design: .rounded))
                         .foregroundColor(score.color)
                     Text(tr("design.points_short"))
                         .font(.system(size: 13, weight: .semibold))
@@ -873,7 +880,7 @@ struct ReliabilityInfoSheet: View {
             Spacer()
         }
         .padding(16)
-        .background(Color(UIColor.secondarySystemGroupedBackground),
+        .background(Color.bgCard,
                     in: RoundedRectangle(cornerRadius: Radius.lg))
     }
 
@@ -902,7 +909,7 @@ struct ReliabilityInfoSheet: View {
                 .frame(height: 6)
             }
             .padding(14)
-            .background(Color(UIColor.secondarySystemGroupedBackground),
+            .background(Color.bgCard,
                         in: RoundedRectangle(cornerRadius: Radius.lg))
         } else {
             HStack(spacing: 10) {
@@ -913,7 +920,7 @@ struct ReliabilityInfoSheet: View {
                 Spacer()
             }
             .padding(14)
-            .background(Color(UIColor.secondarySystemGroupedBackground),
+            .background(Color.bgCard,
                         in: RoundedRectangle(cornerRadius: Radius.lg))
         }
     }
@@ -922,20 +929,20 @@ struct ReliabilityInfoSheet: View {
 
     private var pointsEventsCard: some View {
         VStack(alignment: .leading, spacing: 0) {
-            sectionHeader("So sammelst du Punkte")
+            sectionHeader(tr("reliab.section_earn"))
             VStack(spacing: 0) {
                 eventRow(icon: "figure.walk.circle.fill", color: .onlineGreen,
-                         title: "Drop beitreten + vor Ort", value: "+20")
+                         title: tr("reliab.join_show"), value: "+20")
                 Divider().padding(.leading, 56)
                 eventRow(icon: "plus.circle.fill", color: Color(hex: "06b6d4"),
-                         title: "Drop hosten + kommt zustande", value: "+12")
+                         title: tr("reliab.host_success"), value: "+12")
                 Divider().padding(.leading, 56)
                 eventRow(icon: "xmark.circle.fill", color: .accentRed,
-                         title: "No-Show (nicht erschienen)", value: "-25",
+                         title: tr("reliab.no_show"), value: "-25",
                          negative: true)
             }
         }
-        .background(Color(UIColor.secondarySystemGroupedBackground),
+        .background(Color.bgCard,
                     in: RoundedRectangle(cornerRadius: Radius.lg))
     }
 
@@ -943,31 +950,31 @@ struct ReliabilityInfoSheet: View {
 
     private var bonusCard: some View {
         VStack(alignment: .leading, spacing: 0) {
-            sectionHeader("Extras & Boni")
+            sectionHeader(tr("reliab.section_extras"))
             VStack(spacing: 0) {
                 eventRow(icon: "flame.fill", color: .accentOrange,
-                         title: "5× in Folge ohne No-Show", value: "+30")
+                         title: tr("reliab.streak"), value: "+30")
                 Divider().padding(.leading, 56)
                 eventRow(icon: "bolt.fill", color: Color.auroraAmber,
-                         title: "Als Erster vor Ort", value: "+10")
+                         title: tr("reliab.first_arrival"), value: "+10")
                 Divider().padding(.leading, 56)
                 eventRow(icon: "paperplane.fill", color: .brand,
-                         title: "Eingeladener joint deinen Drop", value: "+10")
+                         title: tr("reliab.invitee_joins"), value: "+10")
                 Divider().padding(.leading, 56)
                 eventRow(icon: "sparkles", color: Color(hex: "8b5cf6"),
-                         title: "Neuling bei deinem Drop", value: "+5")
+                         title: tr("reliab.newcomer_join"), value: "+5")
                 Divider().padding(.leading, 56)
                 eventRow(icon: "person.badge.plus.fill", color: Color(hex: "ec4899"),
-                         title: "Freund installiert Drops neu", value: "+25")
+                         title: tr("reliab.friend_installs"), value: "+25")
                 Divider().padding(.leading, 56)
                 eventRow(icon: "plus.app.fill", color: Color(hex: "10b981"),
-                         title: "Drop erstellen (egal ob's klappt)", value: "+10")
+                         title: tr("reliab.create_drop"), value: "+10")
                 Divider().padding(.leading, 56)
                 eventRow(icon: "bolt.circle.fill", color: .accentOrange,
-                         title: "Aktion in Boost-Phase (Umgebung leer)", value: "+15")
+                         title: tr("reliab.boost_phase"), value: "+15")
             }
         }
-        .background(Color(UIColor.secondarySystemGroupedBackground),
+        .background(Color.bgCard,
                     in: RoundedRectangle(cornerRadius: Radius.lg))
     }
 
@@ -975,7 +982,7 @@ struct ReliabilityInfoSheet: View {
 
     private var tiersCard: some View {
         VStack(alignment: .leading, spacing: 0) {
-            sectionHeader("Stufen")
+            sectionHeader(tr("reliab.section_tiers"))
             VStack(spacing: 0) {
                 ForEach(tiers.indices, id: \.self) { i in
                     let tier = tiers[i]
@@ -1012,7 +1019,7 @@ struct ReliabilityInfoSheet: View {
                 }
             }
         }
-        .background(Color(UIColor.secondarySystemGroupedBackground),
+        .background(Color.bgCard,
                     in: RoundedRectangle(cornerRadius: Radius.lg))
     }
 
@@ -1086,7 +1093,7 @@ private func rsStatPill(value: String, label: String, icon: String, color: Color
     }
     .frame(maxWidth: .infinity)
     .padding(.vertical, 12)
-    .background(Color(UIColor.secondarySystemGroupedBackground),
+    .background(Color.bgCard,
                 in: RoundedRectangle(cornerRadius: Radius.md))
 }
 
@@ -1231,3 +1238,71 @@ enum Haptic {
     }
 }
 
+
+// MARK: - Drops Chip Modifier
+
+private struct DropsChipModifier: ViewModifier {
+    let isActive: Bool
+    let isLive: Bool
+
+    func body(content: Content) -> some View {
+        let tint: Color = isLive ? .brandMint : .brandViolet
+        content
+            .foregroundColor(isActive ? (isLive ? .brandNight : .white) : .brandNight.opacity(0.78))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
+            .background(
+                Capsule().fill(
+                    isActive ? tint : Color.brandLavender.opacity(0.55)
+                )
+            )
+            .overlay(
+                Capsule().stroke(
+                    isActive ? Color.clear : Color.brandViolet.opacity(0.15),
+                    lineWidth: 0.8
+                )
+            )
+            .shadow(color: isActive ? tint.opacity(0.35) : .clear, radius: 8, y: 3)
+            .scaleEffect(isActive ? 1.0 : 0.98)
+            .animation(.spring(response: 0.28, dampingFraction: 0.72), value: isActive)
+    }
+}
+
+// MARK: - Drops Pressable Button Style (spring-pop + haptic)
+
+struct DropsPressableButtonStyle: ButtonStyle {
+    var scale: CGFloat = 0.93
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? scale : 1.0)
+            .animation(.spring(response: 0.25, dampingFraction: 0.6),
+                       value: configuration.isPressed)
+            .onChange(of: configuration.isPressed) { _, pressed in
+                if pressed { Haptic.selection() }
+            }
+    }
+}
+
+// MARK: - Drops Primary Button Modifier
+
+private struct DropsPrimaryButtonModifier: ViewModifier {
+    let isLoading: Bool
+    let isEnabled: Bool
+
+    func body(content: Content) -> some View {
+        // Flat dazu-Button: solid Violett, kein Gradient / kein Hue-Rotate.
+        // Konsistent mit dem rest des Designs — keine „Aurora"-Buttons mehr.
+        content
+            .font(.system(size: 17, weight: .bold, design: .rounded))
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: 54)
+            .background(Capsule().fill(Color.brandViolet))
+            .opacity(isEnabled ? 1.0 : 0.4)
+            .overlay(
+                Group {
+                    if isLoading { ProgressView().tint(.white) }
+                }
+            )
+    }
+}

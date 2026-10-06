@@ -187,10 +187,28 @@ func suggestEmojis(for text: String) -> [String] {
     return matched
 }
 
+/// Multi-Step Create-Flow — splittet die Felder in überschaubare Pages
+/// damit User nicht mehr scrollen müssen.
+enum CreateDropStep: Int, CaseIterable, Identifiable {
+    case what  = 0  // Aktivität + Emoji
+    case when  = 1  // Zeit + Dauer + Max. Teilnehmer
+    case whereAt = 2  // Ort + CTA
+
+    var id: Int { rawValue }
+    var title: String {
+        switch self {
+        case .what:    return "Was machst du?"
+        case .when:    return "Wann und wie lange?"
+        case .whereAt: return "Wo trefft ihr euch?"
+        }
+    }
+}
+
 struct CreateDropView: View {
     @EnvironmentObject var store: AppStore
     @Environment(\.dismiss) private var dismiss
     @AppStorage("appLanguage") private var appLanguage = "de"
+    @State private var currentStep: CreateDropStep = .what
 
     /// Falls aus dem Community-Dashboard geöffnet — markiert den entstehenden
     /// Drop als Community-Drop und triggert automatischen Push an Mitglieder.
@@ -228,6 +246,10 @@ struct CreateDropView: View {
     @State private var durationMinutes: Int = 120  // 0 = kein Limit
     @State private var isCreating = false
     @State private var created = false
+    /// Nach erfolgreichem Swipe → zeigt die Full-Screen Logo-Celebration
+    /// an, die von allen Seiten in Richtung Zentrum aufbaut. Löst nach
+    /// Fertigstellung den eigentlichen `performCreate` aus.
+    @State private var showJoinCelebration = false
     @State private var showPinMap = false
     @StateObject private var searchVM = LocationSearchViewModel()
     @State private var selectedLocationResult: DropLocationResult? = nil
@@ -236,6 +258,10 @@ struct CreateDropView: View {
     @State private var sheetPulse = false
     @State private var pendingHomeZoneCoord: CLLocationCoordinate2D? = nil
     @State private var showEmojiPicker = false
+    // Sheet-States für den Satz-Flow (tap auf ein Wort → öffnet Sheet)
+    @State private var showDurationSheet = false
+    @State private var showParticipantsSheet = false
+    @State private var showLocationSheet = false
 
     var suggestedEmojis: [String] { suggestEmojis(for: activityName) }
 
@@ -260,7 +286,7 @@ struct CreateDropView: View {
                     colors: [
                         Color.cleroGreen.opacity(0.35),
                         Color.cleroGreen.opacity(0.18),
-                        Color(UIColor.systemBackground)
+                        Color.bgPrimary
                     ],
                     startPoint: .top, endPoint: .bottom
                 )
@@ -269,23 +295,24 @@ struct CreateDropView: View {
                 AppAuroraBackground().ignoresSafeArea()
             }
 
-            // Aurora-Akzent — bei Community-Drop in Clero-Grün, sonst Sunset-Orange.
+            // Creme-Hintergrund (neues Design-System) + sanfte Violett-Blobs
+            Color.brandCream.ignoresSafeArea()
             ZStack {
                 Circle()
-                    .fill((isCommunityDrop ? Color.cleroGreen : Color.auroraOrange).opacity(0.24))
-                    .frame(width: 300, height: 300)
+                    .fill(Color.brandViolet.opacity(0.14))
+                    .frame(width: 320, height: 320)
+                    .blur(radius: 90)
+                    .offset(x: sheetPulse ? 60 : -40, y: sheetPulse ? -80 : -20)
+                Circle()
+                    .fill(Color.brandMint.opacity(0.18))
+                    .frame(width: 240, height: 240)
+                    .blur(radius: 75)
+                    .offset(x: sheetPulse ? -70 : 40, y: sheetPulse ? 20 : -60)
+                Circle()
+                    .fill(Color.brandLavender.opacity(0.5))
+                    .frame(width: 280, height: 280)
                     .blur(radius: 80)
-                    .offset(x: sheetPulse ? 40 : -30, y: sheetPulse ? -70 : 10)
-                Circle()
-                    .fill((isCommunityDrop ? Color.brand : Color.auroraPink).opacity(0.18))
-                    .frame(width: 260, height: 260)
-                    .blur(radius: 70)
-                    .offset(x: sheetPulse ? -60 : 35, y: sheetPulse ? 10 : -50)
-                Circle()
-                    .fill((isCommunityDrop ? Color.cleroGreen : Color.auroraViolet).opacity(0.14))
-                    .frame(width: 220, height: 220)
-                    .blur(radius: 65)
-                    .offset(x: sheetPulse ? 50 : -45, y: sheetPulse ? 40 : -20)
+                    .offset(x: sheetPulse ? 30 : -50, y: sheetPulse ? 60 : 30)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .ignoresSafeArea()
@@ -302,153 +329,60 @@ struct CreateDropView: View {
                 // Eine Material-Schicht würde sich farblich vom darunter
                 // liegenden AppAuroraBackground absetzen und unschön
                 // aussehen.
-                HStack {
-                    Text(isCommunityDrop ? tr("create.community_drop") : tr("create.drop"))
-                        .font(.system(size: 28, weight: .bold, design: .rounded))
-                        .foregroundColor(.textPrimary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-                    Spacer()
-                    Button {
-                        Haptic.selection()
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundColor(.secondary)
-                            .padding(8)
-                            .background(Color(UIColor.systemGray5).opacity(0.8),
-                                        in: Circle())
+                // Rondesignlab-Style Top: Wortmarke + X + Riesige Hero-Headline
+                VStack(alignment: .leading, spacing: 20) {
+                    HStack(alignment: .center) {
+                        DazuWordmark(color: .brandNight, dotColor: .brandOrange)
+                            .frame(height: 24)
+                        Spacer()
+                        Button {
+                            Haptic.selection()
+                            dismiss()
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(Color.brandNight.opacity(0.75))
+                                .padding(11)
+                                .background(Circle().fill(Color.brandLavender.opacity(0.55)))
+                                .overlay(Circle().stroke(Color.brandViolet.opacity(0.15), lineWidth: 0.8))
+                        }
+                        .dropsPressable()
                     }
-                    .buttonStyle(.plain)
+
+                    VStack(alignment: .leading, spacing: -4) {
+                        Text("Lust auf eine")
+                            .foregroundColor(.brandNight)
+                        Text("Runde?")
+                            .foregroundColor(.brandViolet)
+                    }
+                    .font(.system(size: 38, weight: .bold, design: .rounded))
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 10)
+                .padding(.horizontal, 24)
+                .padding(.top, 12)
+                .padding(.bottom, 12)
 
                 ScrollViewReader { proxy in
+                GeometryReader { geo in
+                let scrollMinHeight = geo.size.height
                 ScrollView(showsIndicators: false) {
+                    // minHeight = ScrollView-Höhe (von GeometryReader außen)
+                    // erzwingt dass das innere VStack die volle Höhe füllt —
+                    // so greift der Spacer vor dem Swipe-Button und schiebt
+                    // ihn an den unteren Rand.
                     VStack(alignment: .leading, spacing: 8) {
-                    // ── Quick-Templates: dynamisch aus Interests + Past Drops
-                    if activityName.trimmingCharacters(in: .whitespaces).isEmpty {
-                        DropQuickTemplatesBar { tpl in
-                            activityName = tpl.name
-                            selectedEmoji = tpl.emoji
-                            emojiLockedByUser = true
-                            Haptic.selection()
-                        }
-                        .padding(.horizontal, 4)
-                        .padding(.bottom, 4)
-                    }
+                    // Neuer Satz-Flow — passt zur dazu-Wortmarke.
+                    // Jedes Wort ist tappbar und öffnet seinen eigenen Picker.
+                    sentenceFlowBody
+                        .padding(.top, 8)
+                        .padding(.bottom, 12)
 
-                    // ── Aktivität ──────────────────────────────────────────
-                    createSection(label: tr("create.what_section"), aurora: true) {
-                        // TipKit nur zeigen wenn kein Walkthrough aktiv
-                        if !isWalkthrough {
-                            TipView(activityTip, arrowEdge: .top)
-                                .tipBackground(.ultraThinMaterial)
-                                .padding(.horizontal, 4)
-                                .padding(.bottom, 4)
-                        }
-                        // Emoji + Textfeld
-                        HStack(spacing: 14) {
-                            // Tappbarer Emoji-Kreis: öffnet manuellen Picker.
-                            // Wenn leer: Plus-Icon als Hinweis. Sonst gewähltes Emoji.
-                            Button(action: { showEmojiPicker = true }) {
-                                ZStack {
-                                    Circle()
-                                        .fill(Color.brand.opacity(displayEmoji.isEmpty ? 0.07 : 0.12))
-                                        .frame(width: 52, height: 52)
-                                    Circle()
-                                        .stroke(Color.brand.opacity(displayEmoji.isEmpty ? 0.25 : 0.0),
-                                                style: StrokeStyle(lineWidth: 1.2, dash: [3, 3]))
-                                        .frame(width: 52, height: 52)
-                                    if displayEmoji.isEmpty {
-                                        Image(systemName: "face.smiling")
-                                            .font(.system(size: 22, weight: .light))
-                                            .foregroundColor(.textTertiary)
-                                    } else {
-                                        Text(displayEmoji).font(.system(size: 26))
-                                            .transition(.scale.combined(with: .opacity))
-                                    }
-                                }
-                                .animation(.spring(response: 0.3, dampingFraction: 0.6), value: displayEmoji)
-                            }
-                            .buttonStyle(.plain)
-
-                            TextField(tr("create.activity_field_placeholder"), text: $activityName)
-                                .font(.system(size: 15))
-                                .foregroundColor(.textPrimary)
-                                .onChange(of: activityName) { _, _ in
-                                    if activityName.trimmingCharacters(in: .whitespaces).isEmpty {
-                                        selectedEmoji = ""
-                                        emojiLockedByUser = false
-                                    } else if !emojiLockedByUser {
-                                        selectedEmoji = ""
-                                    }
-                                }
-                        }
-                        .padding(.horizontal, 16).padding(.vertical, 10)
-
-                        // Emoji-Vorschläge — verschwinden nach Auswahl.
-                        // Wenn keine Vorschläge matchen, kommt der "Selbst wählen"-Link.
-                        if selectedEmoji.isEmpty {
-                            if !suggestedEmojis.isEmpty {
-                                Divider().padding(.leading, 16)
-                                ScrollView(.horizontal, showsIndicators: false) {
-                                    HStack(spacing: 8) {
-                                        ForEach(suggestedEmojis, id: \.self) { emoji in
-                                            Button(action: {
-                                                selectedEmoji = emoji; emojiLockedByUser = true
-                                            }) {
-                                                let isActive = selectedEmoji == emoji
-                                                Text(emoji).font(.system(size: 22))
-                                                    .frame(width: 42, height: 42)
-                                                    .background(isActive ? Color.brand.opacity(0.18) : Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: Radius.md))
-                                                    .overlay(RoundedRectangle(cornerRadius: Radius.md)
-                                                        .stroke(isActive ? Color.brand.opacity(0.5) : Color.clear, lineWidth: 1.5))
-                                            }
-                                            .buttonStyle(.plain)
-                                            .animation(.spring(response: 0.2), value: selectedEmoji)
-                                        }
-                                        // Picker-Button am Ende der Vorschläge — falls nichts passt
-                                        Button(action: { showEmojiPicker = true }) {
-                                            Image(systemName: "ellipsis")
-                                                .font(.system(size: 16, weight: .semibold))
-                                                .foregroundColor(.textSecondary)
-                                                .frame(width: 42, height: 42)
-                                                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: Radius.md))
-                                        }
-                                        .buttonStyle(.plain)
-                                    }
-                                    .padding(.horizontal, 16).padding(.vertical, 12)
-                                }
-                                .transition(.opacity.combined(with: .move(edge: .top)))
-                            } else if !activityName.trimmingCharacters(in: .whitespaces).isEmpty {
-                                // Kein Match in der Keyword-Liste → User-Picker anbieten
-                                Divider().padding(.leading, 16)
-                                Button(action: { showEmojiPicker = true }) {
-                                    HStack(spacing: 8) {
-                                        Image(systemName: "face.smiling")
-                                            .font(.system(size: 14, weight: .medium))
-                                        Text(tr("create.pick_emoji"))
-                                            .font(.system(size: 13, weight: .medium))
-                                    }
-                                    .foregroundColor(.brand)
-                                    .padding(.horizontal, 16).padding(.vertical, 12)
-                                }
-                                .buttonStyle(.plain)
-                                .transition(.opacity)
-                            }
-                        }
-                    }
-                    .id(CoachStep.activity.scrollID)
-                    .coachHighlight(active: coachStep == .activity)
-
+                    #if false
                     // ── Wann ──────────────────────────────────────────────
                     createSection(label: tr("create.when_section")) {
                         if !isWalkthrough {
                             TipView(timeTip, arrowEdge: .top)
-                                .tipBackground(.ultraThinMaterial)
+                                .tipBackground(Color.white.opacity(0.85))
                                 .padding(.horizontal, 4)
                                 .padding(.bottom, 4)
                         }
@@ -464,28 +398,10 @@ struct CreateDropView: View {
                                     showCustomTimePicker = false
                                 }) {
                                     Text(tr("shared.now"))
-                                        .font(.system(size: 13, weight: .medium))
-                                        .foregroundColor(isJetzt ? .white : .textPrimary)
-                                        .padding(.horizontal, 14).padding(.vertical, 9)
-                                        .background {
-                                            if isJetzt {
-                                                Capsule().fill(Color.brand)
-                                                    .shadow(color: Color.brand.opacity(0.35), radius: 8, y: 3)
-                                            } else {
-                                                ZStack {
-                                                    Capsule().fill(.thinMaterial)
-                                                    Capsule().fill(Color.brand.opacity(0.04))
-                                                }
-                                                .shadow(color: .black.opacity(0.08), radius: 6, x: 0, y: 3)
-                                                .overlay(Capsule().stroke(
-                                                    LinearGradient(colors: [Color.brand.opacity(0.2), .white.opacity(0.06)],
-                                                                   startPoint: .topLeading, endPoint: .bottomTrailing),
-                                                    lineWidth: 0.8))
-                                            }
-                                        }
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .dropsChip(isActive: isJetzt, isLive: true)
                                 }
-                                .buttonStyle(.plain)
-                                .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isJetzt)
+                                .dropsPressable()
 
                                 // Uhrzeit-Chip direkt neben Jetzt
                                 Button(action: {
@@ -497,29 +413,11 @@ struct CreateDropView: View {
                                         Text(showCustomTimePicker
                                              ? customDate.formatted(date: .omitted, time: .shortened)
                                              : tr("create.time"))
-                                            .font(.system(size: 13, weight: .medium))
+                                            .font(.system(size: 13, weight: .semibold))
                                     }
-                                    .foregroundColor(showCustomTimePicker ? .white : .textPrimary)
-                                    .padding(.horizontal, 14).padding(.vertical, 9)
-                                    .background {
-                                        if showCustomTimePicker {
-                                            Capsule().fill(Color.brand)
-                                                .shadow(color: Color.brand.opacity(0.35), radius: 8, y: 3)
-                                        } else {
-                                            ZStack {
-                                                Capsule().fill(.thinMaterial)
-                                                Capsule().fill(Color.brand.opacity(0.04))
-                                            }
-                                            .shadow(color: .black.opacity(0.08), radius: 6, x: 0, y: 3)
-                                            .overlay(Capsule().stroke(
-                                                LinearGradient(colors: [Color.brand.opacity(0.2), .white.opacity(0.06)],
-                                                               startPoint: .topLeading, endPoint: .bottomTrailing),
-                                                lineWidth: 0.8))
-                                        }
-                                    }
+                                    .dropsChip(isActive: showCustomTimePicker)
                                 }
-                                .buttonStyle(.plain)
-                                .animation(.spring(response: 0.25, dampingFraction: 0.7), value: showCustomTimePicker)
+                                .dropsPressable()
 
                             }
                             .padding(.horizontal, 16).padding(.vertical, 8)
@@ -568,29 +466,13 @@ struct CreateDropView: View {
                                     durationMinutes = value
                                 } label: {
                                     Text(label)
-                                        .font(.system(size: 12, weight: .medium))
-                                        .foregroundColor(isActive ? .white : .textPrimary)
+                                        .font(.system(size: 12, weight: .semibold))
                                         .lineLimit(1)
                                         .frame(maxWidth: .infinity)
-                                        .padding(.vertical, 9)
-                                        .background {
-                                            if isActive {
-                                                Capsule().fill(Color.brand)
-                                                    .shadow(color: Color.brand.opacity(0.35), radius: 8, y: 3)
-                                            } else {
-                                                ZStack {
-                                                    Capsule().fill(.thinMaterial)
-                                                    Capsule().fill(Color.brand.opacity(0.04))
-                                                }
-                                                .overlay(Capsule().stroke(
-                                                    LinearGradient(colors: [Color.brand.opacity(0.2), .white.opacity(0.06)],
-                                                                   startPoint: .topLeading, endPoint: .bottomTrailing),
-                                                    lineWidth: 0.8))
-                                            }
-                                        }
+                                        .padding(.vertical, 2)
+                                        .dropsChip(isActive: isActive)
                                 }
-                                .buttonStyle(.plain)
-                                .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isActive)
+                                .dropsPressable()
                             }
                         }
                         .padding(.horizontal, 16).padding(.vertical, 10)
@@ -642,7 +524,6 @@ struct CreateDropView: View {
                         }
                         .animation(.spring(response: 0.25), value: maxParticipants)
                     }
-
                     // ── Ort ────────────────────────────────────────────────
                     createSection(label: tr("create.location_section")) {
                         let locStatus = CLLocationManager().authorizationStatus
@@ -727,7 +608,7 @@ struct CreateDropView: View {
                                             }
                                             .padding(.horizontal, 16).padding(.vertical, 11)
                                         }
-                                        .buttonStyle(.plain)
+                                        .dropsPressable()
                                         if idx < min(searchVM.results.count, 5) - 1 {
                                             Divider().padding(.leading, 56)
                                         }
@@ -758,6 +639,8 @@ struct CreateDropView: View {
                     .id(CoachStep.location.scrollID)
                     .coachHighlight(active: coachStep == .location)
 
+                    #endif // end legacy sections
+
                     // ── Drops+ Upsell (nur für Free-User, vor CTA) ──────────
                     // Aus für den Launch (FeatureFlags.dropsPlusEnabled).
                     if FeatureFlags.dropsPlusEnabled && !store.isDropsPlusActive && !created {
@@ -766,16 +649,31 @@ struct CreateDropView: View {
                             .padding(.top, 4)
                     }
 
+                    // Flex-Spacer: füllt die Fläche zwischen Satz-Flow und
+                    // Swipe-Button, damit die CTA an den unteren Rand rutscht
+                    // und der Screen vertikal "gefüllt" wirkt.
+                    Spacer(minLength: 0)
+
                     // ── CTA ────────────────────────────────────────────────
                     if created {
-                        HStack(spacing: 10) {
-                            Image(systemName: "checkmark.circle.fill").foregroundColor(.onlineGreen)
-                            Text(tr("create.drop_live_msg"))
-                                .font(.system(size: 14, weight: .medium)).foregroundColor(.onlineGreen)
+                        HStack(spacing: 12) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 20, weight: .heavy))
+                                .foregroundColor(.brandViolet)
+                                .frame(width: 40, height: 40)
+                                .background(Circle().fill(Color.brandLavender))
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Deine Runde läuft.")
+                                    .font(.system(size: 16, weight: .heavy, design: .rounded))
+                                    .foregroundColor(.brandNight)
+                                Text(tr("create.drop_live_msg"))
+                                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                                    .foregroundColor(.brandNight.opacity(0.6))
+                            }
+                            Spacer()
                         }
                         .padding(14).frame(maxWidth: .infinity)
-                        .liquidGlass(cornerRadius: 14)
-                        .overlay(RoundedRectangle(cornerRadius: Radius.card).stroke(Color.onlineGreen.opacity(0.3), lineWidth: 1))
+                        .liquidGlass(cornerRadius: 20)
                         .padding(.horizontal, 16)
                         .transition(.scale.combined(with: .opacity))
                     } else {
@@ -797,16 +695,32 @@ struct CreateDropView: View {
                         // erlaubt.
                         let isInServiceArea = !BetaConfig.cityRestrictionEnabled
                             || ServiceCities.isInside(dropCoordPreview)
-                        AuroraDropButton(isLoading: isCreating, isEnabled: isValid && isInServiceArea) {
-                            guard isValid && isInServiceArea else { return }
-                            // Heimzone-Warnung: wenn der Drop in der Heimzone des
-                            // Users liegt, zeigen wir vorher einen Privacy-Hinweis.
-                            if store.isInHomeZone(dropCoordPreview) {
-                                pendingHomeZoneCoord = dropCoordPreview
-                            } else {
-                                performCreate(coord: dropCoordPreview)
+                        // Swipe-to-Confirm statt Tap-Button: der User zieht
+                        // den weißen Handle nach rechts, der offene Ring in
+                        // der Mitte schließt sich live mit der Geste. Immer
+                        // swipebar (auch bei leerem Formular) damit man die
+                        // Morph-Animation ausprobieren kann; onConfirm wird
+                        // intern geblockt wenn !isValid oder !isInServiceArea.
+                        SwipeToConfirm(
+                            label: isCreating ? "Startet…" : "Zum Starten swipen",
+                            isEnabled: !isCreating,
+                            canConfirm: isValid && isInServiceArea && !isCreating,
+                            onConfirm: {
+                                // 1. Full-Screen Logo-Celebration triggern
+                                withAnimation(.spring(response: 0.7, dampingFraction: 0.78)) {
+                                    showJoinCelebration = true
+                                }
+                                // 2. Nach der Transition (0.9s) den echten
+                                //    Create / HomeZone-Flow auslösen.
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+                                    if store.isInHomeZone(dropCoordPreview) {
+                                        pendingHomeZoneCoord = dropCoordPreview
+                                    } else {
+                                        performCreate(coord: dropCoordPreview)
+                                    }
+                                }
                             }
-                        }
+                        )
                         .padding(.horizontal, 16)
                         // Coach-Mark Schritt 3: Drop starten
                         .popoverTip(startTip, arrowEdge: .bottom)
@@ -816,38 +730,42 @@ struct CreateDropView: View {
                             Text(activityName.trimmingCharacters(in: .whitespaces).isEmpty
                                  ? tr("create.enter_activity_first")
                                  : tr("create.select_location"))
-                                .font(.system(size: 12))
-                                .foregroundColor(.textTertiary)
+                                .font(.system(size: 13, weight: .medium, design: .rounded))
+                                .foregroundColor(.brandNight.opacity(0.5))
                                 .frame(maxWidth: .infinity, alignment: .center)
                                 .padding(.horizontal, 16)
+                                .padding(.top, 8)
                                 .transition(.opacity)
                         } else if !isInServiceArea {
                             HStack(spacing: 5) {
                                 Image(systemName: "mappin.slash")
-                                    .font(.system(size: 11))
+                                    .font(.system(size: 12, weight: .bold))
                                 Text(tr("create.cities_only"))
-                                    .font(.system(size: 12))
+                                    .font(.system(size: 13, weight: .semibold, design: .rounded))
                             }
-                            .foregroundColor(Color.auroraAmber)
+                            .foregroundColor(.brandOrange)
                             .frame(maxWidth: .infinity, alignment: .center)
                             .padding(.horizontal, 16)
+                            .padding(.top, 8)
                             .transition(.opacity)
                         }
                     }
-                    Spacer(minLength: 20)
-                    // Walkthrough-Puffer: damit auch der CTA-Button (letztes Element)
-                    // per scrollTo(anchor:.top) über die Coach-Karte gescrollt werden
-                    // kann. Ohne diesen Spacer reicht der Scroll nicht weit genug.
+                    // Walkthrough-Puffer: damit auch der CTA (letztes Element)
+                    // per scrollTo(anchor:.top) über die Coach-Karte gescrollt
+                    // werden kann.
                     if coachStep != nil {
                         Spacer().frame(height: 360)
+                    } else {
+                        Spacer().frame(height: 12)
                     }
                 }
-                }
+                .frame(minHeight: scrollMinHeight, alignment: .top)
+                }  // ScrollView
                 .scrollContentBackground(.hidden)
                 .background(Color.clear)
                 .scrollDismissesKeyboard(.immediately)
                 .scrollDisabled(coachStep != nil)
-                // ── Coach-Scroll: beim Step-Wechsel zum Anker scrollen ──
+                .scrollBounceBehavior(.basedOnSize)
                 .onChange(of: coachStep) { _, newStep in
                     guard let newStep else { return }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
@@ -856,8 +774,19 @@ struct CreateDropView: View {
                         }
                     }
                 }
+                }  // GeometryReader
             } // ScrollViewReader
             } // VStack(spacing: 0)
+
+            // ── Join-Celebration Overlay ───────────────────────────────────
+            // Full-Screen: offener Ring + Dot bauen von allen Seiten in
+            // Richtung Zentrum auf. Schließt sich dann zur Mark.
+            if showJoinCelebration {
+                JoinCelebrationOverlay()
+                    .zIndex(200)
+                    .transition(.opacity)
+                    .allowsHitTesting(false)
+            }
 
             // ── First-Drop Coach-Mark Overlay ──────────────────────────────
             // Liegt im ZStack über dem gesamten Inhalt (inkl. Sticky-Header).
@@ -893,6 +822,22 @@ struct CreateDropView: View {
             .presentationDetents([.height(460)])
             .presentationDragIndicator(.hidden)
             .sheetBackground()
+        }
+        // Sentence-Flow Picker Sheets
+        .sheet(isPresented: $showDurationSheet) {
+            durationPickerSheet
+                .presentationDetents([.height(320)])
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showParticipantsSheet) {
+            participantsPickerSheet
+                .presentationDetents([.height(260)])
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showLocationSheet) {
+            locationPickerSheet
+                .presentationDetents([.height(420)])
+                .presentationDragIndicator(.visible)
         }
         // Custom Heimzone-Warn-Sheet (statt System-Alert) — bietet wärmere
         // Optik, klare Hinweise und einen "Anderen Ort wählen"-Primärbutton
@@ -977,25 +922,924 @@ struct CreateDropView: View {
         }
     }
 
-    // MARK: - Section Container
+    // MARK: - Sentence Flow (dazu-Wortmarke-Style, Partiful-inspired)
+
+    @ViewBuilder private var sentenceFlowBody: some View {
+        VStack(spacing: 18) {
+            // Satz-Flow — linksbündig, groß, lesbar
+            sentenceLinesView
+                .padding(.top, 4)
+
+            // Emoji-Suggestions wenn Text eingegeben + kein Emoji
+            if selectedEmoji.isEmpty && !suggestedEmojis.isEmpty {
+                VStack(spacing: 8) {
+                    Text("WÄHLE EIN EMOJI")
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                        .tracking(1.2)
+                        .foregroundColor(.brandViolet.opacity(0.6))
+                    HStack(spacing: 14) {
+                        ForEach(suggestedEmojis.prefix(5), id: \.self) { emoji in
+                            Button {
+                                selectedEmoji = emoji
+                                emojiLockedByUser = true
+                                Haptic.selection()
+                            } label: {
+                                Text(emoji).font(.system(size: 32))
+                            }
+                            .dropsPressable()
+                        }
+                        Button {
+                            showEmojiPicker = true
+                        } label: {
+                            Image(systemName: "ellipsis")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundColor(.brandViolet)
+                                .frame(width: 36, height: 36)
+                                .background(Circle().fill(Color.brandLavender))
+                        }
+                        .dropsPressable()
+                    }
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+                .padding(.top, 4)
+            }
+        }
+    }
+
+    // Der eigentliche „Satz" — große, linksbündige Zeilen im Rondesignlab-Stil.
+    // Kompakter Rhythmus damit nichts verwaist unten rumsteht.
+    @ViewBuilder private var sentenceLinesView: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // Zeile 1: Ich mache eine Runde
+            sentenceText("Ich mache eine Runde")
+
+            // Zeile 2: Aktivität (groß, prominent, Violett)
+            sentenceInputWord(placeholder: "Tennis", text: $activityName)
+                .padding(.bottom, 4)
+
+            // Zeile 3: {jetzt/zeit} für {dauer}
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                sentenceWord(timePreviewLabel, action: {
+                    withAnimation(.spring(response: 0.3)) {
+                        showCustomTimePicker.toggle()
+                    }
+                    Haptic.selection()
+                })
+                sentenceText("für")
+                sentenceWord(durationMinutes <= 0 ? "offen" :
+                             (durationMinutes < 60 ? "\(durationMinutes)m" : "\(durationMinutes/60)h"),
+                             action: { showDurationSheet = true })
+            }
+
+            // Zeile 4: mit {N} Leuten {Ort} — Ort kommt direkt dahinter,
+            // damit "hier" nicht alleine in einer eigenen Zeile verwaist.
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                sentenceText("mit")
+                sentenceWord("\(maxParticipants) Leuten", action: { showParticipantsSheet = true })
+                sentenceText("·")
+                sentenceWord(sentenceLocationLabel, action: { showLocationSheet = true })
+            }
+
+            // Inline Time Picker (klappt auf wenn tap auf Zeit-Wort)
+            if showCustomTimePicker {
+                DatePicker("", selection: $customDate, displayedComponents: .hourAndMinute)
+                    .datePickerStyle(.wheel)
+                    .labelsHidden()
+                    .frame(maxHeight: 150)
+                    .padding(.top, 8)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 24)
+    }
+
+    // Simple statisches Text-Element im Satz-Flow
+    private func sentenceText(_ s: String) -> Text {
+        Text(s)
+            .font(.system(size: 32, weight: .semibold, design: .rounded))
+            .foregroundColor(.brandNight.opacity(0.85))
+    }
+
+    // Tappable Wort im Satz — unterstrichen, Violett, Press-feedback
+    @ViewBuilder private func sentenceWord(_ s: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(s)
+                .font(.system(size: 32, weight: .bold, design: .rounded))
+                .foregroundColor(.brandViolet)
+                .underline(true, color: .brandViolet.opacity(0.45))
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+        }
+        .dropsPressable()
+    }
+
+    // Inline-editable Word (für Aktivitäts-Name) — unterstrichen wie die
+    // tappbaren Wörter, damit visuell klar wird: hier einfach reintippen.
+    @ViewBuilder private func sentenceInputWord(placeholder: String, text: Binding<String>) -> some View {
+        TextField("",
+                  text: text,
+                  prompt: Text(placeholder)
+                    .font(.system(size: 38, weight: .heavy, design: .rounded))
+                    .foregroundColor(.brandViolet.opacity(0.55)))
+            .font(.system(size: 38, weight: .heavy, design: .rounded))
+            .foregroundColor(.brandViolet)
+            .multilineTextAlignment(.leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(Color.brandViolet.opacity(0.45))
+                    .frame(height: 2)
+                    .offset(y: 4)
+            }
+            .onChange(of: text.wrappedValue) { _, _ in
+                if text.wrappedValue.trimmingCharacters(in: .whitespaces).isEmpty {
+                    selectedEmoji = ""
+                    emojiLockedByUser = false
+                } else if !emojiLockedByUser {
+                    selectedEmoji = ""
+                }
+            }
+    }
+
+    private var sentenceLocationLabel: String {
+        switch selectedLocationType {
+        case .current:  return "hier"
+        case .searched: return selectedLocationResult?.title ?? "woanders"
+        case .pin:      return pinnedCoordinate != nil ? "am Pin" : "Pin setzen"
+        }
+    }
+
+    // MARK: - Sentence Flow Picker Sheets
+
+    private var durationPickerSheet: some View {
+        VStack(spacing: 20) {
+            Text("Wie lange?")
+                .font(.system(size: 20, weight: .bold, design: .rounded))
+                .foregroundColor(.brandNight)
+                .padding(.top, 24)
+            let options: [(String, Int)] = [
+                ("30 Min", 30), ("1 Stunde", 60), ("2 Stunden", 120), ("4 Stunden", 240), ("offen", 0)
+            ]
+            VStack(spacing: 10) {
+                ForEach(options, id: \.1) { label, value in
+                    Button {
+                        durationMinutes = value
+                        Haptic.selection()
+                        showDurationSheet = false
+                    } label: {
+                        HStack {
+                            Text(label)
+                                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            Spacer()
+                            if durationMinutes == value {
+                                Image(systemName: "checkmark").foregroundColor(.brandOrange)
+                            }
+                        }
+                        .foregroundColor(.brandNight)
+                        .padding(.horizontal, 20).padding(.vertical, 14)
+                        .background(RoundedRectangle(cornerRadius: 14).fill(Color.brandLavender.opacity(durationMinutes == value ? 0.9 : 0.5)))
+                    }
+                    .dropsPressable()
+                }
+            }
+            .padding(.horizontal, 20)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.brandCream.ignoresSafeArea())
+    }
+
+    private var participantsPickerSheet: some View {
+        VStack(spacing: 20) {
+            Text("Wie viele Leute?")
+                .font(.system(size: 20, weight: .bold, design: .rounded))
+                .foregroundColor(.brandNight)
+                .padding(.top, 24)
+            Text("\(maxParticipants)")
+                .font(.system(size: 56, weight: .bold, design: .rounded))
+                .foregroundColor(.brandViolet)
+                .monospacedDigit()
+                .contentTransition(.numericText())
+            Slider(
+                value: Binding(
+                    get: { Double(maxParticipants) },
+                    set: { v in
+                        let new = Int(v.rounded())
+                        if new != maxParticipants { maxParticipants = new; Haptic.selection() }
+                    }
+                ),
+                in: 2...Double(maxParticipantsLimit), step: 1
+            )
+            .tint(.brandViolet)
+            .padding(.horizontal, 32)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.brandCream.ignoresSafeArea())
+    }
+
+    private var locationPickerSheet: some View {
+        VStack(spacing: 16) {
+            Text("Wo?")
+                .font(.system(size: 20, weight: .bold, design: .rounded))
+                .foregroundColor(.brandNight)
+                .padding(.top, 24)
+            VStack(spacing: 10) {
+                locationChoice(icon: "location.fill", label: "Hier", isSelected: selectedLocationType == .current) {
+                    selectedLocationType = .current
+                    searchVM.searchText = ""
+                    showLocationSheet = false
+                }
+                locationChoice(icon: "magnifyingglass", label: "Ort suchen", isSelected: selectedLocationType == .searched) {
+                    selectedLocationType = .searched
+                    // Suchfeld kommt auf, Sheet bleibt für Interaktion offen
+                }
+                locationChoice(icon: "mappin", label: "Pin setzen", isSelected: selectedLocationType == .pin) {
+                    selectedLocationType = .pin
+                    showPinMap = true
+                    showLocationSheet = false
+                }
+                if selectedLocationType == .searched {
+                    TextField("Adresse suchen...", text: $searchVM.searchText)
+                        .padding(.horizontal, 16).padding(.vertical, 12)
+                        .background(RoundedRectangle(cornerRadius: 12).fill(Color.brandLavender.opacity(0.5)))
+                        .padding(.horizontal, 20)
+                        .onChange(of: searchVM.searchText) { _, newValue in searchVM.search(newValue) }
+                }
+            }
+            .padding(.horizontal, 20)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.brandCream.ignoresSafeArea())
+    }
+
+    private func locationChoice(icon: String, label: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: { action(); Haptic.selection() }) {
+            HStack(spacing: 14) {
+                Image(systemName: icon)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(isSelected ? .white : .brandViolet)
+                    .frame(width: 36, height: 36)
+                    .background(Circle().fill(isSelected ? Color.brandViolet : Color.brandLavender))
+                Text(label)
+                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .foregroundColor(.brandNight)
+                Spacer()
+                if isSelected {
+                    Image(systemName: "checkmark").foregroundColor(.brandOrange)
+                }
+            }
+            .padding(.horizontal, 16).padding(.vertical, 12)
+            .background(RoundedRectangle(cornerRadius: 14).fill(Color.brandLavender.opacity(isSelected ? 0.9 : 0.5)))
+        }
+        .dropsPressable()
+    }
+
+    // MARK: - Legacy Hero Block (nicht mehr verwendet, nur im #if false Pfad)
+
+    @ViewBuilder private var newHeroBlock: some View {
+        VStack(spacing: 20) {
+            // Großes tappbares Emoji
+            Button(action: { showEmojiPicker = true }) {
+                Group {
+                    if displayEmoji.isEmpty {
+                        ZStack {
+                            Circle()
+                                .fill(Color.brandLavender)
+                                .frame(width: 110, height: 110)
+                                .overlay(
+                                    Circle().stroke(Color.brandViolet.opacity(0.25),
+                                                    style: StrokeStyle(lineWidth: 1.5, dash: [5, 5]))
+                                )
+                            Image(systemName: "face.smiling.inverse")
+                                .font(.system(size: 48, weight: .light))
+                                .foregroundColor(Color.brandViolet.opacity(0.6))
+                        }
+                    } else {
+                        Text(displayEmoji)
+                            .font(.system(size: 100))
+                            .transition(.scale.combined(with: .opacity))
+                    }
+                }
+            }
+            .dropsPressable()
+            .animation(.spring(response: 0.4, dampingFraction: 0.6), value: displayEmoji)
+
+            // Title Input (zentriert, Headline-Font, keine Border)
+            TextField("",
+                      text: $activityName,
+                      prompt: Text("Dein Plan")
+                        .font(.system(size: 28, weight: .bold, design: .rounded))
+                        .foregroundColor(Color.brandNight.opacity(0.3)))
+                .font(.system(size: 28, weight: .bold, design: .rounded))
+                .foregroundColor(Color.brandNight)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 24)
+                .onChange(of: activityName) { _, _ in
+                    if activityName.trimmingCharacters(in: .whitespaces).isEmpty {
+                        selectedEmoji = ""
+                        emojiLockedByUser = false
+                    } else if !emojiLockedByUser {
+                        selectedEmoji = ""
+                    }
+                }
+
+            // Emoji-Suggestions wenn Name eingegeben + noch kein Emoji
+            if selectedEmoji.isEmpty && !suggestedEmojis.isEmpty {
+                HStack(spacing: 10) {
+                    ForEach(suggestedEmojis.prefix(5), id: \.self) { emoji in
+                        Button(action: {
+                            selectedEmoji = emoji
+                            emojiLockedByUser = true
+                            Haptic.selection()
+                        }) {
+                            Text(emoji).font(.system(size: 28))
+                        }
+                        .dropsPressable()
+                    }
+                    Button(action: { showEmojiPicker = true }) {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(Color.brandNight.opacity(0.5))
+                            .frame(width: 32, height: 32)
+                            .background(Circle().fill(Color.brandLavender))
+                    }
+                    .dropsPressable()
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            } else if activityName.trimmingCharacters(in: .whitespaces).isEmpty {
+                // Quick-Templates nur wenn kein Name
+                DropQuickTemplatesBar { tpl in
+                    activityName = tpl.name
+                    selectedEmoji = tpl.emoji
+                    emojiLockedByUser = true
+                    Haptic.selection()
+                }
+                .padding(.top, 4)
+            }
+        }
+    }
+
+    // MARK: - Step 1 — Was? (Minimalist / Apple-Setup-Style, LEGACY — nicht mehr genutzt)
+
+    @ViewBuilder private var step1WhatBody: some View {
+        VStack(spacing: 36) {
+            Spacer(minLength: 4)
+
+            // Großes centered Emoji (oder dezentes +)
+            minimalEmojiHero
+                .id(CoachStep.activity.scrollID)
+                .coachHighlight(active: coachStep == .activity)
+
+            // Thin TextField mit Unterstrich
+            minimalActivityField
+
+            // Templates als dezente Pills
+            if activityName.trimmingCharacters(in: .whitespaces).isEmpty {
+                minimalTemplatesRow
+            } else if selectedEmoji.isEmpty && !suggestedEmojis.isEmpty {
+                minimalEmojiSuggestionsRow
+            }
+
+            Spacer(minLength: 20)
+        }
+        .padding(.horizontal, 32)
+        .frame(maxWidth: .infinity)
+    }
+
+    // MARK: - Minimalist Hero / Field / Rows (Step 1)
+
+    private var minimalEmojiHero: some View {
+        Button(action: { showEmojiPicker = true }) {
+            Group {
+                if displayEmoji.isEmpty {
+                    ZStack {
+                        Circle()
+                            .stroke(Color.textTertiary.opacity(0.3),
+                                    style: StrokeStyle(lineWidth: 1.2, dash: [5, 5]))
+                            .frame(width: 120, height: 120)
+                        Image(systemName: "plus")
+                            .font(.system(size: 40, weight: .light))
+                            .foregroundColor(.textTertiary.opacity(0.65))
+                    }
+                } else {
+                    Text(displayEmoji)
+                        .font(.system(size: 110))
+                        .transition(.scale.combined(with: .opacity))
+                }
+            }
+        }
+        .dropsPressable()
+        .animation(.spring(response: 0.4, dampingFraction: 0.7), value: displayEmoji)
+    }
+
+    private var minimalActivityField: some View {
+        VStack(spacing: 8) {
+            TextField("", text: $activityName,
+                      prompt: Text("Was machst du?")
+                        .font(.system(size: 20, weight: .regular, design: .rounded))
+                        .foregroundColor(.textTertiary.opacity(0.5)))
+                .font(.system(size: 20, weight: .medium, design: .rounded))
+                .foregroundColor(.textPrimary)
+                .multilineTextAlignment(.center)
+                .onChange(of: activityName) { _, _ in
+                    if activityName.trimmingCharacters(in: .whitespaces).isEmpty {
+                        selectedEmoji = ""
+                        emojiLockedByUser = false
+                    } else if !emojiLockedByUser {
+                        selectedEmoji = ""
+                    }
+                }
+            Rectangle()
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color.textTertiary.opacity(0.0),
+                            Color.textTertiary.opacity(0.4),
+                            Color.textTertiary.opacity(0.0)
+                        ],
+                        startPoint: .leading, endPoint: .trailing
+                    )
+                )
+                .frame(height: 1)
+        }
+    }
+
+    private var minimalTemplatesRow: some View {
+        VStack(spacing: 12) {
+            Text("ODER")
+                .font(.system(size: 11, weight: .semibold))
+                .tracking(1.5)
+                .foregroundColor(.textTertiary.opacity(0.6))
+
+            DropQuickTemplatesBar { tpl in
+                activityName = tpl.name
+                selectedEmoji = tpl.emoji
+                emojiLockedByUser = true
+                Haptic.selection()
+            }
+        }
+        .transition(.opacity)
+    }
+
+    private var minimalEmojiSuggestionsRow: some View {
+        VStack(spacing: 10) {
+            Text("Wähle ein Emoji")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.textTertiary)
+
+            HStack(spacing: 10) {
+                ForEach(suggestedEmojis.prefix(5), id: \.self) { emoji in
+                    Button(action: {
+                        selectedEmoji = emoji
+                        emojiLockedByUser = true
+                        Haptic.selection()
+                    }) {
+                        Text(emoji)
+                            .font(.system(size: 32))
+                    }
+                    .dropsPressable()
+                    .transition(.scale.combined(with: .opacity))
+                }
+                Button(action: { showEmojiPicker = true }) {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 20, weight: .light))
+                        .foregroundColor(.textTertiary)
+                        .frame(width: 32, height: 32)
+                }
+                .dropsPressable()
+            }
+        }
+        .transition(.opacity.combined(with: .move(edge: .top)))
+    }
+
+    // MARK: - Minimalist Compact Hero (Step 2 + 3)
+
+    /// Kleines Emoji oben + Aktivitäts-Name als Titel. Zeigt dem User
+    /// weiterhin was er erstellt, ohne vom aktuellen Schritt abzulenken.
+    @ViewBuilder private var minimalCompactHero: some View {
+        VStack(spacing: 8) {
+            if !displayEmoji.isEmpty {
+                Text(displayEmoji)
+                    .font(.system(size: 56))
+                    .transition(.scale.combined(with: .opacity))
+            }
+            Text(activityName.trimmingCharacters(in: .whitespaces).isEmpty
+                 ? "Dein Plan"
+                 : activityName)
+                .font(.system(size: 22, weight: .semibold, design: .rounded))
+                .foregroundColor(.textPrimary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            Rectangle()
+                .fill(Color.textTertiary.opacity(0.25))
+                .frame(width: 32, height: 1)
+                .padding(.top, 4)
+        }
+    }
+
+    // MARK: - Live Preview Pin (unused since minimalist redesign — kept for ref)
+
+    @ViewBuilder private var livePreviewPin: some View {
+        let hasActivity = !activityName.trimmingCharacters(in: .whitespaces).isEmpty
+        let pinColor: Color = (communityID != nil) ? .cleroGreen : .accentOrange
+
+        VStack(spacing: 10) {
+            ZStack {
+                // Weiche pulsierende Radar-Welle außen
+                Circle()
+                    .stroke(pinColor.opacity(0.4), lineWidth: 2)
+                    .frame(width: 160, height: 160)
+                    .scaleEffect(sheetPulse ? 1.15 : 0.95)
+                    .opacity(sheetPulse ? 0.0 : 0.7)
+                    .animation(.easeOut(duration: 2.0).repeatForever(autoreverses: false),
+                               value: sheetPulse)
+
+                // Zweite Welle (versetzt)
+                Circle()
+                    .stroke(pinColor.opacity(0.35), lineWidth: 2)
+                    .frame(width: 160, height: 160)
+                    .scaleEffect(sheetPulse ? 1.15 : 0.95)
+                    .opacity(sheetPulse ? 0.0 : 0.7)
+                    .animation(.easeOut(duration: 2.0).repeatForever(autoreverses: false).delay(1.0),
+                               value: sheetPulse)
+
+                // Weicher Glow unter dem Pin
+                Circle()
+                    .fill(
+                        RadialGradient(
+                            colors: [pinColor.opacity(0.35), .clear],
+                            center: .center, startRadius: 10, endRadius: 80
+                        )
+                    )
+                    .frame(width: 180, height: 180)
+
+                // Pin selbst (nachgebildet dem Map-Pin-Style)
+                Button(action: { showEmojiPicker = true }) {
+                    ZStack {
+                        Circle()
+                            .fill(.white)
+                            .frame(width: 108, height: 108)
+                            .overlay(
+                                Circle().stroke(
+                                    LinearGradient(
+                                        colors: [pinColor, pinColor.opacity(0.6)],
+                                        startPoint: .topLeading, endPoint: .bottomTrailing
+                                    ),
+                                    lineWidth: 3
+                                )
+                            )
+                            .shadow(color: pinColor.opacity(0.5), radius: 14, y: 6)
+                            .scaleEffect(hasActivity ? 1.0 : 0.95)
+                            .animation(.spring(response: 0.4, dampingFraction: 0.65),
+                                       value: hasActivity)
+
+                        if displayEmoji.isEmpty {
+                            Image(systemName: "plus")
+                                .font(.system(size: 36, weight: .light))
+                                .foregroundStyle(pinColor)
+                                .scaleEffect(sheetPulse ? 1.1 : 1.0)
+                                .animation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true),
+                                           value: sheetPulse)
+                        } else {
+                            Text(displayEmoji)
+                                .font(.system(size: 56))
+                                .transition(.scale.combined(with: .opacity))
+                        }
+                    }
+                }
+                .dropsPressable()
+                .animation(.spring(response: 0.35, dampingFraction: 0.65), value: displayEmoji)
+            }
+            .frame(height: 190)
+
+            // Live-Label unter dem Pin: Name + Status-Chips
+            VStack(spacing: 6) {
+                Text(hasActivity ? activityName : "Dein Plan")
+                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                    .foregroundColor(hasActivity ? .textPrimary : .textTertiary.opacity(0.7))
+                    .lineLimit(1)
+                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                    .id(hasActivity ? "set" : "empty")
+
+                // Chips zeigen die aktuell gesetzten Felder (updaten live mit Steps)
+                HStack(spacing: 6) {
+                    if currentStep.rawValue >= 1 {
+                        previewChip(icon: "clock.fill", text: timePreviewLabel,
+                                    tint: pinColor, dim: !isTimePickerPopulated)
+                    }
+                    if currentStep.rawValue >= 1 && durationMinutes > 0 {
+                        previewChip(icon: "hourglass", text: durationPreviewLabel,
+                                    tint: pinColor, dim: false)
+                    }
+                    if currentStep.rawValue >= 2 {
+                        previewChip(icon: locationIconName,
+                                    text: locationPreviewLabel,
+                                    tint: pinColor,
+                                    dim: !isLocationPicked)
+                    }
+                }
+                .padding(.top, 2)
+            }
+        }
+    }
+
+    private func previewChip(icon: String, text: String, tint: Color, dim: Bool) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon)
+                .font(.system(size: 9, weight: .semibold))
+            Text(text)
+                .font(.system(size: 11, weight: .semibold))
+                .lineLimit(1)
+        }
+        .foregroundColor(dim ? .textTertiary : tint)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 5)
+        .background(
+            Capsule().fill(dim ? Color.gray.opacity(0.12) : tint.opacity(0.14))
+        )
+        .overlay(
+            Capsule().stroke(dim ? Color.gray.opacity(0.2) : tint.opacity(0.4), lineWidth: 0.8)
+        )
+    }
+
+    // MARK: - Preview helpers
+
+    private var isTimePickerPopulated: Bool {
+        !scheduledTime.isEmpty || showCustomTimePicker
+    }
+
+    private var timePreviewLabel: String {
+        if showCustomTimePicker {
+            return customDate.formatted(date: .omitted, time: .shortened)
+        }
+        if scheduledTime.isEmpty || scheduledTime == "Jetzt" {
+            return "Jetzt"
+        }
+        return scheduledTime
+    }
+
+    private var durationPreviewLabel: String {
+        if durationMinutes <= 0 { return "offen" }
+        if durationMinutes < 60 { return "\(durationMinutes)m" }
+        return "\(durationMinutes / 60)h"
+    }
+
+    private var isLocationPicked: Bool {
+        switch selectedLocationType {
+        case .current:  return true
+        case .searched: return selectedLocationResult != nil
+        case .pin:      return pinnedCoordinate != nil
+        }
+    }
+
+    private var locationIconName: String {
+        switch selectedLocationType {
+        case .current:  return "location.fill"
+        case .searched: return "magnifyingglass"
+        case .pin:      return "mappin"
+        }
+    }
+
+    private var locationPreviewLabel: String {
+        switch selectedLocationType {
+        case .current:  return "Hier"
+        case .searched: return selectedLocationResult?.title ?? "Ort wählen"
+        case .pin:      return pinnedCoordinate == nil ? "Pin setzen" : "Pin gesetzt"
+        }
+    }
+
+    private var activityInputCard: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Image(systemName: "text.cursor")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(.textTertiary)
+                TextField(tr("create.activity_field_placeholder"),
+                          text: $activityName)
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundColor(.textPrimary)
+                    .onChange(of: activityName) { _, _ in
+                        if activityName.trimmingCharacters(in: .whitespaces).isEmpty {
+                            selectedEmoji = ""
+                            emojiLockedByUser = false
+                        } else if !emojiLockedByUser {
+                            selectedEmoji = ""
+                        }
+                    }
+                if !activityName.isEmpty {
+                    Button(action: { activityName = "" }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 17))
+                            .foregroundColor(.textTertiary)
+                    }
+                    .dropsPressable()
+                    .transition(.opacity)
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 16)
+
+            // Emoji-Suggestions wenn Name eingegeben + noch kein Emoji
+            if selectedEmoji.isEmpty && !suggestedEmojis.isEmpty {
+                Divider().padding(.leading, 18)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(suggestedEmojis, id: \.self) { emoji in
+                            Button(action: {
+                                selectedEmoji = emoji
+                                emojiLockedByUser = true
+                                Haptic.selection()
+                            }) {
+                                Text(emoji).font(.system(size: 26))
+                                    .frame(width: 48, height: 48)
+                                    .background(
+                                        Circle().fill(.white.opacity(0.3))
+                                    )
+                                    .overlay(
+                                        Circle().stroke(.white.opacity(0.5), lineWidth: 0.8)
+                                    )
+                            }
+                            .dropsPressable()
+                        }
+                        Button(action: { showEmojiPicker = true }) {
+                            Image(systemName: "ellipsis")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(.textSecondary)
+                                .frame(width: 48, height: 48)
+                                .background(Circle().fill(.white.opacity(0.2)))
+                        }
+                        .dropsPressable()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            } else if selectedEmoji.isEmpty && !activityName.trimmingCharacters(in: .whitespaces).isEmpty {
+                Divider().padding(.leading, 18)
+                Button(action: { showEmojiPicker = true }) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "face.smiling")
+                            .font(.system(size: 15, weight: .medium))
+                        Text(tr("create.pick_emoji"))
+                            .font(.system(size: 14, weight: .medium))
+                    }
+                    .foregroundColor(.brand)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 14)
+                }
+                .dropsPressable()
+            }
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Color.white.opacity(0.75))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(.white.opacity(0.35), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.08), radius: 10, y: 4)
+    }
+
+    private var templatesSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Oder wähle etwas Spontanes")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(.textSecondary)
+                .padding(.leading, 6)
+            DropQuickTemplatesBar { tpl in
+                activityName = tpl.name
+                selectedEmoji = tpl.emoji
+                emojiLockedByUser = true
+                Haptic.selection()
+            }
+        }
+        .padding(.top, 4)
+        .transition(.opacity.combined(with: .move(edge: .bottom)))
+    }
+
+    // MARK: - Step Navigation
+
+    private var canAdvanceFromCurrentStep: Bool {
+        switch currentStep {
+        case .what:
+            return !activityName.trimmingCharacters(in: .whitespaces).isEmpty
+        case .when, .whereAt:
+            return true
+        }
+    }
+
+    @ViewBuilder private var stepProgressIndicator: some View {
+        HStack(spacing: 8) {
+            ForEach(CreateDropStep.allCases) { step in
+                Capsule()
+                    .fill(step == currentStep
+                          ? LinearGradient(colors: [Color.accentOrange, Color.pink],
+                                           startPoint: .leading, endPoint: .trailing)
+                          : LinearGradient(colors: [.textTertiary.opacity(0.3), .textTertiary.opacity(0.3)],
+                                           startPoint: .leading, endPoint: .trailing))
+                    .frame(height: 4)
+                    .frame(maxWidth: step == currentStep ? .infinity : 24)
+                    .animation(.spring(response: 0.35, dampingFraction: 0.8), value: currentStep)
+            }
+        }
+    }
+
+    private func advanceStep() {
+        guard let next = CreateDropStep(rawValue: currentStep.rawValue + 1) else { return }
+        Haptic.selection()
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+            currentStep = next
+        }
+    }
+
+    private func backStep() {
+        guard let prev = CreateDropStep(rawValue: currentStep.rawValue - 1) else { return }
+        Haptic.selection()
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+            currentStep = prev
+        }
+    }
+
+    @ViewBuilder private var stepBackButton: some View {
+        Button(action: backStep) {
+            HStack(spacing: 6) {
+                Image(systemName: "chevron.left")
+                Text("Zurück")
+            }
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundColor(.textPrimary)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 12)
+            .background(Capsule().fill(Color.white.opacity(0.75)))
+            .overlay(Capsule().stroke(Color.white.opacity(0.3), lineWidth: 0.8))
+            .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
+        }
+        .dropsPressable()
+    }
+
+    @ViewBuilder private var stepNavigationButtons: some View {
+        HStack(spacing: 12) {
+            if currentStep != .what {
+                stepBackButton
+            }
+            Spacer()
+            Button(action: advanceStep) {
+                HStack(spacing: 6) {
+                    Text("Weiter")
+                    Image(systemName: "chevron.right")
+                }
+                .font(.system(size: 16, weight: .bold))
+                .foregroundColor(.white)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 13)
+                .background(
+                    Capsule().fill(
+                        LinearGradient(
+                            colors: canAdvanceFromCurrentStep
+                                ? [Color.accentOrange, Color.pink]
+                                : [Color.gray.opacity(0.5), Color.gray.opacity(0.5)],
+                            startPoint: .leading, endPoint: .trailing
+                        )
+                    )
+                )
+                .shadow(color: canAdvanceFromCurrentStep ? Color.accentOrange.opacity(0.4) : .clear,
+                        radius: 10, y: 4)
+            }
+            .dropsPressable()
+            .disabled(!canAdvanceFromCurrentStep)
+        }
+    }
+
+    // MARK: - Section Container (New Drops Design System: Lavendel-Card)
 
     @ViewBuilder
     private func createSection<Content: View>(label: String, aurora: Bool = false, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(label)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(.textSecondary)
-                .padding(.horizontal, 20)
+        VStack(alignment: .leading, spacing: 10) {
+            Text(label.uppercased())
+                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .tracking(1.2)
+                .foregroundColor(Color.brandViolet.opacity(0.65))
+                .padding(.horizontal, 24)
 
             VStack(spacing: 0) { content() }
-                .liquidGlass(cornerRadius: 16)
-                .overlay {
-                    if aurora {
-                        AuroraCardBorder(cornerRadius: Radius.lg)
-                    }
-                }
+                .background(
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .fill(Color.brandLavender.opacity(0.6))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .stroke(Color.brandViolet.opacity(aurora ? 0.35 : 0.12), lineWidth: 1)
+                )
+                .shadow(color: Color.brandViolet.opacity(0.08), radius: 10, y: 4)
                 .padding(.horizontal, 16)
         }
+        .padding(.vertical, 4)
     }
 
     @ViewBuilder
@@ -1031,7 +1875,7 @@ struct CreateDropView: View {
             .padding(.horizontal, 16).padding(.vertical, 13)
             .background(isSelected ? Color.brand.opacity(0.06) : Color.clear)
         }
-        .buttonStyle(.plain)
+        .dropsPressable()
         .animation(.spring(response: 0.2), value: isSelected)
     }
 
@@ -1095,7 +1939,7 @@ struct CreateDropView: View {
                     )
             )
         }
-        .buttonStyle(.plain)
+        .dropsPressable()
     }
 
     // MARK: - Create Helper
@@ -1123,7 +1967,7 @@ struct CreateDropView: View {
                 title: locationSubtitle, subtitle: "München",
                 coordinate: coord, type: selectedLocationType
             )
-            let name = activityName.trimmingCharacters(in: .whitespaces).isEmpty ? "Drop" : activityName.trimmingCharacters(in: .whitespaces)
+            let name = activityName.trimmingCharacters(in: .whitespaces).isEmpty ? "Plan" : activityName.trimmingCharacters(in: .whitespaces)
             // Reihenfolge: 1) explizite User-Auswahl, 2) erster Auto-Match,
             // 3) ✨-Fallback damit der Drop-Pin auf der Karte nie leer ist.
             let emoji: String
@@ -1158,7 +2002,7 @@ struct DropLocationRow: View {
         Button(action: action) {
             DropLocationRowContent(icon: icon, title: title, subtitle: subtitle, isSelected: isSelected)
         }
-        .buttonStyle(.plain)
+        .dropsPressable()
         .animation(.spring(response: 0.2), value: isSelected)
     }
 }
@@ -1180,7 +2024,7 @@ struct DropLocationRowContent: View {
             }
         }
         .padding(12)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        .background(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).fill(Color.white.opacity(0.75)))
         .overlay(
             RoundedRectangle(cornerRadius: Radius.card)
                 .stroke(isSelected ? Color.brand.opacity(0.5) : Color.white.opacity(0.18), lineWidth: 1)
@@ -1214,7 +2058,7 @@ struct DropLocationSearchSheet: View {
                     }
                 }
                 .padding(14)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                .background(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).fill(Color.white.opacity(0.75)))
                 .overlay(RoundedRectangle(cornerRadius: Radius.card).stroke(Color.white.opacity(0.2), lineWidth: 1))
                 .padding(.horizontal, 16).padding(.bottom, 12)
 
@@ -1239,10 +2083,10 @@ struct DropLocationSearchSheet: View {
                                     Spacer()
                                 }
                                 .padding(12)
-                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+                                .background(RoundedRectangle(cornerRadius: Radius.md, style: .continuous).fill(Color.white.opacity(0.75)))
                                 .overlay(RoundedRectangle(cornerRadius: Radius.md).stroke(Color.white.opacity(0.15), lineWidth: 0.8))
                             }
-                            .buttonStyle(.plain)
+                            .dropsPressable()
                         }
                     }
                     .padding(.horizontal, 16)
@@ -1281,7 +2125,7 @@ struct InteractivePinMapView: View {
                     Text(tr("create.tap_on_map"))
                         .font(.system(size: 13, weight: .medium)).foregroundColor(.textSecondary)
                         .padding(.horizontal, 12).padding(.vertical, 6)
-                        .background(.regularMaterial, in: Capsule())
+                        .background(Capsule().fill(Color.white.opacity(0.85)))
                 }
             }
         }
@@ -1349,27 +2193,30 @@ struct DropTemplate: Identifiable, Hashable {
 
 extension DropTemplate {
     /// Statische Default-Vorlagen falls weder Past-Drops noch Interests etwas
-    /// Brauchbares ergeben (Erst-User ohne Interests).
-    static let universalDefaults: [DropTemplate] = [
-        DropTemplate(name: "Kaffee", emoji: "☕️"),
-        DropTemplate(name: "Spaziergang", emoji: "🚶"),
-        DropTemplate(name: "Bier", emoji: "🍻"),
-    ]
+    /// Brauchbares ergeben (Erst-User ohne Interests). `var` (nicht `let`)
+    /// damit der Name bei Sprachwechsel zur Laufzeit neu lokalisiert wird.
+    static var universalDefaults: [DropTemplate] {
+        [
+            DropTemplate(name: tr("activity.coffee"), emoji: "☕️"),
+            DropTemplate(name: tr("activity.walk"),   emoji: "🚶"),
+            DropTemplate(name: tr("activity.beer"),   emoji: "🍻"),
+        ]
+    }
 
     /// Mapping von Onboarding-Interest-Keys auf Drop-Vorlagen.
     static func fromInterest(_ key: String) -> DropTemplate? {
         switch key {
-        case "interest.coffee":   return DropTemplate(name: "Kaffee", emoji: "☕️")
-        case "interest.food":     return DropTemplate(name: "Essen gehen", emoji: "🍽")
-        case "interest.sport":    return DropTemplate(name: "Sport", emoji: "🏃")
-        case "interest.music":    return DropTemplate(name: "Konzert", emoji: "🎵")
-        case "interest.cinema":   return DropTemplate(name: "Kino", emoji: "🎬")
-        case "interest.gaming":   return DropTemplate(name: "Gaming", emoji: "🎮")
-        case "interest.shopping": return DropTemplate(name: "Bummeln", emoji: "🛍")
-        case "interest.outdoor":  return DropTemplate(name: "Park-Hangout", emoji: "🌳")
-        case "interest.party":    return DropTemplate(name: "Bier", emoji: "🍻")
-        case "interest.photo":    return DropTemplate(name: "Foto-Walk", emoji: "📸")
-        case "interest.cooking":  return DropTemplate(name: "Brunch", emoji: "🥐")
+        case "interest.coffee":   return DropTemplate(name: tr("activity.coffee"),  emoji: "☕️")
+        case "interest.food":     return DropTemplate(name: tr("activity.food"),    emoji: "🍽")
+        case "interest.sport":    return DropTemplate(name: tr("activity.sport"),   emoji: "🏃")
+        case "interest.music":    return DropTemplate(name: "Konzert",              emoji: "🎵")
+        case "interest.cinema":   return DropTemplate(name: "Kino",                 emoji: "🎬")
+        case "interest.gaming":   return DropTemplate(name: tr("activity.gaming"),  emoji: "🎮")
+        case "interest.shopping": return DropTemplate(name: "Bummeln",              emoji: "🛍")
+        case "interest.outdoor":  return DropTemplate(name: "Park-Hangout",         emoji: "🌳")
+        case "interest.party":    return DropTemplate(name: tr("activity.beer"),    emoji: "🍻")
+        case "interest.photo":    return DropTemplate(name: "Foto-Walk",            emoji: "📸")
+        case "interest.cooking":  return DropTemplate(name: "Brunch",               emoji: "🥐")
         case "interest.travel":   return nil   // Reise passt nicht als Spontan-Drop
         default: return nil
         }
@@ -1443,11 +2290,98 @@ struct DropQuickTemplatesBar: View {
                             )
                             .shadow(color: Color.auroraOrange.opacity(0.30), radius: 8, y: 3)
                         }
-                        .buttonStyle(.plain)
+                        .dropsPressable()
                     }
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 4)   // Damit der Glass-Shadow nicht abgeschnitten wird
+            }
+        }
+    }
+}
+
+// MARK: - Join Celebration Overlay
+//
+// Full-Screen Transition die nach erfolgreichem SwipeToConfirm läuft. Vier
+// Beam-Streifen schießen von Top/Right/Bottom/Left in Richtung Zentrum,
+// treffen sich dort und formen den geschlossenen Dazu-Ring mit orangem Dot.
+// Signal: „Deine Runde entsteht gerade — alle kommen dazu."
+private struct JoinCelebrationOverlay: View {
+    @State private var beamProgress: CGFloat = 0  // 0 = außen, 1 = Zentrum
+    @State private var markScale: CGFloat = 0.2
+    @State private var markOpacity: Double = 0
+    @State private var ringPulse: CGFloat = 1.0
+
+    var body: some View {
+        GeometryReader { geo in
+            let w = geo.size.width
+            let h = geo.size.height
+            let cx = w / 2
+            let cy = h / 2
+            let beamLength: CGFloat = min(w, h) * 0.6
+
+            ZStack {
+                // Dim-Cream-Backdrop
+                Color.brandCream.opacity(0.92)
+                    .ignoresSafeArea()
+
+                // Vier Violett-Beams von den Seiten
+                Group {
+                    beam()  // oben
+                        .offset(x: cx - 2, y: cy - beamLength * (1 - beamProgress) - beamLength / 2)
+                    beam()
+                        .offset(x: cx - 2, y: cy + beamLength * (1 - beamProgress) + beamLength / 2 - beamLength)
+                        .rotationEffect(.degrees(180), anchor: .top)
+                    beam()
+                        .rotationEffect(.degrees(90))
+                        .offset(x: cx - beamLength * (1 - beamProgress) - beamLength / 2, y: cy - 2)
+                    beam()
+                        .rotationEffect(.degrees(-90))
+                        .offset(x: cx + beamLength * (1 - beamProgress) + beamLength / 2 - beamLength, y: cy - 2)
+                }
+                .opacity(1.0 - beamProgress * 0.7)
+
+                // Zentrum: der echte DropsMark mit Dot, baut auf
+                DropsMark(ringColor: .brandViolet, dotColor: .brandOrange, showDot: true)
+                    .frame(width: 180, height: 180)
+                    .scaleEffect(markScale * ringPulse)
+                    .opacity(markOpacity)
+                    .shadow(color: Color.brandViolet.opacity(0.4), radius: 30, y: 10)
+            }
+        }
+        .onAppear { runSequence() }
+    }
+
+    private func beam() -> some View {
+        // Senkrechter Violett-Streifen mit weichen Enden (vertikal gezeichnet,
+        // dann rotiert für die Himmelsrichtungen).
+        Capsule()
+            .fill(
+                LinearGradient(
+                    colors: [Color.brandViolet.opacity(0), Color.brandViolet, Color.brandViolet.opacity(0)],
+                    startPoint: .top, endPoint: .bottom
+                )
+            )
+            .frame(width: 4, height: 220)
+            .blur(radius: 1.5)
+    }
+
+    private func runSequence() {
+        // Phase 1 (0.0–0.55s): Beams fliegen zum Zentrum
+        withAnimation(.easeOut(duration: 0.55)) {
+            beamProgress = 1.0
+        }
+        // Phase 2 (0.35–0.9s): Mark baut sich im Zentrum auf
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.65)) {
+                markScale = 1.0
+                markOpacity = 1.0
+            }
+        }
+        // Phase 3 (0.9s): sanfter Pulse am Ende als Finisher
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+            withAnimation(.easeInOut(duration: 0.4).repeatForever(autoreverses: true)) {
+                ringPulse = 1.05
             }
         }
     }

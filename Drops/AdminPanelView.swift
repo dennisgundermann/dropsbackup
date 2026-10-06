@@ -1,5 +1,6 @@
 import SwiftUI
 import FirebaseAuth
+import FirebaseDatabase
 
 // MARK: - Admin Panel
 
@@ -22,6 +23,10 @@ struct AdminPanelView: View {
     @State private var pendingCommunityCount = 0
     @State private var debugResetToast: String? = nil
     @State private var nameChangeRequests: [RealtimeDBManager.NameChangeRequest] = []
+    // Demo-Drops Toggle: spiegelt /config/demoDropsEnabled in RTDB.
+    // Schreibt direkt zurück bei Toggle-Änderung (admin-only via security rule).
+    @State private var demoDropsEnabled: Bool = true
+    @State private var demoDropsConfigLoaded: Bool = false
 
     enum UserFilter { case all, banned, active, plus }
     enum SortMode: String, CaseIterable, Identifiable {
@@ -158,7 +163,7 @@ struct AdminPanelView: View {
                                 withAnimation(.spring(response: 0.3)) { activeFilter = .all }
                             }
                             AdminStatCard(
-                                title: "Aktive Drops",
+                                title: "Aktive Pläne",
                                 value: "\(s.activeDrops)",
                                 icon: "dot.radiowaves.left.and.right",
                                 color: .green,
@@ -176,7 +181,7 @@ struct AdminPanelView: View {
                                 withAnimation(.spring(response: 0.3)) { activeFilter = .banned }
                             }
                             AdminStatCard(
-                                title: "Drops+",
+                                title: "dazu+",
                                 value: "\(users.filter { $0.isPlusUser }.count)",
                                 icon: "star.fill",
                                 color: .yellow,
@@ -256,13 +261,13 @@ struct AdminPanelView: View {
                                         }
                                     }
                                     .padding(.horizontal, 16).padding(.vertical, 8)
-                                    .background(Color(UIColor.secondarySystemGroupedBackground),
+                                    .background(Color.bgCard,
                                                 in: RoundedRectangle(cornerRadius: 12))
                                     .padding(.horizontal, 16)
                                 }
                                 .padding(.bottom, 8)
                             }
-                            .background(Color(UIColor.systemGroupedBackground),
+                            .background(Color.bgGrouped,
                                         in: RoundedRectangle(cornerRadius: Radius.lg))
                             .padding(.horizontal, 20)
                         }
@@ -306,7 +311,7 @@ struct AdminPanelView: View {
                             .liquidGlass(cornerRadius: 14)
                             .padding(.horizontal, 20)
                         }
-                        .buttonStyle(.plain)
+                        .dropsPressable()
 
                         // Debug: Onboarding-Flags zurücksetzen — für Demo/Testing.
                         // Setzt alle einmaligen Trigger zurück (Konfetti, Push-Reask, Welcome).
@@ -339,7 +344,7 @@ struct AdminPanelView: View {
                             .liquidGlass(cornerRadius: 14)
                             .padding(.horizontal, 20)
                         }
-                        .buttonStyle(.plain)
+                        .dropsPressable()
 
                         // Power-Hour Force-Toggle: zwingt Power-Hour permanent
                         // an, unabhängig von Wochentag/Uhrzeit. Praktisch zum
@@ -373,6 +378,65 @@ struct AdminPanelView: View {
                         .liquidGlass(cornerRadius: 14)
                         .padding(.horizontal, 20)
 
+                        // Demo-Drops-Toggle: schreibt /config/demoDropsEnabled.
+                        // Cloud Function seedDemoDrops liest den Flag bei jedem
+                        // Cron-Run (stündlich). Off → keine neuen Demos mehr;
+                        // bestehende werden via 4h-TTL natürlich ausgeräumt.
+                        HStack(spacing: 12) {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: Radius.md)
+                                    .fill(Color.brand.opacity(0.15))
+                                    .frame(width: 40, height: 40)
+                                Image(systemName: "sparkles")
+                                    .font(.system(size: 18, weight: .semibold))
+                                    .foregroundColor(.brand)
+                            }
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Demo-Pläne")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundColor(.textPrimary)
+                                Text(demoDropsEnabled
+                                     ? "Aktiv — stündlich ~15-25 Ghosts in 5 Städten"
+                                     : "Aus — keine neuen Demos werden generiert")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.textSecondary)
+                            }
+                            Spacer()
+                            Toggle("", isOn: Binding(
+                                get: { demoDropsEnabled },
+                                set: { newVal in
+                                    demoDropsEnabled = newVal
+                                    // Nicht schreiben bevor der Initial-Load fertig ist
+                                    // (sonst überschreibt der Default-true den Server-Wert).
+                                    guard demoDropsConfigLoaded else { return }
+                                    Database.database()
+                                        .reference()
+                                        .child("config")
+                                        .child("demoDropsEnabled")
+                                        .setValue(newVal)
+                                }
+                            ))
+                            .tint(.brand)
+                            .labelsHidden()
+                            .disabled(!demoDropsConfigLoaded)
+                        }
+                        .padding(12)
+                        .liquidGlass(cornerRadius: 14)
+                        .padding(.horizontal, 20)
+                        .onAppear {
+                            // Aktuellen Server-Wert holen (default true falls Knoten fehlt).
+                            Database.database()
+                                .reference()
+                                .child("config")
+                                .child("demoDropsEnabled")
+                                .observeSingleEvent(of: .value) { snap in
+                                    let raw = snap.value
+                                    if let b = raw as? Bool { demoDropsEnabled = b }
+                                    else { demoDropsEnabled = true }
+                                    demoDropsConfigLoaded = true
+                                }
+                        }
+
                         // Live Drops Monitor — öffnet Sheet
                         Button {
                             showDropsMonitor = true
@@ -387,10 +451,10 @@ struct AdminPanelView: View {
                                         .foregroundColor(.brand)
                                 }
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text("Live Drops Monitor")
+                                    Text("Live-Monitor")
                                         .font(.system(size: 15, weight: .semibold))
                                         .foregroundColor(.textPrimary)
-                                    Text("Aktuelle Drops anschauen & moderieren")
+                                    Text("Aktuelle Pläne anschauen & moderieren")
                                         .font(.system(size: 12))
                                         .foregroundColor(.textSecondary)
                                 }
@@ -403,9 +467,10 @@ struct AdminPanelView: View {
                             .liquidGlass(cornerRadius: 14)
                             .padding(.horizontal, 20)
                         }
-                        .buttonStyle(.plain)
+                        .dropsPressable()
 
                         // Community-Anträge — Creator-Bewerbungen genehmigen/ablehnen
+                        if FeatureFlags.communitiesEnabled {
                         Button {
                             showCommunityRequests = true
                         } label: {
@@ -446,7 +511,8 @@ struct AdminPanelView: View {
                             .liquidGlass(cornerRadius: 14)
                             .padding(.horizontal, 20)
                         }
-                        .buttonStyle(.plain)
+                        .dropsPressable()
+                        }
                     }
 
                     // ── Suchfeld ──────────────────────────────────────────
@@ -624,10 +690,10 @@ struct AdminPanelView: View {
                         selectedUser = nil
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
                             confirmAction = ConfirmAction(
-                                title: user.isPlusUser ? "Drops+ entziehen" : "Drops+ freischalten",
+                                title: user.isPlusUser ? "dazu+ entziehen" : "dazu+ freischalten",
                                 message: user.isPlusUser
                                     ? "\(user.name) den Plus-Zugang entziehen?"
-                                    : "\(user.name) Drops+ kostenlos freischalten?",
+                                    : "\(user.name) dazu+ kostenlos freischalten?",
                                 destructive: user.isPlusUser,
                                 action: {
                                     let newPlus = !user.isPlusUser
@@ -651,8 +717,8 @@ struct AdminPanelView: View {
                         selectedUser = nil
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
                             confirmAction = ConfirmAction(
-                                title: "Drop beenden",
-                                message: "Den aktiven Drop von \(user.name) sofort beenden?",
+                                title: "Plan beenden",
+                                message: "Den aktiven Plan von \(user.name) sofort beenden?",
                                 destructive: true,
                                 action: {
                                     guard let dropID = user.activeDropID else { return }
@@ -804,11 +870,11 @@ private struct AdminUserDetailSheet: View {
                                 AdminBadge(text: city, icon: "mappin.circle.fill", color: .blue)
                             }
                             if user.hasActiveDrop {
-                                AdminBadge(text: user.activeDropActivity ?? "Drop aktiv",
+                                AdminBadge(text: user.activeDropActivity ?? "Plan aktiv",
                                            icon: "dot.radiowaves.left.and.right", color: .green)
                             }
                             if user.isPlusUser {
-                                AdminBadge(text: "Drops+", icon: "star.fill", color: .yellow)
+                                AdminBadge(text: "dazu+", icon: "star.fill", color: .yellow)
                             }
                             if user.isAdmin {
                                 AdminBadge(text: "Admin", icon: "star.fill", color: .orange)
@@ -845,14 +911,14 @@ private struct AdminUserDetailSheet: View {
                         if let endDrop = onEndDrop {
                             DetailActionButton(
                                 icon: "xmark.circle.fill",
-                                label: "Drop beenden (\(user.activeDropActivity ?? "Aktiv"))",
+                                label: "Plan beenden (\(user.activeDropActivity ?? "Aktiv"))",
                                 color: .accentOrange,
                                 action: endDrop
                             )
                         }
                         DetailActionButton(
                             icon: user.isPlusUser ? "star.slash.fill" : "star.fill",
-                            label: user.isPlusUser ? "Drops+ entziehen" : "Drops+ freischalten",
+                            label: user.isPlusUser ? "dazu+ entziehen" : "dazu+ freischalten",
                             color: .yellow,
                             action: onTogglePlus
                         )
@@ -915,7 +981,7 @@ private struct AdminUserDetailSheet: View {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(.accentOrange)
                     .frame(width: 18)
-                Text("Erstellte Drops")
+                Text("Erstellte Pläne")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(.textTertiary)
                     .kerning(0.4)
@@ -935,7 +1001,7 @@ private struct AdminUserDetailSheet: View {
                 if loadingDrops {
                     HStack {
                         ProgressView().tint(.brand)
-                        Text("Lade Drops…")
+                        Text("Lade Pläne…")
                             .font(.system(size: 13))
                             .foregroundColor(.textSecondary)
                     }
@@ -947,7 +1013,7 @@ private struct AdminUserDetailSheet: View {
                             .font(.system(size: 16))
                             .foregroundColor(.textTertiary)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Keine Drops in Firebase")
+                            Text("Keine Pläne in Firebase")
                                 .font(.system(size: 13, weight: .semibold))
                                 .foregroundColor(.textPrimary)
                             Text("User hat entweder keinen erstellt oder alle wurden via Cancel gelöscht.")
@@ -970,7 +1036,7 @@ private struct AdminUserDetailSheet: View {
             .padding(.horizontal, 20)
 
             // Footnote — Cancel-Drops sind weg, das soll klar sein.
-            Text("Hinweis: vom Host beendete Drops werden aus der DB gelöscht und erscheinen hier nicht.")
+            Text("Hinweis: vom Host beendete Pläne werden aus der DB gelöscht und erscheinen hier nicht.")
                 .font(.system(size: 11))
                 .foregroundColor(.textTertiary)
                 .padding(.horizontal, 24).padding(.top, 4)
@@ -1076,7 +1142,7 @@ private struct DetailActionButton: View {
             .padding(.vertical, 14)
             .background(color.opacity(0.10), in: RoundedRectangle(cornerRadius: Radius.card))
         }
-        .buttonStyle(.plain)
+        .dropsPressable()
     }
 }
 
@@ -1116,7 +1182,7 @@ private struct AdminStatCard: View {
                     .stroke(isActive ? color.opacity(0.5) : Color.clear, lineWidth: 1.5)
             )
         }
-        .buttonStyle(.plain)
+        .dropsPressable()
     }
 }
 
@@ -1191,7 +1257,7 @@ private struct AdminUserCard: View {
             .padding(.vertical, 12)
             .liquidGlass(cornerRadius: 16)
         }
-        .buttonStyle(.plain)
+        .dropsPressable()
     }
 }
 
@@ -1397,7 +1463,7 @@ private struct AdminReportCard: View {
                             .padding(.horizontal, 10).padding(.vertical, 6)
                             .background(Color.brand.opacity(0.12), in: Capsule())
                     }
-                    .buttonStyle(.plain)
+                    .dropsPressable()
 
                     Button {
                         onSetStatus("dismissed")
@@ -1408,7 +1474,7 @@ private struct AdminReportCard: View {
                             .padding(.horizontal, 10).padding(.vertical, 6)
                             .background(Color.textSecondary.opacity(0.12), in: Capsule())
                     }
-                    .buttonStyle(.plain)
+                    .dropsPressable()
 
                     Spacer()
 
@@ -1422,7 +1488,7 @@ private struct AdminReportCard: View {
                                 .padding(.horizontal, 10).padding(.vertical, 6)
                                 .background(Color.accentRed.opacity(0.12), in: Capsule())
                         }
-                        .buttonStyle(.plain)
+                        .dropsPressable()
                     }
                 }
             }
@@ -1513,8 +1579,8 @@ struct AdminDropsMonitorSheet: View {
                             .font(.system(size: 36))
                             .foregroundColor(.textTertiary)
                         Text(cityFilter == "Alle"
-                             ? "Keine aktiven Drops"
-                             : "Keine Drops in \(cityFilter)")
+                             ? "Keine aktiven Pläne"
+                             : "Keine Pläne in \(cityFilter)")
                             .font(.system(size: 14))
                             .foregroundColor(.textSecondary)
                     }
@@ -1532,7 +1598,7 @@ struct AdminDropsMonitorSheet: View {
                     }
                 }
             }
-            .navigationTitle("Live Drops")
+            .navigationTitle("Live Pläne")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -1691,7 +1757,7 @@ private struct AdminEndDropReasonSheet: View {
                                                 : Color.clear, lineWidth: 1.5)
                                 )
                             }
-                            .buttonStyle(.plain)
+                            .dropsPressable()
                         }
                     }
 
@@ -1716,7 +1782,7 @@ private struct AdminEndDropReasonSheet: View {
                 .padding(.top, 6)
                 .padding(.bottom, 90) // Platz für Footer-Buttons
             }
-            .navigationTitle("Drop entfernen")
+            .navigationTitle("Plan entfernen")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -1737,7 +1803,7 @@ private struct AdminEndDropReasonSheet: View {
                     .padding(.vertical, 14)
                     .background(canConfirm ? Color.accentRed : Color.gray, in: Capsule())
                 }
-                .buttonStyle(.plain)
+                .dropsPressable()
                 .disabled(!canConfirm)
                 .padding(.horizontal, 18)
                 .padding(.bottom, 14)
@@ -1765,7 +1831,7 @@ private struct AdminDropCard: View {
                 .background(Color.brand.opacity(0.12), in: RoundedRectangle(cornerRadius: Radius.md))
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(drop.activityName.isEmpty ? "Drop" : drop.activityName)
+                Text(drop.activityName.isEmpty ? "Plan" : drop.activityName)
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(.textPrimary)
                     .lineLimit(1)
@@ -1801,7 +1867,7 @@ private struct AdminDropCard: View {
                     .frame(width: 36, height: 36)
                     .background(Color.accentRed.opacity(0.12), in: Circle())
             }
-            .buttonStyle(.plain)
+            .dropsPressable()
         }
         .padding(14)
         .liquidGlass(cornerRadius: 14)

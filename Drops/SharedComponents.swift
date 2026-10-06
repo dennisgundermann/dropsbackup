@@ -69,118 +69,40 @@ struct RemoteProfileImage: View {
 // MARK: – Gemeinsamer Aurora-Hintergrund (Login, Welcome, Registrierung)
 
 struct AppAuroraBackground: View {
-    var isLight: Bool? = nil          // nil → folgt System-ColorScheme
+    var isLight: Bool? = nil
     @Environment(\.colorScheme) var cs
-    @State private var a = false
-    @AppStorage("appLanguage") private var appLanguage = "de"
-
     private var light: Bool { isLight ?? (cs == .light) }
-
-    /// Drop-Pulse: jeder Aurora-Kreis leuchtet nacheinander stärker auf
-    /// (wie ein "Drop", der durch die Farben rippt). Voller Loop in 10s,
-    /// also 2s pro Kreis. Boost = +60% Opacity am Peak, glättet sich mit
-    /// sin-Kurve aus.
-    private static let pulseCycle: Double = 10.0
-    private static let circleCount: Int = 5
-    private static let pulseBoost: Double = 0.6   // 0=aus, 1=verdoppelt
-
-    /// Berechnet 0..1 wie stark Kreis `i` gerade gepulst ist.
-    /// Spitze bei `(i + 0.5) * stepDuration`, sin²-Glättung.
-    private static func pulse(forCircle i: Int, at elapsed: Double) -> Double {
-        let step = pulseCycle / Double(circleCount)
-        let phase = elapsed.truncatingRemainder(dividingBy: pulseCycle)
-        let center = (Double(i) + 0.5) * step
-        // Distanz zum Peak (mit Wrap-around damit der letzte Kreis am
-        // Ende+Anfang nicht abrupt cuttet)
-        var dist = abs(phase - center)
-        if dist > pulseCycle / 2 { dist = pulseCycle - dist }
-        let halfWidth = step * 0.85
-        if dist > halfWidth { return 0 }
-        // sin² → smooth peak, klingt sauber an den Rändern aus
-        let t = (1 - dist / halfWidth)  // 1 am Peak, 0 am Rand
-        return sin(.pi * 0.5 * t) * sin(.pi * 0.5 * t)
-    }
 
     var body: some View {
         ZStack {
-            // Basisfarbe füllt den gesamten Bildschirm inkl. Safe Areas
-            (light ? Color(hex: "f5f7fe") : Color(hex: "0d0f14"))
+            // Base: Creme (Light) oder Nacht (Dark)
+            (light ? Color.brandCream : Color.brandNightFixed)
                 .ignoresSafeArea()
 
-            // Aurora-Kreise: GeometryReader mit ignoresSafeArea liest den
-            // vollen Bildschirm. Die Kreise werden exakt am Bildschirm-
-            // Mittelpunkt verankert. .clipped() verhindert Overflow.
-            GeometryReader { _ in
-                TimelineView(.animation) { timeline in
-                    let elapsed = timeline.date.timeIntervalSinceReferenceDate
-                    // Per-Kreis Pulse-Intensität 0..1 berechnen
-                    let p0 = Self.pulse(forCircle: 0, at: elapsed)
-                    let p1 = Self.pulse(forCircle: 1, at: elapsed)
-                    let p2 = Self.pulse(forCircle: 2, at: elapsed)
-                    let p3 = Self.pulse(forCircle: 3, at: elapsed)
-                    let p4 = Self.pulse(forCircle: 4, at: elapsed)
+            // Statische farbige Akzente — subtil, keine Animation.
+            // Links oben: Violett-Hauch (Logo-Farbe).
+            // Rechts unten: Orange-Hauch (Dot-Farbe).
+            // Beide sehr weich und mit viel Blur → Hintergrund wirkt lebendig
+            // ohne zu bewegen oder abzulenken.
+            GeometryReader { geo in
+                ZStack {
+                    Circle()
+                        .fill(Color.brandViolet.opacity(light ? 0.14 : 0.22))
+                        .frame(width: 420, height: 420)
+                        .blur(radius: 120)
+                        .offset(x: -geo.size.width * 0.25,
+                                y: -geo.size.height * 0.20)
 
-                    ZStack {
-                        // Aurora-Sunset Palette — Orange + Grün als Anker
-                        // (aus dem App-Icon), plus drei weiche Akzent-
-                        // Farben (Rose, Gold, Lavender) für mehr visuelle
-                        // Tiefe und Aurora-Feel ohne den warmen Charakter
-                        // zu verlieren. Bewusst weiche, gedämpfte Töne —
-                        // nicht knall-bunt.
-                        //
-                        // Kreis 1 — Orange (top-left, dominant) wie Icon-Top
-                        Circle()
-                            .fill(Color.auroraOrange.opacity((light ? 0.74 : 0.58) * (1 + Self.pulseBoost * p0)))
-                            .frame(width: 520 * (1 + 0.06 * p0))
-                            .offset(x: a ? -130 : -80, y: a ? -370 : -320)
-                            .blur(radius: 90)
-                        // Kreis 2 — Soft Rose/Pink (top-right) — warmer
-                        // Sunset-Hauch, bricht das reine Orange auf
-                        Circle()
-                            .fill(Color.auroraPink.opacity((light ? 0.58 : 0.46) * (1 + Self.pulseBoost * p1)))
-                            .frame(width: 460 * (1 + 0.06 * p1))
-                            .offset(x: a ? 160 : 110, y: a ? -350 : -300)
-                            .blur(radius: 85)
-                        // Kreis 3 — Grün (bottom-left, dominant) wie Icon-Bottom
-                        Circle()
-                            .fill(Color.auroraGreen.opacity((light ? 0.60 : 0.46) * (1 + Self.pulseBoost * p2)))
-                            .frame(width: 420 * (1 + 0.06 * p2))
-                            .offset(x: a ? -150 : -100, y: a ? 420 : 370)
-                            .blur(radius: 80)
-                        // Kreis 4 — Soft Lavender (bottom-right) — kühler
-                        // Aurora-Akzent, balanciert das warme Top-Drittel
-                        Circle()
-                            .fill(Color.auroraViolet.opacity((light ? 0.50 : 0.40) * (1 + Self.pulseBoost * p3)))
-                            .frame(width: 380 * (1 + 0.06 * p3))
-                            .offset(x: a ? 140 : 90, y: a ? 400 : 350)
-                            .blur(radius: 75)
-                        // Kreis 5 — Warm Gold (center) — Sun-Glow als
-                        // weiche Übergangsfarbe zwischen Orange-Top und
-                        // Grün-Bottom. Setzt die Mitte „in Licht".
-                        Circle()
-                            .fill(Color.auroraAmber.opacity((light ? 0.44 : 0.32) * (1 + Self.pulseBoost * p4)))
-                            .frame(width: 260 * (1 + 0.06 * p4))
-                            .offset(x: a ? 20 : -20, y: a ? 40 : 80)
-                            .blur(radius: 60)
-                    }
-                    .frame(
-                        width: UIScreen.main.bounds.width,
-                        height: UIScreen.main.bounds.height
-                    )
-                    .position(
-                        x: UIScreen.main.bounds.width / 2,
-                        y: UIScreen.main.bounds.height / 2
-                    )
-                    .clipped()
+                    Circle()
+                        .fill(Color.brandOrange.opacity(light ? 0.12 : 0.18))
+                        .frame(width: 360, height: 360)
+                        .blur(radius: 110)
+                        .offset(x: geo.size.width * 0.30,
+                                y: geo.size.height * 0.35)
                 }
             }
-            .ignoresSafeArea() // GeometryReader bekommt vollen Bildschirm, NICHT nur Safe-Area
-        }
-        // Kein .ignoresSafeArea() auf dem äußeren ZStack — Layout-Rahmen für
-        // Inhalte in Parent-ZStacks bleibt korrekt
-        .allowsHitTesting(false)
-        .onAppear {
-            withAnimation(.easeInOut(duration: 6).repeatForever(autoreverses: true)) { a = true }
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
         }
     }
 }
@@ -255,12 +177,12 @@ struct PushPermissionBanner: View {
                     .frame(width: 22, height: 22)
                     .background(Circle().fill(Color.primary.opacity(0.06)))
             }
-            .buttonStyle(.plain)
+            .dropsPressable()
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
         .background(
             RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
-                .fill(.ultraThinMaterial)
+                .fill(Color.white.opacity(0.75))
                 .overlay(
                     RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
                         .stroke(Color.auroraOrange.opacity(0.3), lineWidth: 1)
@@ -292,48 +214,58 @@ struct RadarPulseHero: View {
     /// grünen Ring) für engere Layouts wie FreundeEmptyState.
     var ringCount: Int = 3
 
+    @AppStorage("ud_profileHeroTemplate") private var templateRaw = ProfileHeroTemplate.aurora.rawValue
+    private var template: ProfileHeroTemplate {
+        ProfileHeroTemplate(rawValue: templateRaw) ?? .aurora
+    }
+    private var c0: Color { template.colors.first ?? .auroraOrange }
+    private var c1: Color { template.colors.last  ?? .auroraGreen  }
+
     @State private var pulse0 = false
     @State private var pulse1 = false
     @State private var pulse2 = false
 
     var body: some View {
         ZStack {
-            // Innerster Ring — Orange, kräftigste Sichtbarkeit
+            // Innerster Ring
             Circle()
-                .stroke(Color.auroraOrange.opacity(0.16), lineWidth: 1)
+                .stroke(c0.opacity(0.30), lineWidth: 1.2)
                 .frame(width: 116 * scale, height: 116 * scale)
                 .scaleEffect(pulse0 ? 1.06 : 0.96)
             // Mittlerer Ring
             Circle()
-                .stroke(Color.auroraOrange.opacity(0.10), lineWidth: 1)
+                .stroke(c0.opacity(0.18), lineWidth: 1)
                 .frame(width: 160 * scale, height: 160 * scale)
                 .scaleEffect(pulse1 ? 1.05 : 0.97)
-            // Äußerer Ring — Grün, weichste Sichtbarkeit
+            // Äußerer Ring
             if ringCount >= 3 {
                 Circle()
-                    .stroke(Color.auroraGreen.opacity(0.08), lineWidth: 1)
+                    .stroke(c1.opacity(0.16), lineWidth: 1)
                     .frame(width: 204 * scale, height: 204 * scale)
                     .scaleEffect(pulse2 ? 1.04 : 0.97)
             }
-            // Center: Gradient-Circle + SF-Symbol
+            // Center: Material-Basis + Template-Gradient + Icon
             ZStack {
+                Circle()
+                    .fill(Color.white.opacity(0.75))
+                    .frame(width: 72 * scale, height: 72 * scale)
                 Circle()
                     .fill(
                         LinearGradient(
-                            colors: [Color.auroraOrange.opacity(0.18),
-                                     Color.auroraGreen.opacity(0.14)],
+                            colors: [c0.opacity(0.30), c1.opacity(0.22)],
                             startPoint: .topLeading, endPoint: .bottomTrailing
                         )
                     )
                     .frame(width: 72 * scale, height: 72 * scale)
                 Image(systemName: icon)
-                    .font(.system(size: 28 * scale, weight: .medium))
+                    .font(.system(size: 28 * scale, weight: .semibold))
                     .foregroundStyle(
                         LinearGradient(
-                            colors: [Color.auroraOrange, Color.auroraGreen],
+                            colors: [c0, c1],
                             startPoint: .topLeading, endPoint: .bottomTrailing
                         )
                     )
+                    .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
             }
         }
         .frame(width: 180 * scale, height: 180 * scale)
@@ -486,19 +418,23 @@ struct DropsEmptyState: View {
     @AppStorage("appLanguage") private var appLanguage = "de"
 
     var body: some View {
-        VStack(spacing: 20) {
-            RadarPulseHero(icon: "binoculars.fill")
+        VStack(spacing: 28) {
+            // Rotierendes Drops-Mark (echtes App-Icon-Zeichen, ohne „du"-Dot
+            // — niemand ist da, der Ring dreht sich und wartet).
+            RotatingDropsMark(size: 92)
+                .padding(.top, 8)
 
-            VStack(spacing: 6) {
+            VStack(spacing: 12) {
                 Text(tr("shared.feed_empty_title"))
-                    .font(.system(size: 17, weight: .bold, design: .rounded))
-                    .foregroundColor(.textPrimary)
-                Text(tr("shared.feed_empty_body"))
-                    .font(.system(size: 13))
-                    .foregroundColor(.textTertiary)
+                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                    .foregroundColor(.brandNight)
                     .multilineTextAlignment(.center)
-                    .lineSpacing(3)
-                    .padding(.horizontal, 32)
+                Text(tr("shared.feed_empty_body"))
+                    .font(.system(size: 15, weight: .medium, design: .rounded))
+                    .foregroundColor(.brandNight.opacity(0.55))
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(4)
+                    .padding(.horizontal, 40)
 
                 // Boost-Bonus-Zeile — sichtbar wenn Boost-Phase aktiv ist.
                 // Schmale Capsule mit Bolt-Icon + Hinweis auf die +15
@@ -529,28 +465,227 @@ struct DropsEmptyState: View {
 
             if let action = onCreateTap {
                 Button(action: action) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.system(size: 16, weight: .semibold))
-                        Text(tr("shared.create_drop"))
-                            .font(.system(size: 15, weight: .bold, design: .rounded))
+                    HStack(spacing: 10) {
+                        // „du"-Dot aus dem Logo — Orange Signal links.
+                        Circle()
+                            .fill(Color.brandOrange)
+                            .frame(width: 10, height: 10)
+                            .shadow(color: Color.brandOrange.opacity(0.6), radius: 4)
+                        Text("Starte eine Runde")
+                            .font(.system(size: 16, weight: .bold, design: .rounded))
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: 13, weight: .heavy))
                     }
                     .foregroundColor(.white)
-                    .padding(.horizontal, 22).padding(.vertical, 12)
-                    .background(
-                        Capsule().fill(
-                            LinearGradient(
-                                colors: [Color.auroraOrange, Color.auroraGreen],
-                                startPoint: .leading, endPoint: .trailing
-                            )
-                        )
-                    )
-                    .shadow(color: Color.auroraOrange.opacity(0.35), radius: 10, y: 4)
+                    .padding(.horizontal, 22).padding(.vertical, 15)
+                    .background(Capsule().fill(Color.brandViolet))
                 }
-                .buttonStyle(.plain)
+                .dropsPressable()
                 .padding(.top, 6)
             }
         }
+    }
+}
+
+// MARK: - Orbiting Dot Mark
+//
+// MARK: - Swipe-to-Confirm (Komm dazu)
+//
+// Große Swipe-Capsule mit Violett→Orange-Gradient. Links sitzt ein weißes
+// Handle mit der JoinMorphMark — während der User nach rechts zieht, läuft
+// der progress 0→1 und der offene Ring schließt sich live mit der Geste.
+// Bei ≥85% schnappt der Handle ans Ende, der Ring ist komplett geschlossen,
+// und `onConfirm` feuert. Loslassen vorher = federt zurück.
+struct SwipeToConfirm: View {
+    var label: String = "Komm dazu"
+    /// Steuert ob das Swipen überhaupt möglich ist. True auch dann, wenn
+    /// `canConfirm` false ist — der User kann die Morph-Animation auslösen,
+    /// aber am Ende rastet der Handle nicht ein (federt zurück).
+    var isEnabled: Bool = true
+    /// Darf der onConfirm beim vollständigen Swipe tatsächlich feuern?
+    /// Wenn false federt der Handle zurück statt zu rasten.
+    var canConfirm: Bool = true
+    var onConfirm: () -> Void
+
+    @State private var dragX: CGFloat = 0
+    @State private var confirmed: Bool = false
+    @State private var pulse: CGFloat = 1.0
+    @State private var dotBreathe: CGFloat = 1.0
+    private let handleSize: CGFloat = 52
+    private let height: CGFloat = 68
+    private let horizontalPadding: CGFloat = 8
+
+    var body: some View {
+        GeometryReader { geo in
+            let maxDrag = max(geo.size.width - handleSize - horizontalPadding * 2, 1)
+            let progress = min(max(dragX / maxDrag, 0), 1)
+
+            ZStack(alignment: .leading) {
+                // Track — Violett→Orange Verlauf
+                Capsule()
+                    .fill(Color.brandViolet)
+                    .shadow(color: Color.brandViolet.opacity(0.3), radius: 14, y: 5)
+
+                // Light-Sweep-Overlay (bewegt sich sanft über die Capsule)
+                // signalisiert „hier swipen", damit es nicht wie ein Button
+                // wirkt. Fadet raus wenn User anfängt zu ziehen.
+                Capsule()
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.0),
+                                     Color.white.opacity(0.22),
+                                     Color.white.opacity(0.0)],
+                            startPoint: .leading, endPoint: .trailing
+                        )
+                    )
+                    .scaleEffect(x: 0.35, y: 1, anchor: .leading)
+                    .offset(x: (geo.size.width + 60) * (pulse - 0.5))
+                    .mask(Capsule())
+                    .opacity(1.0 - progress)
+                    .allowsHitTesting(false)
+
+                // Label (verblasst mit progress)
+                Text(label)
+                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                    .foregroundColor(.white.opacity(1.0 - progress * 0.9))
+                    .frame(maxWidth: .infinity)
+                    .padding(.leading, handleSize * 0.6)
+                    .allowsHitTesting(false)
+
+                // Hint-Pfeile rechts (zwei, wie bei iOS „slide to unlock")
+                HStack(spacing: 2) {
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .foregroundColor(.white.opacity(0.55 * (1.0 - progress)))
+                    Image(systemName: "chevron.right")
+                        .foregroundColor(.white.opacity(0.85 * (1.0 - progress)))
+                }
+                .font(.system(size: 14, weight: .heavy))
+                .padding(.trailing, 22)
+                .allowsHitTesting(false)
+
+                // Swipeable Handle = der orangene „du"-Dot aus dem Logo.
+                // Metapher: der Dot swiped nach rechts, kommt zur Runde dazu
+                // (schließt am Ende den offenen Ring). Pulsiert sanft im
+                // Ruhezustand als „komm, drück mich" — Signal.
+                ZStack {
+                    // Soft outer glow (orange halo)
+                    Circle()
+                        .fill(Color.brandOrange.opacity(0.35))
+                        .frame(width: handleSize + 14, height: handleSize + 14)
+                        .blur(radius: 8)
+                        .scaleEffect(dotBreathe)
+
+                    // Core Dot
+                    Circle()
+                        .fill(Color.brandOrange)
+                        .frame(width: handleSize, height: handleSize)
+                        .shadow(color: Color.brandOrange.opacity(0.55), radius: 10, y: 3)
+                        .scaleEffect(dotBreathe * (1.0 + (dragX > 0 ? 0.05 : 0)))
+                }
+                .offset(x: horizontalPadding + dragX)
+                .animation(.spring(response: 0.3, dampingFraction: 0.8), value: dragX > 0)
+            }
+            // Geste auf dem GESAMTEN Track — der User kann irgendwo im Track
+            // starten und swipen, nicht nur am Handle. Fühlt sich natürlicher an.
+            .contentShape(Capsule())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        guard isEnabled, !confirmed else { return }
+                        dragX = min(max(value.translation.width, 0), maxDrag)
+                    }
+                    .onEnded { _ in
+                        guard isEnabled, !confirmed else { return }
+                        if dragX >= maxDrag * 0.82 && canConfirm {
+                            withAnimation(.spring(response: 0.4, dampingFraction: 0.78)) {
+                                dragX = maxDrag
+                            }
+                            confirmed = true
+                            Haptic.selection()
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                                onConfirm()
+                            }
+                        } else {
+                            // Zurückfedern — bei Teil-Swipe oder wenn
+                            // canConfirm=false (Formular unvollständig).
+                            withAnimation(.spring(response: 0.5, dampingFraction: 0.72)) {
+                                dragX = 0
+                            }
+                            if dragX >= maxDrag * 0.82 && !canConfirm {
+                                // Kurzer „Nein"-Shake-Impuls als Feedback.
+                                Haptic.selection()
+                            }
+                        }
+                    }
+            )
+        }
+        .frame(height: height)
+        .onAppear {
+            // Light-Sweep-Loop für die „swipebar"-Signalisierung.
+            withAnimation(.easeInOut(duration: 2.2).repeatForever(autoreverses: false)) {
+                pulse = 1.5
+            }
+            // Breath-Pulse auf dem orangen Dot — lebendig, lockt zum Swipen.
+            withAnimation(.easeInOut(duration: 1.3).repeatForever(autoreverses: true)) {
+                dotBreathe = 1.08
+            }
+        }
+    }
+
+    /// Reset von außen falls der Submit abbricht (z.B. HomeZoneWarningSheet).
+    static let resetNotification = Notification.Name("SwipeToConfirm.reset")
+}
+
+// MARK: - Rotating Drops Mark (Empty State)
+//
+// Für Empty-States: nur der offene violette Kreis (ohne „a"-Stamm) steht
+// still, der orangene „du"-Dot kreist drumherum und sucht einen Anschluss.
+// Signal: „wir scannen die Umgebung — niemand ist bisher dran".
+private struct RotatingDropsMark: View {
+    var size: CGFloat = 92
+    @State private var spin: Double = 0
+
+    var body: some View {
+        ZStack {
+            // Offener Ring (gleiche Geometrie wie AppIcon: r=78, Strich 40,
+            // Lücke oben rechts), aber OHNE Stamm.
+            OpenRingShape()
+                .fill(Color.brandViolet)
+                .frame(width: size, height: size)
+
+            // Oranger Dot auf Kreisbahn: Dot sitzt rechts vom Zentrum
+            // (.offset.x = Radius), der ganze Container rotiert um die
+            // Mitte — so wandert der Dot sauber um den Ring.
+            ZStack {
+                Circle()
+                    .fill(Color.brandOrange)
+                    .frame(width: size * 0.21, height: size * 0.21)
+                    .shadow(color: Color.brandOrange.opacity(0.5), radius: 6, y: 2)
+                    .offset(x: size * 0.46)
+            }
+            .frame(width: size, height: size)
+            .rotationEffect(.degrees(spin))
+        }
+        .onAppear {
+            // Linear + repeatForever auf rotationEffect = sauberer Dauer-Orbit.
+            withAnimation(.linear(duration: 5).repeatForever(autoreverses: false)) {
+                spin = 360
+            }
+        }
+    }
+}
+
+/// Nur der offene Ring aus dem AppIcon — ohne den „a"-Stamm.
+private struct OpenRingShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        let s = min(rect.width, rect.height) / 256.0
+        var arc = Path()
+        arc.addArc(center: CGPoint(x: rect.midX, y: rect.midY),
+                   radius: 78 * s,
+                   startAngle: .degrees(-1.16), endAngle: .degrees(265.16),
+                   clockwise: false)
+        return arc.strokedPath(StrokeStyle(lineWidth: 40 * s, lineCap: .round))
     }
 }
 
@@ -567,23 +702,20 @@ struct FreundeEmptyState: View {
     @AppStorage("appLanguage") private var appLanguage = "de"
 
     var body: some View {
-        VStack(spacing: 20) {
-            // person.2.fill ist semantisch positiver als person.2.slash —
-            // signalisiert "Freunde finden" statt "keine Freunde".
-            // Kompakte 2-Ring-Variante des RadarPulseHero (ohne äußersten
-            // grünen Ring) damit der Empty-State knapp bleibt.
+        VStack(spacing: 28) {
             RadarPulseHero(icon: "person.2.fill", ringCount: 2)
 
-            VStack(spacing: 6) {
+            VStack(spacing: 12) {
                 Text(tr("shared.no_friends_title"))
-                    .font(.system(size: 17, weight: .bold, design: .rounded))
-                    .foregroundColor(.textPrimary)
-                Text(tr("shared.no_friends_body"))
-                    .font(.system(size: 13))
-                    .foregroundColor(.textSecondary)
+                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                    .foregroundColor(.brandNight)
                     .multilineTextAlignment(.center)
-                    .lineSpacing(3)
-                    .padding(.horizontal, 32)
+                Text(tr("shared.no_friends_body"))
+                    .font(.system(size: 15, weight: .medium, design: .rounded))
+                    .foregroundColor(.brandNight.opacity(0.55))
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(4)
+                    .padding(.horizontal, 40)
             }
 
             // CTA-Buttons — primär „Kontakte" (häufigster Pfad), sekundär
@@ -594,24 +726,16 @@ struct FreundeEmptyState: View {
                     if let action = onAddFromContacts {
                         Button(action: action) {
                             HStack(spacing: 8) {
-                                Image(systemName: "person.crop.circle.badge.plus")
-                                    .font(.system(size: 15, weight: .semibold))
                                 Text(tr("shared.add_from_contacts"))
-                                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                                Image(systemName: "arrow.right")
+                                    .font(.system(size: 13, weight: .heavy))
                             }
                             .foregroundColor(.white)
-                            .padding(.horizontal, 18).padding(.vertical, 11)
-                            .background(
-                                Capsule().fill(
-                                    LinearGradient(
-                                        colors: [Color.auroraOrange, Color.auroraGreen],
-                                        startPoint: .leading, endPoint: .trailing
-                                    )
-                                )
-                            )
-                            .shadow(color: Color.auroraOrange.opacity(0.35), radius: 10, y: 3)
+                            .padding(.horizontal, 26).padding(.vertical, 14)
+                            .background(Capsule().fill(Color.brandViolet))
                         }
-                        .buttonStyle(.plain)
+                        .dropsPressable()
                     }
                     if let share = onShareInvite {
                         Button(action: share) {
@@ -625,7 +749,7 @@ struct FreundeEmptyState: View {
                             .padding(.horizontal, 14).padding(.vertical, 9)
                             .background(Capsule().fill(Color.brand.opacity(0.10)))
                         }
-                        .buttonStyle(.plain)
+                        .dropsPressable()
                     }
                 }
                 .padding(.top, 4)
@@ -648,15 +772,15 @@ struct DropShareButton: View {
                 .font(.system(size: 15, weight: .medium))
                 .foregroundColor(.textSecondary)
                 .padding(8)
-                .background(.ultraThinMaterial, in: Circle())
+                .background(Circle().fill(Color.white.opacity(0.78)))
         }
-        .buttonStyle(.plain)
+        .dropsPressable()
     }
 
     private func shareDrops() {
         // www-Subdomain nutzen — Apex 307-redirected zu www, Apple Universal
         // Links akzeptieren keine Redirects (siehe LiveMapView).
-        let deepLink = "https://www.drops-app.de/drop/\(item.id.uuidString)"
+        let deepLink = AppLinks.dropShareURL(dropID: item.id.uuidString)
         let location = item.locationTitle.isEmpty ? "" : " · \(item.locationTitle)"
         let text = "\(item.emoji) \(item.activity)\(location) — komm vorbei. Spontan, vor Ort, kein Smalltalk. 👋"
         // Text + URL als EIN String — sonst kopiert iOS „In Zwischenablage"
@@ -689,19 +813,31 @@ enum ProfileHeroTemplate: String, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
-        case .tester:   return "Tester"
-        case .aurora:   return "Aurora"
-        case .sunset:   return "Sunset"
-        case .ocean:    return "Ocean"
-        case .forest:   return "Forest"
-        case .neon:     return "Neon"
-        case .midnight: return "Midnight"
+        case .tester:   return "Beta"
+        case .aurora:   return "Dazu"
+        case .sunset:   return "Goldstunde"
+        case .ocean:    return "Himmel"
+        case .forest:   return "Natur"
+        case .neon:     return "Abendrot"
+        case .midnight: return "Nacht"
         }
     }
 
     /// Exklusive Tester-Variante — holographisch / iridescent. Symbolisiert
     /// die Beta-Tester-Identität visuell. Default für Beta-User.
     var isExclusive: Bool { self == .tester }
+
+    /// Dunkle Templates brauchen mehr Material-Opazität damit Text lesbar bleibt.
+    var isDark: Bool {
+        switch self {
+        case .midnight, .neon, .forest: return true
+        default: return false
+        }
+    }
+
+    /// Gradient-Opazität die auf Karten verwendet wird — dunkle Templates
+    /// erhalten eine niedrigere Deckkraft damit das Material nicht zu sehr eingefärbt wird.
+    var cardGradientOpacity: Double { isDark ? 0.20 : 0.38 }
 
     /// Hauptfarben — auch für Thumbnail-Vorschau im Picker genutzt.
     var colors: [Color] {
@@ -711,20 +847,23 @@ enum ProfileHeroTemplate: String, CaseIterable, Identifiable {
             return [Color.auroraPink, Color.auroraCyan,
                     Color.auroraAmber, Color.auroraPurple]
         case .aurora:
-            // Neue Icon-Palette: warmes Orange → Coral → frisches Grün.
-            // Direkt aus icon.json abgeleitet damit das Profil-Hero
-            // dieselbe Brand-Identity hat wie Login + App-Icon.
-            return [Color.auroraOrange, Color.auroraOrange, Color.auroraGreen]
+            // Brand-Gradient: warmes Orange → Pink → frisches Grün (App-Icon-Palette)
+            return [Color.auroraOrange, Color.auroraPink, Color.auroraGreen]
         case .sunset:
-            return [Color.auroraOrange, Color.auroraPink, Color.auroraViolet]
+            // Goldstunde — warmer Amber → Peach → Rose (goldene Stunde, Feierabend-Drops)
+            return [Color(hex: "f59e0b"), Color(hex: "fb923c"), Color(hex: "f43f5e")]
         case .ocean:
-            return [Color.auroraCyan, Color.auroraCyan, Color.auroraTeal]
+            // Himmel — Sky Blue → Indigo → Violet (klarer Himmel über der Stadt)
+            return [Color(hex: "0ea5e9"), Color(hex: "6366f1"), Color(hex: "8b5cf6")]
         case .forest:
-            return [Color(hex: "166534"), Color(hex: "65a30d"), Color(hex: "facc15")]
+            // Natur — Tiefes Waldgrün → Smaragd → Limette (Parks, Spaziergänge, Natur-Drops)
+            return [Color(hex: "166534"), Color(hex: "16a34a"), Color(hex: "65a30d")]
         case .neon:
-            return [Color.auroraPink, Color.auroraAmber, Color.auroraCyan]
+            // Abendrot — Violet → Hot Pink → Orange (Dusk-Gradient, Bar-Drops, Abende)
+            return [Color(hex: "7c3aed"), Color(hex: "db2777"), Color(hex: "f97316")]
         case .midnight:
-            return [Color(hex: "0f172a"), Color(hex: "1e293b"), Color(hex: "334155")]
+            // Nacht — Deep Navy → Dunkles Indigo → Blue-Pop (Stadtlichter, Nacht-Drops)
+            return [Color(hex: "0f172a"), Color(hex: "1e1b4b"), Color(hex: "2563eb")]
         }
     }
 
@@ -736,6 +875,135 @@ enum ProfileHeroTemplate: String, CaseIterable, Identifiable {
                                   endPoint: UnitPoint(x: 1, y: 1))
         }
         return LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+}
+
+// MARK: - Emoji Scatter Background
+
+/// Mehrere kleine Emojis in einem fixen Scatter-Muster — wirkt wie ein
+/// dezentes Hintergrundmuster ohne echte Zufälligkeit (deterministisch für SwiftUI).
+struct EmojiScatterBackground: View {
+    let emoji: String
+
+    // (x%, y%, rotation°, scale, delay, duration)
+    private let placements: [(CGFloat, CGFloat, Double, CGFloat, Double, Double)] = [
+        (0.10, 0.18, -18, 0.85,  0.0, 2.4),
+        (0.78, 0.10,  14, 1.00,  0.9, 2.8),
+        (0.42, 0.55,  -7, 0.80,  1.7, 2.2),
+        (0.88, 0.55,  22, 0.90,  0.4, 3.0),
+        (0.18, 0.82, -22, 0.95,  2.1, 2.6),
+        (0.60, 0.22,   6, 0.75,  1.3, 2.0),
+        (0.93, 0.82, -12, 1.05,  0.6, 3.2),
+        (0.50, 0.88,  17, 0.88,  1.8, 2.4),
+    ]
+
+    @State private var visible: [Bool] = Array(repeating: false, count: 8)
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack {
+                ForEach(Array(placements.enumerated()), id: \.offset) { i, p in
+                    Text(emoji)
+                        .font(.system(size: 26))
+                        .scaleEffect(p.3)
+                        .rotationEffect(.degrees(p.2))
+                        .opacity(visible[i] ? 0.40 : 0.0)
+                        .position(x: geo.size.width  * p.0,
+                                  y: geo.size.height * p.1)
+                }
+            }
+        }
+        .allowsHitTesting(false)
+        .task {
+            // Task wird automatisch gecancelt wenn der View verschwindet —
+            // kein DispatchQueue-Stacking bei schnellem Show/Hide.
+            await withTaskGroup(of: Void.self) { group in
+                for i in 0..<placements.count {
+                    let delay    = placements[i].4
+                    let duration = placements[i].5
+                    group.addTask {
+                        try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                        guard !Task.isCancelled else { return }
+                        await MainActor.run {
+                            withAnimation(.easeInOut(duration: duration).repeatForever(autoreverses: true)) {
+                                visible[i] = true
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Animated Hero Gradient
+
+/// Lebendiger Hero-Gradient — zwei Richtungen kreuzen sich langsam,
+/// sodass der Farbverlauf sanft "atmet". Performant (nur Opacity-Animation,
+/// kein Layout-Pass nötig).
+struct AnimatedHeroGradient: View {
+    let template: ProfileHeroTemplate
+    var opacity: Double = 1.0
+
+    @State private var shifted = false
+
+    var body: some View {
+        ZStack {
+            // Primäre Richtung
+            LinearGradient(colors: template.colors,
+                           startPoint: .topLeading,
+                           endPoint: .bottomTrailing)
+            // Querrichtung — blendet langsam ein und aus
+            LinearGradient(colors: template.colors,
+                           startPoint: .bottomLeading,
+                           endPoint: .topTrailing)
+                .opacity(shifted ? 0.55 : 0.0)
+        }
+        .opacity(opacity)
+        .onAppear {
+            withAnimation(.easeInOut(duration: 3.2).repeatForever(autoreverses: true)) {
+                shifted = true
+            }
+        }
+    }
+}
+
+// MARK: - Gradient Avatar Ring
+
+/// Dünner Gradient-Ring um ein Avatar-Circle. Wird überall in der App
+/// verwendet wo Profilbilder erscheinen.
+struct GradientAvatarRing: View {
+    var template: ProfileHeroTemplate = .aurora
+    var size: CGFloat          // Außendurchmesser des Rings
+    var lineWidth: CGFloat = 2.2
+
+    @State private var shifted = false
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(
+                    LinearGradient(colors: template.colors,
+                                   startPoint: .topLeading,
+                                   endPoint: .bottomTrailing),
+                    lineWidth: lineWidth
+                )
+                .opacity(shifted ? 0.0 : 1.0)
+            Circle()
+                .stroke(
+                    LinearGradient(colors: template.colors,
+                                   startPoint: .bottomLeading,
+                                   endPoint: .topTrailing),
+                    lineWidth: lineWidth
+                )
+                .opacity(shifted ? 1.0 : 0.0)
+        }
+        .frame(width: size, height: size)
+        .onAppear {
+            withAnimation(.easeInOut(duration: 3.2).repeatForever(autoreverses: true)) {
+                shifted = true
+            }
+        }
     }
 }
 
@@ -762,8 +1030,8 @@ struct ProfileHeroPickerSheet: View {
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { dismiss() }
                             } label: {
                                 VStack(spacing: 8) {
-                                    RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
-                                        .fill(tpl.gradient)
+                                    AnimatedHeroGradient(template: tpl)
+                                        .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
                                         .frame(height: 110)
                                         .overlay(alignment: .topTrailing) {
                                             // Exklusiv-Marker für Tester-Variante
@@ -777,7 +1045,7 @@ struct ProfileHeroPickerSheet: View {
                                                 }
                                                 .foregroundColor(.white)
                                                 .padding(.horizontal, 5).padding(.vertical, 2)
-                                                .background(.ultraThinMaterial, in: Capsule())
+                                                .background(Capsule().fill(Color.white.opacity(0.75)))
                                                 .overlay(Capsule().stroke(Color.white.opacity(0.4), lineWidth: 0.6))
                                                 .padding(8)
                                             }
@@ -802,10 +1070,11 @@ struct ProfileHeroPickerSheet: View {
                                     }
                                 }
                             }
-                            .buttonStyle(.plain)
+                            .dropsPressable()
                         }
                     }
                     .padding(.horizontal, 16)
+
                     Spacer(minLength: 24)
                 }
             }
@@ -831,19 +1100,12 @@ struct BetaBadge: View {
             Image(systemName: "sparkle")
                 .font(.system(size: 8, weight: .bold))
             Text(tr("shared.beta"))
-                .font(.system(size: 9, weight: .bold))
+                .font(.system(size: 9, weight: .bold, design: .rounded))
                 .kerning(0.4)
         }
-        .foregroundStyle(.white)
-        .padding(.horizontal, 6).padding(.vertical, 2)
-        .background(
-            LinearGradient(
-                colors: [Color.brand, Color.auroraCyan],
-                startPoint: .leading, endPoint: .trailing
-            ),
-            in: Capsule()
-        )
-        .shadow(color: Color.brand.opacity(0.35), radius: 4, y: 1)
+        .foregroundColor(.brandViolet)
+        .padding(.horizontal, 7).padding(.vertical, 3)
+        .background(Capsule().fill(Color.brandLavender))
     }
 }
 
@@ -937,7 +1199,7 @@ struct EmojiPickerSheet: View {
                                 in: Capsule()
                             )
                         }
-                        .buttonStyle(.plain)
+                        .dropsPressable()
                     }
                 }
                 .padding(.horizontal, 16)
@@ -970,7 +1232,7 @@ struct EmojiPickerSheet: View {
                                         : nil
                                 )
                         }
-                        .buttonStyle(.plain)
+                        .dropsPressable()
                     }
                 }
                 .padding(.horizontal, 14)
@@ -997,19 +1259,11 @@ struct PowerHourCountdownPill: View {
                 .font(.system(size: 11, weight: .bold))
                 .foregroundColor(.white)
             Text(label)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 12, weight: .bold, design: .rounded))
                 .foregroundColor(.white)
         }
         .padding(.horizontal, 12).padding(.vertical, 6)
-        .background(
-            Capsule().fill(
-                LinearGradient(
-                    colors: gradientColors,
-                    startPoint: .leading, endPoint: .trailing
-                )
-            )
-        )
-        .shadow(color: Color.accentOrange.opacity(0.30), radius: 6, y: 2)
+        .background(Capsule().fill(Color.brandOrange))
     }
 
     private var label: String {
@@ -1018,15 +1272,6 @@ struct PowerHourCountdownPill: View {
         case .startingSoon: return tr("shared.ph_starting_in").replacingOccurrences(of: "{time}", with: mins)
         case .running:      return tr("shared.power_hour_running").replacingOccurrences(of: "{time}", with: mins)
         case .endingSoon:   return tr("shared.ph_ending_in").replacingOccurrences(of: "{time}", with: mins)
-        }
-    }
-
-    /// Visuelle Differenzierung: endingSoon kriegt umgekehrten Verlauf
-    /// (brand → orange) für mehr Dringlichkeit, die anderen orange → brand.
-    private var gradientColors: [Color] {
-        switch countdown.phase {
-        case .endingSoon:   return [Color.brand, Color.accentOrange]
-        default:            return [Color.accentOrange, Color.brand]
         }
     }
 
@@ -1097,150 +1342,69 @@ private struct ForceUpdateSheet: View {
     let requiredVersion: String
     @EnvironmentObject var store: AppStore
 
-    @State private var ring0 = false
-    @State private var ring1 = false
-    @State private var ring2 = false
     @State private var iconBeat = false
 
     var body: some View {
         ZStack {
-            // Aurora-Hintergrund — exakt wie ActiveDropTabView / Onboarding.
-            // Eindeutig kein „X", weil .ignoresSafeArea + voll-deckend.
-            AppAuroraBackground()
-                .ignoresSafeArea()
+            Color.brandCream.ignoresSafeArea()
 
-            VStack(spacing: 26) {
+            VStack(alignment: .leading, spacing: 24) {
                 Spacer()
 
-                // ── Hero-Icon mit drei pulsierenden Radar-Wellen ──────
                 ZStack {
-                    radarRing(scale: ring0 ? 1.7 : 0.95, opacity: ring0 ? 0.0 : 0.55)
-                    radarRing(scale: ring1 ? 1.7 : 0.95, opacity: ring1 ? 0.0 : 0.55)
-                    radarRing(scale: ring2 ? 1.7 : 0.95, opacity: ring2 ? 0.0 : 0.55)
-
                     Circle()
-                        .fill(
-                            LinearGradient(
-                                colors: [Color.auroraOrange.opacity(0.30),
-                                         Color.auroraGreen.opacity(0.18)],
-                                startPoint: .topLeading, endPoint: .bottomTrailing
-                            )
-                        )
+                        .fill(Color.brandLavender.opacity(0.9))
                         .frame(width: 96, height: 96)
-                        .shadow(color: Color.auroraOrange.opacity(0.40), radius: 18, y: 6)
-
+                        .scaleEffect(iconBeat ? 1.05 : 0.98)
                     Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 44, weight: .bold))
-                        .foregroundStyle(
-                            LinearGradient(
-                                colors: [Color.auroraOrange, Color.auroraGreen],
-                                startPoint: .topLeading, endPoint: .bottomTrailing
-                            )
-                        )
-                        .shadow(color: Color.auroraOrange.opacity(0.50), radius: 10)
-                        .scaleEffect(iconBeat ? 1.08 : 1.0)
+                        .font(.system(size: 46, weight: .heavy))
+                        .foregroundColor(.brandOrange)
                 }
-                // 96 × 1.7 = 163pt max ring size — Frame muss das aufnehmen
-                .frame(height: 170)
+                .frame(maxWidth: .infinity, alignment: .center)
 
-                VStack(spacing: 10) {
-                    Text(tr("shared.version_not_supported"))
-                        .font(.system(size: 26, weight: .bold, design: .rounded))
-                        .foregroundColor(.textPrimary)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 20)
-                    Text(tr("shared.version_required").replacingOccurrences(of: "{ver}", with: requiredVersion))
-                        .font(.system(size: 15))
-                        .foregroundColor(.textSecondary)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 28)
+                VStack(alignment: .leading, spacing: -2) {
+                    Text("Update")
+                        .foregroundColor(.brandNight)
+                    Text("ist nötig.")
+                        .foregroundColor(.brandViolet)
                 }
+                .font(.system(size: 36, weight: .heavy, design: .rounded))
+                .padding(.horizontal, 28)
 
-                // Version-Badge — kleine Glass-Pill mit „Du nutzt 1.0.x"
+                Text(tr("shared.version_required").replacingOccurrences(of: "{ver}", with: requiredVersion))
+                    .font(.system(size: 16, weight: .medium, design: .rounded))
+                    .foregroundColor(.brandNight.opacity(0.65))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 28)
+
                 HStack(spacing: 6) {
                     Image(systemName: "iphone")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(.textTertiary)
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(.brandViolet)
                     Text(tr("shared.using_version").replacingOccurrences(of: "{ver}", with: store.currentAppVersion))
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.textSecondary)
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundColor(.brandViolet)
                 }
                 .padding(.horizontal, 12).padding(.vertical, 6)
-                .background(.ultraThinMaterial, in: Capsule())
-                .overlay(Capsule().stroke(Color.primary.opacity(0.08), lineWidth: 1))
+                .background(Capsule().fill(Color.brandLavender))
+                .padding(.horizontal, 28)
 
                 Spacer()
 
-                // App-Store-Button — Sunset-Gradient-Pill
                 Button(action: openAppStore) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "arrow.down.app.fill")
-                            .font(.system(size: 16, weight: .bold))
-                        Text(tr("shared.open_app_store"))
-                            .font(.system(size: 16, weight: .bold, design: .rounded))
-                    }
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 15)
-                    .background(
-                        Capsule().fill(
-                            LinearGradient(
-                                colors: [Color.auroraOrange, Color.auroraGreen],
-                                startPoint: .leading, endPoint: .trailing
-                            )
-                        )
-                    )
-                    .shadow(color: Color.auroraOrange.opacity(0.35), radius: 12, y: 4)
+                    Text(tr("shared.open_app_store"))
+                        .dropsPrimaryButton()
                 }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 28)
+                .dropsPressable()
+                .padding(.horizontal, 24)
                 .padding(.bottom, 36)
             }
         }
         .onAppear {
-            // Drei zeitversetzte Ring-Wellen mit 0.6s-Stagger — wie das
-            // Radar-Pulse-Muster im AppIcon und beim EndDropSheet.
-            let dur: Double = 2.0
-            withAnimation(.easeOut(duration: dur).repeatForever(autoreverses: false)) {
-                ring0 = true
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.65) {
-                withAnimation(.easeOut(duration: dur).repeatForever(autoreverses: false)) {
-                    ring1 = true
-                }
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.30) {
-                withAnimation(.easeOut(duration: dur).repeatForever(autoreverses: false)) {
-                    ring2 = true
-                }
-            }
-            // Icon-Beat synchron zum ersten Ring.
-            withAnimation(
-                .spring(response: 0.7, dampingFraction: 0.55)
-                    .repeatForever(autoreverses: true)
-            ) {
+            withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) {
                 iconBeat = true
             }
         }
-    }
-
-    /// Einzelner Radar-Ring — frame-basierte Animation (kein scaleEffect),
-    /// damit ScrollView den Ring nicht am Layout-Rand clippt.
-    @ViewBuilder
-    private func radarRing(scale: CGFloat, opacity: Double) -> some View {
-        let size: CGFloat = 96 * scale
-        Circle()
-            .stroke(
-                LinearGradient(
-                    colors: [Color.auroraOrange, Color.auroraGreen],
-                    startPoint: .topLeading, endPoint: .bottomTrailing
-                ),
-                lineWidth: 2.5
-            )
-            .frame(width: size, height: size)
-            .opacity(opacity)
     }
 
     private func openAppStore() {
@@ -1284,7 +1448,7 @@ private struct RecommendUpdateBanner: View {
                     .padding(.horizontal, 12).padding(.vertical, 6)
                     .background(Capsule().fill(Color.white.opacity(0.22)))
             }
-            .buttonStyle(.plain)
+            .dropsPressable()
             Button(action: onDismiss) {
                 Image(systemName: "xmark")
                     .font(.system(size: 11, weight: .bold))
@@ -1292,7 +1456,7 @@ private struct RecommendUpdateBanner: View {
                     .padding(6)
                     .background(Circle().fill(Color.white.opacity(0.18)))
             }
-            .buttonStyle(.plain)
+            .dropsPressable()
             .accessibilityLabel(tr("shared.close_banner"))
         }
         .padding(.horizontal, 12).padding(.vertical, 8)
@@ -1334,119 +1498,77 @@ struct HomeZoneWarningSheet: View {
     @State private var pulse = false
 
     var body: some View {
-        // Inhalt in ScrollView — auf kleinen Geräten (SE / mini) war
-        // sonst der Bottom-Button abgeschnitten, weil 110pt-Visual +
-        // Titel + 2 Warning-Rows + 2 Buttons mehr Höhe brauchen als die
-        // 0.65-Detent-Fraction hergibt. Buttons unten in einem festen
-        // Footer, der Rest scrollt.
-        VStack(spacing: 0) {
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 22) {
-                    // Visual: pulsierendes Haus mit Schild-Overlay
-                    ZStack {
-                        Circle()
-                            .fill(
-                                LinearGradient(
-                                    colors: [Color.accentOrange.opacity(0.22),
-                                             Color.brand.opacity(0.14)],
-                                    startPoint: .topLeading, endPoint: .bottomTrailing
-                                )
-                            )
-                            .frame(width: 110, height: 110)
-                            .scaleEffect(pulse ? 1.05 : 0.96)
+        ZStack {
+            Color.brandCream.ignoresSafeArea()
 
-                        Image(systemName: "house.fill")
-                            .font(.system(size: 42, weight: .bold))
-                            .foregroundColor(.accentOrange)
-                            .shadow(color: Color.accentOrange.opacity(0.4), radius: 10)
-                        // Schild-Overlay rechts unten am Haus
-                        Image(systemName: "exclamationmark.shield.fill")
-                            .font(.system(size: 22, weight: .bold))
-                            .foregroundColor(.white)
-                            .shadow(color: Color.black.opacity(0.18), radius: 4, y: 2)
-                            .padding(6)
-                            .background(Circle().fill(Color.accentOrange))
-                            .offset(x: 30, y: 30)
-                    }
-                    // 110 × 1.05 = 115.5pt max — 130pt Frame gibt Puffer, kein .clipped()
-                    .frame(width: 130, height: 130)
-                    .padding(.top, 12)
+            VStack(spacing: 0) {
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 22) {
+                        // Großes Haus-Icon in Orange-Lavendel-Kreis (flat).
+                        ZStack {
+                            Circle()
+                                .fill(Color.brandLavender.opacity(0.9))
+                                .frame(width: 92, height: 92)
+                                .scaleEffect(pulse ? 1.05 : 0.98)
+                            Image(systemName: "house.fill")
+                                .font(.system(size: 40, weight: .heavy))
+                                .foregroundColor(.brandOrange)
+                        }
+                        .padding(.top, 20)
+                        .frame(maxWidth: .infinity, alignment: .center)
 
-                    VStack(spacing: 8) {
-                        Text(tr("shared.drop_in_homezone"))
-                            .font(.system(size: 22, weight: .bold, design: .rounded))
-                            .foregroundColor(.textPrimary)
-                            .multilineTextAlignment(.center)
+                        // Big headline im Rondesignlab-Rhythmus: Nacht + Violett.
+                        VStack(alignment: .leading, spacing: -2) {
+                            Text("Das ist")
+                                .foregroundColor(.brandNight)
+                            Text("deine Heimzone.")
+                                .foregroundColor(.brandViolet)
+                        }
+                        .font(.system(size: 32, weight: .heavy, design: .rounded))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 24)
+
+                        Text("Wenn du hier startest, sehen Fremde ungefähr, wo du wohnst.")
+                            .font(.system(size: 16, weight: .medium, design: .rounded))
+                            .foregroundColor(.brandNight.opacity(0.65))
+                            .multilineTextAlignment(.leading)
                             .fixedSize(horizontal: false, vertical: true)
-                            .minimumScaleFactor(0.85)
-                            .padding(.horizontal, 20)
-                        // Padding von 36 → 20 reduziert: vorher brach
-                        // "Zuhause" auf kompakten Geräten unsauber um und
-                        // wurde teils abgeschnitten. minimumScaleFactor
-                        // greift falls die Textgröße trotzdem mal nicht
-                        // reicht (z.B. größere Dynamic-Type-Stufen).
-                        Text(tr("shared.starting_near_home"))
-                            .font(.system(size: 14))
-                            .foregroundColor(.textSecondary)
-                            .multilineTextAlignment(.center)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .minimumScaleFactor(0.85)
-                            .padding(.horizontal, 20)
+                            .padding(.horizontal, 24)
+
+                        VStack(spacing: 10) {
+                            warningRow(icon: "eye.fill",
+                                       text: "Dein Standort ist auf 500 m sichtbar")
+                            warningRow(icon: "figure.walk",
+                                       text: "Wähle lieber einen öffentlichen Ort")
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 8)
                     }
+                    .frame(maxWidth: .infinity)
+                }
 
-                    // Konkrete Hinweis-Liste
-                    VStack(spacing: 12) {
-                        warningRow(
-                            icon: "eye.fill",
-                            text: tr("shared.others_can_see_home")
-                        )
-                        warningRow(
-                            icon: "person.fill",
-                            text: tr("shared.meet_at_public_place")
-                        )
+                // Aktionen — fester Footer
+                VStack(spacing: 10) {
+                    Button(action: onCancel) {
+                        Text("Anderen Ort wählen")
+                            .dropsPrimaryButton()
                     }
-                    .padding(.horizontal, 22)
-                    .padding(.bottom, 8)
-                }
-                .frame(maxWidth: .infinity)
-            }
+                    .dropsPressable()
 
-            // Aktionen — fester Footer, scrollt nicht weg
-            VStack(spacing: 10) {
-                // Primär: sicherer Weg
-                Button(action: onCancel) {
-                    Text(tr("shared.choose_different_location"))
-                        .font(.system(size: 15, weight: .bold, design: .rounded))
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(
-                            Capsule().fill(
-                                LinearGradient(
-                                    colors: [Color.brand, Color.accentOrange],
-                                    startPoint: .leading, endPoint: .trailing
-                                )
-                            )
-                        )
-                        .shadow(color: Color.brand.opacity(0.30), radius: 10, y: 3)
+                    Button(action: onProceed) {
+                        Text("Trotzdem hier starten")
+                            .font(.system(size: 15, weight: .semibold, design: .rounded))
+                            .foregroundColor(.brandNight.opacity(0.55))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                    }
+                    .dropsPressable()
                 }
-                .buttonStyle(.plain)
-
-                // Sekundär (destruktiv): trotzdem hier
-                Button(action: onProceed) {
-                    Text(tr("shared.start_here_anyway"))
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.accentRed)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                }
-                .buttonStyle(.plain)
+                .padding(.horizontal, 20)
+                .padding(.top, 6)
+                .padding(.bottom, 22)
             }
-            .padding(.horizontal, 22)
-            .padding(.top, 6)
-            .padding(.bottom, 22)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) {
                 pulse = true
@@ -1456,23 +1578,20 @@ struct HomeZoneWarningSheet: View {
 
     @ViewBuilder
     private func warningRow(icon: String, text: String) -> some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .center, spacing: 14) {
             Image(systemName: icon)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(.accentOrange)
-                .frame(width: 28, height: 28)
-                .background(Circle().fill(Color.accentOrange.opacity(0.14)))
+                .font(.system(size: 15, weight: .bold))
+                .foregroundColor(.brandViolet)
+                .frame(width: 36, height: 36)
+                .background(Circle().fill(Color.brandLavender))
             Text(text)
-                .font(.system(size: 13))
-                .foregroundColor(.textPrimary)
+                .font(.system(size: 14, weight: .medium, design: .rounded))
+                .foregroundColor(.brandNight.opacity(0.85))
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, 14).padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: Radius.card)
-                .fill(.ultraThinMaterial)
-        )
+        .padding(.horizontal, 16).padding(.vertical, 12)
+        .liquidGlass(cornerRadius: 18)
     }
 }
 
@@ -1490,7 +1609,7 @@ struct AdminNoticeSheet: View {
 
     private var headline: String {
         switch notice.type {
-        case "drop_removed": return "Dein Drop wurde entfernt"
+        case "drop_removed": return "Dein Plan wurde entfernt"
         default:             return "Hinweis"
         }
     }
@@ -1505,97 +1624,71 @@ struct AdminNoticeSheet: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 22) {
-                    // Visual: Schild mit Ausrufezeichen
-                    ZStack {
-                        Circle()
-                            .fill(Color.accentRed.opacity(0.15))
-                            .frame(width: 96, height: 96)
-                        Image(systemName: "exclamationmark.shield.fill")
-                            .font(.system(size: 42, weight: .bold))
-                            .foregroundColor(.accentRed)
-                    }
-                    .padding(.top, 18)
+        ZStack {
+            Color.brandCream.ignoresSafeArea()
 
-                    VStack(spacing: 8) {
-                        Text(headline)
-                            .font(.system(size: 22, weight: .bold, design: .rounded))
-                            .foregroundColor(.textPrimary)
-                            .multilineTextAlignment(.center)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .padding(.horizontal, 20)
-                        Text(body1)
-                            .font(.system(size: 14))
-                            .foregroundColor(.textSecondary)
-                            .multilineTextAlignment(.center)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .padding(.horizontal, 20)
-                    }
-
-                    // Reason-Card
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "text.alignleft")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundColor(.textSecondary)
-                            Text(tr("shared.reason"))
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundColor(.textSecondary)
-                                .textCase(.uppercase)
+            VStack(spacing: 0) {
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 20) {
+                        ZStack {
+                            Circle()
+                                .fill(Color.brandLavender.opacity(0.9))
+                                .frame(width: 92, height: 92)
+                            Image(systemName: "exclamationmark.shield.fill")
+                                .font(.system(size: 40, weight: .heavy))
+                                .foregroundColor(.brandOrange)
                         }
-                        Text(notice.reason)
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundColor(.textPrimary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.top, 20)
+
+                        VStack(alignment: .leading, spacing: -2) {
+                            Text(headline)
+                                .foregroundColor(.brandNight)
+                        }
+                        .font(.system(size: 28, weight: .heavy, design: .rounded))
+                        .padding(.horizontal, 24)
+
+                        Text(body1)
+                            .font(.system(size: 15, weight: .medium, design: .rounded))
+                            .foregroundColor(.brandNight.opacity(0.65))
                             .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .padding(16)
-                    .background(
-                        RoundedRectangle(cornerRadius: Radius.card)
-                            .fill(Color.accentRed.opacity(0.08))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: Radius.card)
-                            .stroke(Color.accentRed.opacity(0.25), lineWidth: 1)
-                    )
-                    .padding(.horizontal, 20)
+                            .padding(.horizontal, 24)
 
-                    // Sekundär-Hinweis
-                    Text(tr("shared.questions_support"))
-                        .font(.system(size: 12))
-                        .foregroundColor(.textTertiary)
-                        .multilineTextAlignment(.center)
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(tr("shared.reason").uppercased())
+                                .font(.system(size: 11, weight: .heavy, design: .rounded))
+                                .tracking(1.2)
+                                .foregroundColor(.brandViolet.opacity(0.7))
+                            Text(notice.reason)
+                                .font(.system(size: 15, weight: .medium, design: .rounded))
+                                .foregroundColor(.brandNight)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .padding(16)
+                        .liquidGlass(cornerRadius: 18)
                         .padding(.horizontal, 20)
-                        .padding(.top, 4)
-                }
-                .padding(.bottom, 12)
-            }
 
-            // Acknowledge-Button — fester Footer
-            Button(action: onAcknowledge) {
-                Text(tr("shared.understood"))
-                    .font(.system(size: 15, weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(
-                        Capsule().fill(
-                            LinearGradient(
-                                colors: [Color.accentRed, Color.accentOrange],
-                                startPoint: .leading, endPoint: .trailing
-                            )
-                        )
-                    )
-                    .shadow(color: Color.accentRed.opacity(0.30), radius: 10, y: 3)
+                        Text(tr("shared.questions_support"))
+                            .font(.system(size: 13, weight: .medium, design: .rounded))
+                            .foregroundColor(.brandNight.opacity(0.5))
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.horizontal, 20)
+                            .padding(.top, 4)
+                    }
+                    .padding(.bottom, 12)
+                }
+
+                Button(action: onAcknowledge) {
+                    Text(tr("shared.understood"))
+                        .dropsPrimaryButton()
+                }
+                .dropsPressable()
+                .padding(.horizontal, 20)
+                .padding(.top, 6)
+                .padding(.bottom, 22)
             }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 22)
-            .padding(.top, 8)
-            .padding(.bottom, 22)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -1610,97 +1703,74 @@ struct PowerHourIntroSheet: View {
     let onDismiss: () -> Void
 
     var body: some View {
-        VStack(spacing: 22) {
-            // Visual: pulsing bolt
-            ZStack {
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [Color.accentOrange.opacity(0.25), Color.brand.opacity(0.18)],
-                            startPoint: .topLeading, endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: 90, height: 90)
-                Image(systemName: "bolt.fill")
-                    .font(.system(size: 38, weight: .bold))
-                    .foregroundColor(.accentOrange)
-                    .shadow(color: Color.accentOrange.opacity(0.5), radius: 12)
-            }
-            .padding(.top, 18)
+        ZStack {
+            Color.brandCream.ignoresSafeArea()
 
-            VStack(spacing: 10) {
-                Text(tr("shared.new_power_hour"))
-                    .font(.system(size: 24, weight: .bold, design: .rounded))
-                    .foregroundColor(.textPrimary)
-                Text(tr("shared.power_hour_explainer").replacingOccurrences(of: "{bonus}", with: "\(AppStore.powerHourBonus)").replacingOccurrences(of: "{base}", with: "\(AppStore.boostBonus)"))
-                    .font(.system(size: 14))
-                    .foregroundColor(.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 32)
-                    .lineSpacing(2)
-            }
-
-            // Window-Übersicht kompakt
             VStack(spacing: 0) {
-                ForEach(Array(AppStore.powerHourWindows.enumerated()), id: \.offset) { idx, window in
-                    HStack {
-                        Text(window.label)
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundColor(.textPrimary)
-                        Spacer()
-                        Text(formatWindow(window))
-                            .font(.system(size: 13))
-                            .foregroundColor(.textSecondary)
-                    }
-                    .padding(.horizontal, 16).padding(.vertical, 10)
-                    if idx < AppStore.powerHourWindows.count - 1 {
-                        Divider().padding(.leading, 16)
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 20) {
+                        ZStack {
+                            Circle()
+                                .fill(Color.brandLavender.opacity(0.9))
+                                .frame(width: 92, height: 92)
+                            Image(systemName: "bolt.fill")
+                                .font(.system(size: 40, weight: .heavy))
+                                .foregroundColor(.brandOrange)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.top, 20)
+
+                        VStack(alignment: .leading, spacing: -2) {
+                            Text("Power-Hour.")
+                                .foregroundColor(.brandNight)
+                            Text("Mehr Punkte.")
+                                .foregroundColor(.brandViolet)
+                        }
+                        .font(.system(size: 30, weight: .heavy, design: .rounded))
+                        .padding(.horizontal, 24)
+
+                        Text(tr("shared.power_hour_explainer")
+                            .replacingOccurrences(of: "{bonus}", with: "\(AppStore.powerHourBonus)")
+                            .replacingOccurrences(of: "{base}", with: "\(AppStore.boostBonus)"))
+                            .font(.system(size: 15, weight: .medium, design: .rounded))
+                            .foregroundColor(.brandNight.opacity(0.65))
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 24)
+
+                        VStack(spacing: 8) {
+                            ForEach(Array(AppStore.powerHourWindows.enumerated()), id: \.offset) { _, window in
+                                HStack {
+                                    Text(window.label)
+                                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                                        .foregroundColor(.brandNight)
+                                    Spacer()
+                                    Text(formatWindow(window))
+                                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                                        .foregroundColor(.brandViolet)
+                                }
+                                .padding(.horizontal, 16).padding(.vertical, 14)
+                                .liquidGlass(cornerRadius: 18)
+                            }
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 8)
                     }
                 }
-            }
-            .background(
-                RoundedRectangle(cornerRadius: Radius.card)
-                    .fill(.ultraThinMaterial)
-            )
-            .padding(.horizontal, 22)
 
-            Spacer()
-
-            Button(action: onDismiss) {
-                Text(tr("shared.understood"))
-                    .font(.system(size: 15, weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(
-                        Capsule().fill(
-                            LinearGradient(
-                                colors: [Color.accentOrange, Color.brand],
-                                startPoint: .leading, endPoint: .trailing
-                            )
-                        )
-                    )
-                    .shadow(color: Color.accentOrange.opacity(0.35), radius: 10, y: 3)
+                Button(action: onDismiss) {
+                    Text(tr("shared.understood"))
+                        .dropsPrimaryButton()
+                }
+                .dropsPressable()
+                .padding(.horizontal, 20)
+                .padding(.bottom, 22)
+                .padding(.top, 6)
             }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 22)
-            .padding(.bottom, 22)
         }
     }
 
-    /// Formatiert ein Window für die Intro-Liste z.B. "Mo–Do · 18–20".
     private func formatWindow(_ w: AppStore.PowerHourWindow) -> String {
-        let names = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
-        let mondayFirst = w.weekdays.map { ($0 == 1 ? 6 : $0 - 2) }.sorted()
-        guard let first = mondayFirst.first, let last = mondayFirst.last else { return "" }
-        let isContiguous = mondayFirst.count == (last - first + 1)
-        let dayLabel: String
-        if isContiguous {
-            dayLabel = mondayFirst.count == 1 ? names[first] : "\(names[first])–\(names[last])"
-        } else {
-            dayLabel = mondayFirst.map { names[$0] }.joined(separator: ", ")
-        }
-        return "\(dayLabel) · \(w.startHour)–\(w.endHour) Uhr"
+        "\(w.daysLabel) · \(w.timeRangeLabel)"
     }
 }
 
@@ -1840,7 +1910,7 @@ struct PendingJoinRequestPill: View {
                 .padding(.horizontal, 14).padding(.vertical, 10)
                 .background(
                     Capsule(style: .continuous)
-                        .fill(.ultraThinMaterial)
+                        .fill(Color.white.opacity(0.75))
                         .overlay(
                             Capsule(style: .continuous)
                                 .stroke(Color.auroraOrange.opacity(0.30), lineWidth: 1)
@@ -1998,111 +2068,79 @@ struct LeaveDropSheet: View {
     private var hasScoreRisk: Bool { elapsedSeconds >= 12 * 60 }
 
     var body: some View {
-        VStack(spacing: 22) {
-            // Mehr Top-Spacing damit der pulsierende Kreis nicht den Drag-
-            // Indicator des Sheets überlappt — die Animation skaliert bis
-            // 1.05× und schluckt sonst die obere Sheet-Kante.
-            Spacer(minLength: 28)
+        ZStack {
+            Color.brandCream.ignoresSafeArea()
 
-            // Visual: pulsierender Ausgang. Tür-Symbol passt semantisch
-            // besser als "figure.walk.departure" — "ich gehe durch die Tür".
-            ZStack {
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: hasScoreRisk
-                                ? [Color.accentRed.opacity(0.22), Color.accentOrange.opacity(0.14)]
-                                : [Color.accentOrange.opacity(0.22), Color.brand.opacity(0.14)],
-                            startPoint: .topLeading, endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: 110, height: 110)
-                    .scaleEffect(pulse ? 1.05 : 0.96)
-                Image(systemName: "door.left.hand.open")
-                    .font(.system(size: 44, weight: .bold))
-                    .foregroundColor(hasScoreRisk ? .accentRed : .accentOrange)
-                    .shadow(color: (hasScoreRisk ? Color.accentRed : Color.accentOrange).opacity(0.4), radius: 10)
-            }
-            // 110 × 1.05 = 115.5pt max — 130pt Frame gibt Puffer, kein .clipped()
-            .frame(width: 130, height: 130)
+            VStack(spacing: 0) {
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 22) {
+                        // Flat Icon-Circle (Lavendel).
+                        ZStack {
+                            Circle()
+                                .fill(Color.brandLavender.opacity(0.9))
+                                .frame(width: 92, height: 92)
+                                .scaleEffect(pulse ? 1.04 : 0.98)
+                            Image(systemName: "door.left.hand.open")
+                                .font(.system(size: 40, weight: .heavy))
+                                .foregroundColor(hasScoreRisk ? .brandOrange : .brandViolet)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.top, 20)
 
-            VStack(spacing: 8) {
-                Text(tr("shared.leave_drop_q"))
-                    .font(.system(size: 22, weight: .bold, design: .rounded))
-                    .foregroundColor(.textPrimary)
-                Text("\(activityEmoji) \(activityName)")
-                    .font(.system(size: 14))
-                    .foregroundColor(.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 36)
-            }
+                        VStack(alignment: .leading, spacing: -2) {
+                            Text("Runde")
+                                .foregroundColor(.brandNight)
+                            Text("wirklich verlassen?")
+                                .foregroundColor(.brandViolet)
+                        }
+                        .font(.system(size: 30, weight: .heavy, design: .rounded))
+                        .padding(.horizontal, 24)
 
-            // Konkrete Hinweis-Liste — Inhalt abhängig von der Dauer
-            VStack(spacing: 12) {
-                if hasScoreRisk {
-                    infoRow(
-                        icon: "exclamationmark.triangle.fill",
-                        tint: .accentRed,
-                        text: tr("shared.no_show_warning")
-                    )
-                } else {
-                    infoRow(
-                        icon: "checkmark.shield.fill",
-                        tint: .onlineGreen,
-                        text: tr("shared.under_12min_safe")
-                    )
-                }
-                infoRow(
-                    icon: "person.fill.questionmark",
-                    tint: .accentOrange,
-                    text: tr("shared.host_will_see_left")
-                )
-                infoRow(
-                    icon: "clock.arrow.circlepath",
-                    tint: .brand,
-                    text: tr("shared.cooldown_10min")
-                )
-            }
-            .padding(.horizontal, 22)
+                        Text("\(activityEmoji) \(activityName)")
+                            .font(.system(size: 16, weight: .medium, design: .rounded))
+                            .foregroundColor(.brandNight.opacity(0.65))
+                            .padding(.horizontal, 24)
 
-            Spacer()
-
-            // Aktionen — Hierarchie matched Apple HIG: User hat das Sheet
-            // geöffnet weil er verlassen WILL → destructive primary, cancel
-            // als sekundärer Text-Link. Konsistent zum EndDropSheet.
-            VStack(spacing: 10) {
-                // Primary: Drop verlassen — solid rot mit weißem Text
-                Button(action: onLeave) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "door.left.hand.open")
-                            .font(.system(size: 14, weight: .bold))
-                        Text(tr("shared.leave_drop"))
-                            .font(.system(size: 16, weight: .bold, design: .rounded))
+                        VStack(spacing: 10) {
+                            if hasScoreRisk {
+                                infoRow(icon: "exclamationmark.triangle.fill",
+                                        text: "Nach 12 Min zählt das als No-Show")
+                            } else {
+                                infoRow(icon: "checkmark.shield.fill",
+                                        text: "Innerhalb 12 Min: ohne Punkt-Abzug")
+                            }
+                            infoRow(icon: "person.fill.questionmark",
+                                    text: "Host sieht, dass du weg bist")
+                            infoRow(icon: "clock.arrow.circlepath",
+                                    text: "10 Min Cooldown bis neuer Beitritt")
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 8)
                     }
-                    .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(
-                        Capsule().fill(Color.accentRed)
-                    )
-                    .shadow(color: Color.accentRed.opacity(0.35), radius: 10, y: 4)
                 }
-                .buttonStyle(.plain)
 
-                // Secondary: Dabei bleiben — Text-Link in Grau
-                Button(action: onCancel) {
-                    Text(tr("shared.stay_in"))
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(.textSecondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
+                VStack(spacing: 10) {
+                    Button(action: onCancel) {
+                        Text("Dabei bleiben")
+                            .dropsPrimaryButton()
+                    }
+                    .dropsPressable()
+
+                    Button(action: onLeave) {
+                        Text("Runde verlassen")
+                            .font(.system(size: 15, weight: .semibold, design: .rounded))
+                            .foregroundColor(.brandNight.opacity(0.55))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                    }
+                    .dropsPressable()
                 }
-                .buttonStyle(.plain)
+                .padding(.horizontal, 20)
+                .padding(.top, 6)
+                .padding(.bottom, 22)
             }
-            .padding(.horizontal, 22)
-            .padding(.bottom, 22)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) {
                 pulse = true
@@ -2111,24 +2149,21 @@ struct LeaveDropSheet: View {
     }
 
     @ViewBuilder
-    private func infoRow(icon: String, tint: Color, text: String) -> some View {
-        HStack(alignment: .top, spacing: 12) {
+    private func infoRow(icon: String, text: String) -> some View {
+        HStack(alignment: .center, spacing: 14) {
             Image(systemName: icon)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(tint)
-                .frame(width: 28, height: 28)
-                .background(Circle().fill(tint.opacity(0.14)))
+                .font(.system(size: 15, weight: .bold))
+                .foregroundColor(.brandViolet)
+                .frame(width: 36, height: 36)
+                .background(Circle().fill(Color.brandLavender))
             Text(text)
-                .font(.system(size: 13))
-                .foregroundColor(.textPrimary)
+                .font(.system(size: 14, weight: .medium, design: .rounded))
+                .foregroundColor(.brandNight.opacity(0.85))
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, 14).padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: Radius.card)
-                .fill(.ultraThinMaterial)
-        )
+        .padding(.horizontal, 16).padding(.vertical, 12)
+        .liquidGlass(cornerRadius: 18)
     }
 }
 
@@ -2146,227 +2181,115 @@ struct EndDropSheet: View {
     let onEnd: () -> Void
     let onCancel: () -> Void
 
-    /// 3 versetzte Ring-Wellen für eine "Stopp"-Pulsation. Phase-shift
-    /// erzeugt einen Wellen-Effekt — wirkt energetischer als ein einfacher
-    /// Pulse und unterstreicht den destruktiven Charakter der Aktion.
-    @State private var ring0 = false
-    @State private var ring1 = false
-    @State private var ring2 = false
-    /// Subtle Icon-Beat im Takt der ersten Welle.
+    /// Subtle Icon-Beat auf der Lavendel-Scheibe.
     @State private var iconBeat = false
 
     private var qualifiesForPoints: Bool { elapsedSeconds >= 15 * 60 }
     private var hasOthers: Bool { participantCount >= 2 }
 
     var body: some View {
-        // ScrollView damit auf kleinen Devices (iPhone SE) der Content
-        // nicht abgeschnitten wird. Buttons sind Pinned am Bottom außerhalb
-        // der ScrollView, sonst muss der User scrollen um zu beenden.
-        VStack(spacing: 0) {
-            ScrollView(showsIndicators: false) {
-                contentBlock
+        ZStack {
+            Color.brandCream.ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 20) {
+                        ZStack {
+                            Circle()
+                                .fill(Color.brandLavender.opacity(0.9))
+                                .frame(width: 92, height: 92)
+                                .scaleEffect(iconBeat ? 1.04 : 0.98)
+                            Image(systemName: "flag.checkered")
+                                .font(.system(size: 38, weight: .heavy))
+                                .foregroundColor(.brandOrange)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.top, 20)
+
+                        VStack(alignment: .leading, spacing: -2) {
+                            Text("Runde")
+                                .foregroundColor(.brandNight)
+                            Text("beenden?")
+                                .foregroundColor(.brandViolet)
+                        }
+                        .font(.system(size: 30, weight: .heavy, design: .rounded))
+                        .padding(.horizontal, 24)
+
+                        Text("\(activityEmoji) \(activityName)")
+                            .font(.system(size: 16, weight: .medium, design: .rounded))
+                            .foregroundColor(.brandNight.opacity(0.65))
+                            .padding(.horizontal, 24)
+
+                        VStack(spacing: 10) {
+                            if hasOthers {
+                                infoRow(icon: "person.2.fill",
+                                        text: (participantCount - 1 == 1
+                                               ? tr("shared.participants_notified_singular")
+                                               : tr("shared.participants_notified_plural"))
+                                            .replacingOccurrences(of: "{count}", with: "\(participantCount - 1)"))
+                            } else {
+                                infoRow(icon: "person.crop.circle.badge.xmark",
+                                        text: tr("shared.no_participants_yet"))
+                            }
+                            if qualifiesForPoints && hasOthers {
+                                infoRow(icon: "sparkles", text: tr("shared.host_points_awarded"))
+                            } else if !qualifiesForPoints && hasOthers {
+                                infoRow(icon: "hourglass",
+                                        text: tr("shared.only_x_min_no_points")
+                                            .replacingOccurrences(of: "{mins}", with: "\(Int(elapsedSeconds / 60))"))
+                            }
+                            infoRow(icon: "map", text: tr("shared.drop_disappears"))
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 8)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+
+                VStack(spacing: 10) {
+                    Button(action: onCancel) {
+                        Text(tr("shared.keep_running"))
+                            .dropsPrimaryButton()
+                    }
+                    .dropsPressable()
+
+                    Button(action: onEnd) {
+                        Text(tr("shared.end_drop"))
+                            .font(.system(size: 15, weight: .semibold, design: .rounded))
+                            .foregroundColor(.brandNight.opacity(0.55))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                    }
+                    .dropsPressable()
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 6)
+                .padding(.bottom, 22)
             }
-            actionButtons
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
-            // Drei zeitversetzte Ring-Wellen erzeugen einen Sirenen-Effekt.
-            // Jede Welle dauert 1.8s und repeatet forever; Stagger 0.6s.
-            let dur: Double = 1.8
-            withAnimation(.easeOut(duration: dur).repeatForever(autoreverses: false)) {
-                ring0 = true
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                withAnimation(.easeOut(duration: dur).repeatForever(autoreverses: false)) {
-                    ring1 = true
-                }
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-                withAnimation(.easeOut(duration: dur).repeatForever(autoreverses: false)) {
-                    ring2 = true
-                }
-            }
-            // Icon-Beat synchron zum ersten Ring — Spring sorgt für lebendige
-            // Pulsation statt mechanischem Skalieren.
-            withAnimation(
-                .spring(response: 0.6, dampingFraction: 0.55)
-                    .repeatForever(autoreverses: true)
-            ) {
+            withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) {
                 iconBeat = true
             }
         }
     }
 
-    /// Scrollbarer Content-Block: Visual + Header + Info-Rows.
-    /// Kompakt gehalten damit das Sheet bei `.fraction(0.62)` ohne
-    /// Scrolling auskommt. Buttons sind außerhalb der ScrollView pinned
-    /// (siehe body). Falls iPhone SE / Display-Zoom doch nicht reicht,
-    /// kann der User scrollen.
     @ViewBuilder
-    private var contentBlock: some View {
-        VStack(spacing: 10) {
-            Spacer(minLength: 4)
-
-            ZStack {
-                radarRing(scale: ring0 ? 1.5 : 0.9, opacity: ring0 ? 0.0 : 0.45)
-                radarRing(scale: ring1 ? 1.5 : 0.9, opacity: ring1 ? 0.0 : 0.45)
-                radarRing(scale: ring2 ? 1.5 : 0.9, opacity: ring2 ? 0.0 : 0.45)
-
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [Color.accentRed.opacity(0.30),
-                                     Color.accentOrange.opacity(0.18)],
-                            startPoint: .topLeading, endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: 64, height: 64)
-                    .shadow(color: Color.accentRed.opacity(0.35), radius: 12, y: 4)
-
-                Image(systemName: "flag.checkered")
-                    .font(.system(size: 26, weight: .bold))
-                    .foregroundColor(.accentRed)
-                    .shadow(color: Color.accentRed.opacity(0.5), radius: 8)
-                    .scaleEffect(iconBeat ? 1.08 : 1.0)
-            }
-            // Frame muss die Ringe bei Max-Scale (1.5 × 110 = 165pt) aufnehmen.
-            // Kein .clipped() — die Ringe faden gegen opacity 0, bevor sie
-            // den Rand des Frames erreichen; ein Clip würde sie sichtbar
-            // abschneiden wie auf dem Screenshot zu sehen war.
-            .frame(width: 170, height: 170)
-
-            VStack(spacing: 2) {
-                Text(tr("shared.end_drop_q"))
-                    .font(.system(size: 19, weight: .bold, design: .rounded))
-                    .foregroundColor(.textPrimary)
-                Text("\(activityEmoji) \(activityName)")
-                    .font(.system(size: 13))
-                    .foregroundColor(.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 30)
-            }
-
-            VStack(spacing: 6) {
-                if hasOthers {
-                    infoRow(
-                        icon: "person.2.fill",
-                        tint: .accentOrange,
-                        text: (participantCount - 1 == 1
-                               ? tr("shared.participants_notified_singular")
-                               : tr("shared.participants_notified_plural")).replacingOccurrences(of: "{count}", with: "\(participantCount - 1)")
-                    )
-                } else {
-                    infoRow(
-                        icon: "person.crop.circle.badge.xmark",
-                        tint: .textTertiary,
-                        text: tr("shared.no_participants_yet")
-                    )
-                }
-                if qualifiesForPoints && hasOthers {
-                    infoRow(
-                        icon: "sparkles",
-                        tint: .onlineGreen,
-                        text: tr("shared.host_points_awarded")
-                    )
-                } else if !qualifiesForPoints && hasOthers {
-                    infoRow(
-                        icon: "hourglass",
-                        tint: .accentOrange,
-                        text: tr("shared.only_x_min_no_points").replacingOccurrences(of: "{mins}", with: "\(Int(elapsedSeconds / 60))")
-                    )
-                }
-                infoRow(
-                    icon: "map",
-                    tint: .brand,
-                    text: tr("shared.drop_disappears")
-                )
-            }
-            .padding(.horizontal, 18)
-            .padding(.bottom, 4)
-        }
-    }
-
-    /// Action-Buttons unten am Sheet — bleiben außerhalb der ScrollView
-    /// damit der User immer beenden/cancel kann ohne erst scrollen zu müssen.
-    /// Hierarchie matched HIG: destructive Aktion (Beenden) prominent rot,
-    /// Cancel (Weiterlaufen) sekundär als Text-Link. Der User hat das Sheet
-    /// ja eröffnet weil er beenden WILL — der Primary-CTA muss das matchen.
-    @ViewBuilder
-    private var actionButtons: some View {
-        VStack(spacing: 10) {
-            // Primary: Destructive Aktion — solid rot mit weißem Text.
-            Button(action: onEnd) {
-                HStack(spacing: 8) {
-                    Image(systemName: "flag.checkered")
-                        .font(.system(size: 14, weight: .bold))
-                    Text(tr("shared.end_drop"))
-                        .font(.system(size: 16, weight: .bold, design: .rounded))
-                }
-                .foregroundColor(.white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-                .background(
-                    Capsule().fill(Color.accentRed)
-                )
-                .shadow(color: Color.accentRed.opacity(0.35), radius: 10, y: 4)
-            }
-            .buttonStyle(.plain)
-
-            // Secondary: Cancel — Text-Link, kein Background, leicht zurückhaltend.
-            Button(action: onCancel) {
-                Text(tr("shared.keep_running"))
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(.textSecondary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 22)
-        .padding(.top, 6)
-        .padding(.bottom, 16)
-        .background(.ultraThinMaterial)
-    }
-
-    /// Einzelner expandierender Warnring — frame-basierte Animation statt scaleEffect.
-    /// scaleEffect ändert nur die visuelle Darstellung, nicht den Layout-Frame:
-    /// ScrollView clippt am Layout-Rand und schneidet Ringe ab (Bug).
-    /// Mit .frame(size) wächst der tatsächliche Layout-Frame mit → kein Clip.
-    @ViewBuilder
-    private func radarRing(scale: CGFloat, opacity: Double) -> some View {
-        let size: CGFloat = 110 * scale
-        Circle()
-            .stroke(
-                LinearGradient(
-                    colors: [Color.accentRed, Color.accentOrange],
-                    startPoint: .topLeading, endPoint: .bottomTrailing
-                ),
-                lineWidth: 2.5
-            )
-            .frame(width: size, height: size)
-            .opacity(opacity)
-    }
-
-    @ViewBuilder
-    private func infoRow(icon: String, tint: Color, text: String) -> some View {
-        HStack(alignment: .center, spacing: 10) {
+    private func infoRow(icon: String, text: String) -> some View {
+        HStack(alignment: .center, spacing: 14) {
             Image(systemName: icon)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(tint)
-                .frame(width: 26, height: 26)
-                .background(Circle().fill(tint.opacity(0.14)))
+                .font(.system(size: 15, weight: .bold))
+                .foregroundColor(.brandViolet)
+                .frame(width: 36, height: 36)
+                .background(Circle().fill(Color.brandLavender))
             Text(text)
-                .font(.system(size: 12.5))
-                .foregroundColor(.textPrimary)
-                .lineSpacing(1)
+                .font(.system(size: 14, weight: .medium, design: .rounded))
+                .foregroundColor(.brandNight.opacity(0.85))
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, 12).padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: Radius.md)
-                .fill(.ultraThinMaterial)
-        )
+        .padding(.horizontal, 16).padding(.vertical, 12)
+        .liquidGlass(cornerRadius: 18)
     }
 }
 
@@ -2394,83 +2317,86 @@ struct DropFeedbackSheet: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            VStack(spacing: 8) {
-                Text(headline)
-                    .font(.system(size: 19, weight: .bold))
-                    .foregroundColor(.textPrimary)
-                Text(subline)
-                    .font(.system(size: 13))
-                    .foregroundColor(.textSecondary)
-            }
-            .padding(.top, 22).padding(.bottom, 22)
+        ZStack {
+            Color.brandCream.ignoresSafeArea()
 
-            ScrollView {
-                VStack(spacing: 10) {
-                    ForEach(prompt.targets) { target in
-                        feedbackRow(for: target)
-                    }
+            VStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: -2) {
+                    Text(headline)
+                        .foregroundColor(.brandNight)
                 }
-                .padding(.horizontal, 18)
-            }
-            .frame(maxHeight: 320)
+                .font(.system(size: 28, weight: .heavy, design: .rounded))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 24)
+                .padding(.top, 24)
 
-            Spacer(minLength: 12)
+                Text(subline)
+                    .font(.system(size: 15, weight: .medium, design: .rounded))
+                    .foregroundColor(.brandNight.opacity(0.65))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 6)
+                    .padding(.bottom, 18)
 
-            // Buttons
-            HStack(spacing: 10) {
-                Button {
-                    dismiss()
-                } label: {
-                    Text(tr("shared.skip"))
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(.textSecondary)
+                ScrollView {
+                    VStack(spacing: 10) {
+                        ForEach(prompt.targets) { target in
+                            feedbackRow(for: target)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                }
+                .frame(maxHeight: 340)
+
+                Spacer(minLength: 12)
+
+                HStack(spacing: 10) {
+                    Button { dismiss() } label: {
+                        Text(tr("shared.skip"))
+                            .font(.system(size: 15, weight: .semibold, design: .rounded))
+                            .foregroundColor(.brandNight.opacity(0.55))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(Capsule().fill(Color.brandLavender.opacity(0.6)))
+                    }
+                    .dropsPressable()
+
+                    Button { submitAll() } label: {
+                        HStack(spacing: 6) {
+                            if submitted {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 15, weight: .bold))
+                            }
+                            Text(submitted ? "Danke!" : "Senden")
+                                .font(.system(size: 15, weight: .bold, design: .rounded))
+                        }
+                        .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
-                        .background(Capsule().fill(Color.primary.opacity(0.06)))
-                }
-                .buttonStyle(.plain)
-
-                Button {
-                    submitAll()
-                } label: {
-                    HStack(spacing: 6) {
-                        if submitted {
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.system(size: 15, weight: .bold))
-                        }
-                        Text(submitted ? "Danke!" : "Senden")
-                            .font(.system(size: 15, weight: .semibold))
+                        .background(
+                            Capsule().fill(votes.isEmpty
+                                           ? Color.brandViolet.opacity(0.4)
+                                           : Color.brandViolet)
+                        )
                     }
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(
-                        Capsule().fill(votes.isEmpty ? Color.textTertiary : Color.brand)
-                            .shadow(color: Color.brand.opacity(0.3), radius: 10, y: 3)
-                    )
+                    .dropsPressable()
+                    .disabled(votes.isEmpty || submitted)
                 }
-                .buttonStyle(.plain)
-                .disabled(votes.isEmpty || submitted)
+                .padding(.horizontal, 20).padding(.bottom, 24)
             }
-            .padding(.horizontal, 18).padding(.bottom, 24)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.ultraThinMaterial)
     }
 
     @ViewBuilder
     private func feedbackRow(for target: AppStore.FeedbackTarget) -> some View {
         let currentVote = votes[target.id]
-        HStack(spacing: 12) {
-            // Avatar
+        HStack(spacing: 14) {
             if let url = target.profileImageURL, !url.isEmpty {
                 RemoteProfileImage(url: url, fallbackEmoji: target.emoji,
                                    size: 44, strokeColor: .clear)
             } else {
                 Circle()
-                    .fill(Color.brand.opacity(0.1))
+                    .fill(Color.brandLavender)
                     .frame(width: 44, height: 44)
                     .overlay(Text(target.emoji).font(.system(size: 22)))
             }
@@ -2478,17 +2404,17 @@ struct DropFeedbackSheet: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 5) {
                     Text(target.name)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(.textPrimary)
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                        .foregroundColor(.brandNight)
                     if target.wasHost {
                         Image(systemName: "crown.fill")
                             .font(.system(size: 10))
-                            .foregroundColor(.accentOrange)
+                            .foregroundColor(.brandOrange)
                     }
                 }
                 Text(target.wasHost ? "Host" : "Teilnehmer")
-                    .font(.system(size: 11))
-                    .foregroundColor(.textTertiary)
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .foregroundColor(.brandNight.opacity(0.55))
             }
 
             Spacer()
@@ -2496,19 +2422,18 @@ struct DropFeedbackSheet: View {
             HStack(spacing: 8) {
                 voteButton(systemImage: "hand.thumbsdown.fill",
                            selected: currentVote == "down",
-                           tint: .accentRed) {
+                           tint: .brandOrange) {
                     votes[target.id] = currentVote == "down" ? nil : "down"
                 }
                 voteButton(systemImage: "hand.thumbsup.fill",
                            selected: currentVote == "up",
-                           tint: .onlineGreen) {
+                           tint: .brandViolet) {
                     votes[target.id] = currentVote == "up" ? nil : "up"
                 }
             }
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
-        .background(Color.primary.opacity(0.04),
-                    in: RoundedRectangle(cornerRadius: Radius.card))
+        .liquidGlass(cornerRadius: 18)
     }
 
     @ViewBuilder
@@ -2516,14 +2441,14 @@ struct DropFeedbackSheet: View {
                             tint: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(selected ? .white : tint.opacity(0.6))
-                .frame(width: 38, height: 38)
+                .font(.system(size: 16, weight: .bold))
+                .foregroundColor(selected ? .white : tint.opacity(0.8))
+                .frame(width: 40, height: 40)
                 .background(
-                    Circle().fill(selected ? tint : tint.opacity(0.12))
+                    Circle().fill(selected ? tint : Color.brandLavender)
                 )
         }
-        .buttonStyle(.plain)
+        .dropsPressable()
         .scaleEffect(selected ? 1.1 : 1.0)
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: selected)
     }
@@ -2595,7 +2520,7 @@ struct DropSuccessShareSheet: View {
             .padding(.horizontal, 24)
             .padding(.bottom, 32)
         }
-        .background(Color(UIColor.systemGroupedBackground))
+        .background(Color.bgGrouped)
         .onAppear {
             withAnimation { rendered = true }
             // Image vorab rendern
@@ -2707,7 +2632,7 @@ struct DropShareCardView: View {
                                            startPoint: .topLeading, endPoint: .bottomTrailing)
                         )
                         .frame(width: 20, height: 20)
-                    Text("Drops · drops-app.de")
+                    Text("Dazu · drops-app.de")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(.white.opacity(0.5))
                 }
@@ -2729,6 +2654,20 @@ struct ActivityCategory {
     let emoji: String         // Repräsentatives Emoji für CreateDrop-Chips
     let dropEmojis: [String]  // Alle Emojis die zu dieser Kategorie matchen
     let keywords: [String]    // Keywords die gegen activityName matchen
+
+    /// Lokalisierter Display-Name für die UI. `key` bleibt deutsch als
+    /// stabile interne ID (in UserDefaults persistiert, in Filter-State
+    /// referenziert) — wir mappen nur fürs Rendering.
+    var displayName: String {
+        switch key {
+        case "Kaffee": return tr("activity.coffee")
+        case "Drink":  return tr("activity.drink")
+        case "Sport":  return tr("activity.sport")
+        case "Essen":  return tr("activity.food")
+        case "Zocken": return tr("activity.gaming")
+        default:       return key
+        }
+    }
 
     static let all: [ActivityCategory] = [
         ActivityCategory(
@@ -2784,13 +2723,13 @@ struct ActivityFilterChipsView: View {
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                chip(title: "Alle", icon: "square.grid.2x2.fill",
+                chip(title: tr("feed.filter_all"), icon: "square.grid.2x2.fill",
                      selected: store.activityCategoryFilter.isEmpty) {
                     store.activityCategoryFilter = ""
                     store.saveAll()
                 }
                 ForEach(ActivityCategory.all, id: \.key) { cat in
-                    chip(title: cat.key, icon: cat.icon,
+                    chip(title: cat.displayName, icon: cat.icon,
                          selected: store.activityCategoryFilter == cat.key) {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
                             store.activityCategoryFilter =
@@ -2823,11 +2762,11 @@ struct ActivityFilterChipsView: View {
                 Capsule().fill(
                     selected
                         ? Color.brand
-                        : Color(UIColor.secondarySystemGroupedBackground)
+                        : Color.bgCard
                 )
             )
             .shadow(color: selected ? Color.brand.opacity(0.28) : .clear, radius: 8, y: 3)
         }
-        .buttonStyle(.plain)
+        .dropsPressable()
     }
 }

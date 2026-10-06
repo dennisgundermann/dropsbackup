@@ -75,12 +75,75 @@ class RealtimeDBManager: ObservableObject {
     /// `/config/cityRestrictionEnabled` → Boolean → `true` (für Launch in DE)
     /// oder `false` (App-Store-Review-Build).
     func bootstrapRemoteFlags() {
-        db.child("config").child("cityRestrictionEnabled").observe(.value) { snap in
-            if let v = snap.value as? Bool {
-                BetaConfig.cityRestrictionEnabled = v
-            } else if let n = snap.value as? NSNumber {
-                BetaConfig.cityRestrictionEnabled = n.boolValue
+        // City-Restriction dauerhaft deaktiviert — Map zeigt Drops überall.
+        // Observer entfernt, damit ein etwaiger `true`-Wert in `/config`
+        // die Restriction nicht wieder aktiviert (und der permission_denied
+        // Listener-Error im Log verschwindet).
+        BetaConfig.cityRestrictionEnabled = false
+    }
+
+    // MARK: - Presence (Opt-in Location Sharing)
+
+    /// Schreibt die eigene (bereits auf 500m gefuzzt) Position nach
+    /// `presence/{uid}`. Wird nur aufgerufen wenn Opt-in aktiv und der
+    /// letzte Write mindestens `presenceThrottleSeconds` her ist.
+    func writeMyPresence(uid: String, coord: CLLocationCoordinate2D,
+                         emoji: String, name: String, profileImageURL: String?) {
+        let snapped = PresenceGrid.snap(coord)
+        var payload: [String: Any] = [
+            "lat":       snapped.latitude,
+            "lng":       snapped.longitude,
+            "emoji":     emoji,
+            "name":      name,
+            "updatedAt": ServerValue.timestamp()
+        ]
+        if let img = profileImageURL, !img.isEmpty {
+            payload["profileImageURL"] = img
+        }
+        db.child("presence").child(uid).setValue(payload)
+    }
+
+    /// Löscht den eigenen Presence-Eintrag — beim Opt-out oder Ghost-Mode.
+    func stopSharingPresence(uid: String) {
+        db.child("presence").child(uid).removeValue()
+    }
+
+    private var presenceHandle: DatabaseHandle?
+
+    /// Startet einen Live-Observer auf `presence/*` und liefert Änderungen als
+    /// Array. Client filtert selbst 20-Min-Delay + 4h-Cutoff + DE-BoundingBox.
+    /// Ruft `onUpdate` bei jeder Änderung (kein Diff, immer volles Set).
+    func observeAllPresence(onUpdate: @escaping ([PresenceEntry]) -> Void) {
+        stopObservingPresence()
+        presenceHandle = db.child("presence").observe(.value) { snap in
+            var entries: [PresenceEntry] = []
+            for case let child as DataSnapshot in snap.children {
+                guard let dict = child.value as? [String: Any] else { continue }
+                let uid = child.key
+                guard let lat = dict["lat"] as? Double,
+                      let lng = dict["lng"] as? Double,
+                      let tsRaw = dict["updatedAt"] else { continue }
+                let tsMs: Double
+                if let d = tsRaw as? Double            { tsMs = d }
+                else if let n = tsRaw as? NSNumber     { tsMs = n.doubleValue }
+                else { continue }
+                let entry = PresenceEntry(
+                    uid: uid, lat: lat, lng: lng,
+                    updatedAt: Date(timeIntervalSince1970: tsMs / 1000),
+                    emoji: (dict["emoji"] as? String) ?? "😊",
+                    name:  dict["name"] as? String,
+                    profileImageURL: dict["profileImageURL"] as? String
+                )
+                entries.append(entry)
             }
+            DispatchQueue.main.async { onUpdate(entries) }
+        }
+    }
+
+    func stopObservingPresence() {
+        if let h = presenceHandle {
+            db.child("presence").removeObserver(withHandle: h)
+            presenceHandle = nil
         }
     }
 
@@ -450,9 +513,17 @@ class RealtimeDBManager: ObservableObject {
     /// Schreibrechte hat. Verwaiste Drop-/Encounter-Einträge werden durch den
     /// Admin-Cleanup bzw. `cleanupOrphanedDrops` bereinigt.
     func deleteUserData(uid: String) async {
+        // Fehler werden geloggt aber Cleanup läuft weiter — sonst hängt der
+        // User auf einem teilweise gelöschten Account fest. Orphans werden
+        // serverseitig durch Cleanup-Jobs aufgesammelt.
+        func tryDelete(_ label: String, _ block: () async throws -> Void) async {
+            do { try await block() }
+            catch { print("[deleteUserData] ⚠️ \(label) failed: \(error.localizedDescription)") }
+        }
+
         // 1. RTDB: Profil, Freunde
-        _ = try? await db.child("users").child(uid).removeValue()
-        _ = try? await db.child("friends").child(uid).removeValue()
+        await tryDelete("users/\(uid)")   { try await self.db.child("users").child(uid).removeValue() }
+        await tryDelete("friends/\(uid)") { try await self.db.child("friends").child(uid).removeValue() }
 
         // 2. RTDB: eigenen Discovery-Index-Eintrag direkt entfernen (kein Scan nötig —
         //    wir kennen Telefon aus UserDefaults und E-Mail aus Auth)
@@ -460,28 +531,38 @@ class RealtimeDBManager: ObservableObject {
         if !savedPhone.isEmpty {
             let normPhone = Self.normalizePhone(savedPhone)
             if !normPhone.isEmpty {
-                _ = try? await db.child("phoneIndex").child(normPhone).removeValue()
+                await tryDelete("phoneIndex/\(normPhone)") {
+                    try await self.db.child("phoneIndex").child(normPhone).removeValue()
+                }
             }
         }
         let authPhone = Auth.auth().currentUser?.phoneNumber ?? ""
         if !authPhone.isEmpty {
             let normAuth = Self.normalizePhone(authPhone)
             if !normAuth.isEmpty && normAuth != Self.normalizePhone(savedPhone) {
-                _ = try? await db.child("phoneIndex").child(normAuth).removeValue()
+                await tryDelete("phoneIndex/\(normAuth)") {
+                    try await self.db.child("phoneIndex").child(normAuth).removeValue()
+                }
             }
         }
         if let email = Auth.auth().currentUser?.email, !email.isEmpty {
             let emailKey = email.lowercased()
                 .replacingOccurrences(of: ".", with: ",")
                 .replacingOccurrences(of: "@", with: "-at-")
-            _ = try? await db.child("emailIndex").child(emailKey).removeValue()
+            await tryDelete("emailIndex/\(emailKey)") {
+                try await self.db.child("emailIndex").child(emailKey).removeValue()
+            }
         }
 
         // 3. Firestore: Profilergänzung (Reliability-Score, profileImageURL)
-        _ = try? await Firestore.firestore().collection("users").document(uid).delete()
+        await tryDelete("firestore users/\(uid)") {
+            try await Firestore.firestore().collection("users").document(uid).delete()
+        }
 
         // 4. Firebase Storage: Profilbild
-        _ = try? await Storage.storage().reference().child("profileImages/\(uid).jpg").delete()
+        await tryDelete("storage profileImages/\(uid).jpg") {
+            try await Storage.storage().reference().child("profileImages/\(uid).jpg").delete()
+        }
     }
 
     /// Setzt einen Tombstone-Marker nach Konto-Löschung. Wenn sich der User erneut
@@ -730,6 +811,9 @@ class RealtimeDBManager: ObservableObject {
     /// Beobachtet alle aktiven Drops in Echtzeit (gefiltert auf Umgebung lokal)
     func observeNearbyDrops(around coordinate: CLLocationCoordinate2D, radiusKm: Double,
                              onUpdate: @escaping ([StrangerDropData]) -> Void) -> DatabaseHandle {
+        // Ghost-TTL: 90 Min — synchron mit Cloud Function `cleanupExpiredDrops`.
+        // Kompakt damit die Map nicht mit alten Ghosts überquillt.
+        let ghostTTL: TimeInterval = 90 * 60
         let handle = db.child("drops").observe(.value) { snapshot in
             var result: [StrangerDropData] = []
             for child in snapshot.children {
@@ -739,19 +823,48 @@ class RealtimeDBManager: ObservableObject {
                       let lng = dict["lng"] as? Double,
                       let name = dict["displayName"] as? String,
                       let emoji = dict["emoji"] as? String,
-                      let activity = dict["activityName"] as? String,
-                      let active = dict["active"] as? Bool, active
+                      let activity = dict["activityName"] as? String
                 else { continue }
 
-                // Abgelaufene Drops herausfiltern (Host hat die App evtl. ohne Abmelden geschlossen)
+                let active = (dict["active"] as? Bool) ?? false
+                let isDemo = (dict["isDemo"] as? Bool) ?? false
+                let effectiveTTL: TimeInterval = isDemo ? 60 * 60 : ghostTTL
                 let now = Date()
+
+                // Ghost-Detection: drop ist nicht (mehr) aktiv ODER abgelaufen.
+                // endedAt (ms-epoch oder seconds) gibt vorrang; sonst expiresAt-Vergleich.
+                var endedAt: Date? = nil
+                if let endedTs = dict["endedAt"] as? Double {
+                    // ServerValue.timestamp = ms; iOS-eigene Writes = ms. Robust auf beide.
+                    endedAt = endedTs > 1e10 ? Date(timeIntervalSince1970: endedTs / 1000)
+                                             : Date(timeIntervalSince1970: endedTs)
+                }
+                var expiresAt: Date? = nil
                 if let expiresTs = dict["expiresAt"] as? Double {
-                    // Neues Feld: exakt prüfen
-                    if now > Date(timeIntervalSince1970: expiresTs) { continue }
+                    expiresAt = Date(timeIntervalSince1970: expiresTs)
                 } else if let tsMs = dict["timestamp"] as? Double {
-                    // Altes Feld (ServerValue.timestamp = Millisekunden): max. 12h Lebensdauer
-                    let created = Date(timeIntervalSince1970: tsMs / 1000)
-                    if now.timeIntervalSince(created) > 12 * 60 * 60 { continue }
+                    expiresAt = Date(timeIntervalSince1970: tsMs / 1000).addingTimeInterval(12 * 3600)
+                }
+
+                // Effektives Ende: explicit endedAt > expiresAt-Fallback (für Naturablauf vor
+                // Cloud-Function-Pass). Wenn beides leer und active=false → unsichtbar (skip).
+                let effectiveEnd: Date? = endedAt
+                    ?? (active ? nil : expiresAt)
+                    ?? (expiresAt.map { now > $0 ? $0 : nil } ?? nil)
+
+                let isGhost: Bool
+                if !active {
+                    // Beendet — Ghost wenn binnen TTL
+                    guard let end = effectiveEnd else { continue }
+                    if now.timeIntervalSince(end) > effectiveTTL { continue }
+                    isGhost = true
+                } else if let exp = expiresAt, now > exp {
+                    // Aktiv geflaggt aber abgelaufen — Cloud Function hat noch nicht gelaufen.
+                    // Behandle als Ghost mit ablauf-Zeit als end.
+                    if now.timeIntervalSince(exp) > effectiveTTL { continue }
+                    isGhost = true
+                } else {
+                    isGhost = false
                 }
 
                 let ownerID         = dict["userID"] as? String ?? ""
@@ -765,11 +878,16 @@ class RealtimeDBManager: ObservableObject {
                 let currentParticipants = dict["currentParticipants"] as? Int ?? 1
                 let hostReliabilityPoints = dict["hostReliabilityPoints"] as? Int
                 let communityID         = dict["communityID"] as? String
+                let locationTitle       = dict["locationTitle"] as? String ?? ""
                 let dropCoord = CLLocationCoordinate2D(latitude: lat, longitude: lng)
                 let distance = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
                     .distance(from: CLLocation(latitude: lat, longitude: lng))
 
-                if distance <= radiusKm * 1000 {
+                // Aktive Drops: nur innerhalb Radius (Privacy + Relevanz).
+                // Ghosts: IMMER inkludieren — sie sind vorbei, kein Privacy-Issue.
+                // Effekt: Map zeigt Demo-Ghosts in allen 5 Städten egal wo der
+                // User ist, ohne dass aktive Drops global geleakt werden.
+                if isGhost || distance <= radiusKm * 1000 {
                     result.append(StrangerDropData(
                         id: snap.key,
                         ownerID: ownerID,
@@ -784,7 +902,11 @@ class RealtimeDBManager: ObservableObject {
                         maxParticipants: maxParticipants,
                         currentParticipants: currentParticipants,
                         hostReliabilityPoints: hostReliabilityPoints,
-                        communityID: communityID
+                        communityID: communityID,
+                        isGhost: isGhost,
+                        endedAt: endedAt ?? (isGhost ? expiresAt : nil),
+                        locationTitle: locationTitle,
+                        isDemo: isDemo
                     ))
                 }
             }
@@ -1170,9 +1292,10 @@ class RealtimeDBManager: ObservableObject {
     // Schreibt einen Vote pro (rater, ratedUser, dropID)-Tripel nach
     // `userFeedback/{ratedUID}/{raterUID}_{dropID}`. Der Pfad-Key macht
     // Doppel-Votes idempotent (gleicher User kann nicht mehrfach für
-    // denselben Drop voten). Aggregat-Statistiken werden serverseitig
-    // (Cloud Function später) auf `users/{uid}/feedbackThumbs`-Counter
-    // gemappt — Client schreibt nur den Roh-Vote.
+    // denselben Drop voten). Aggregat-Statistiken werden von der Cloud
+    // Function `onFeedbackVoteWritten` nach jedem Write neu berechnet
+    // und nach `users/{uid}/feedbackThumbs` geschrieben — Client schreibt
+    // nur den Roh-Vote, kann den Aggregat-Counter aber von dort lesen.
     func submitDropFeedback(raterUID: String, ratedUID: String,
                             dropID: String, vote: String) {
         guard !raterUID.isEmpty, !ratedUID.isEmpty,
@@ -1348,6 +1471,24 @@ class RealtimeDBManager: ObservableObject {
         db.child("encounters").child(encounterID).setValue(payload)
     }
 
+    // MARK: - Pair-Cooldowns (Reinstall-Safety)
+
+    /// Schreibt einen Pair-Cooldown-Timestamp nach Firebase.
+    /// Wird aufgerufen wenn ein Encounter-Bonus vergeben wurde — verhindert
+    /// Farming nach App-Reinstall (UserDefaults-only würde beim Reinstall verschwinden).
+    func savePairCooldown(myUID: String, otherUID: String, timestamp: TimeInterval) {
+        db.child("users/\(myUID)/pairCooldowns/\(otherUID)").setValue(timestamp)
+    }
+
+    /// Lädt alle gespeicherten Pair-Cooldowns für den aktuellen User aus Firebase.
+    /// Ergebnis: Dictionary [otherUID → Unix-Timestamp].
+    func loadPairCooldowns(myUID: String, completion: @escaping ([String: Double]) -> Void) {
+        db.child("users/\(myUID)/pairCooldowns")
+            .observeSingleEvent(of: .value) { snap in
+                completion(snap.value as? [String: Double] ?? [:])
+            }
+    }
+
     // MARK: - Admin Functions
 
     /// Alle User aus der DB laden + aktive Drops matchen (nur für Admins)
@@ -1416,7 +1557,7 @@ class RealtimeDBManager: ObservableObject {
                 if let expiresTs = dict["expiresAt"] as? Double,
                    now > Date(timeIntervalSince1970: expiresTs) { continue }
                 let emoji    = dict["emoji"]        as? String ?? ""
-                let activity = dict["activityName"] as? String ?? "Drop"
+                let activity = dict["activityName"] as? String ?? "Plan"
                 let label    = "\(emoji) \(activity)".trimmingCharacters(in: .whitespaces)
                 activeDrops[uid] = (label: label, dropKey: snap.key)
             }
@@ -1554,7 +1695,7 @@ class RealtimeDBManager: ObservableObject {
                 else { continue }
                 let active   = dict["active"]       as? Bool   ?? false
                 let emoji    = dict["emoji"]        as? String ?? ""
-                let activity = dict["activityName"] as? String ?? "Drop"
+                let activity = dict["activityName"] as? String ?? "Plan"
                 let lat      = dict["lat"]          as? Double
                 let lng      = dict["lng"]          as? Double
                 let tsMs     = dict["timestamp"]    as? Double
@@ -2337,4 +2478,19 @@ struct StrangerDropData: Identifiable {
     /// Falls Community-Drop: ID der Community. Wird auf der Map in Clero-Grün
     /// gepinnt damit Community-Drops sich von normalen Drops abheben.
     let communityID: String?
+    /// Ghost-Drop: Host hat den Drop beendet ODER er ist abgelaufen, lebt aber
+    /// noch für ~4h als Marker auf der Map („hier war was los — neuer Drop?").
+    /// Bei isGhost=true wird der Pin verblasst gerendert + Tap löst CreateDrop
+    /// mit voreingestellter Activity aus.
+    let isGhost: Bool
+    /// Timestamp wann der Drop beendet wurde (Soft-Delete oder Server-Cleanup).
+    /// Nur bei Ghost-Drops gesetzt; nil bei aktiven Drops.
+    let endedAt: Date?
+    /// Ortsname ("Marienplatz", "Hofbräuhaus"). Trennen wir bewusst von der
+    /// Activity ("Kaffee") damit Map-Pin und Detail-Sheet beides zeigen können.
+    let locationTitle: String
+    /// Vom Seeder eingefügter Demo-Drop (isDemo=true in Firebase). Zeigt der
+    /// App wie „echte" Drops aussehen wenn noch keine Community in der Stadt
+    /// aktiv ist. Verschwindet nach 1h (kürzer als normale Ghost-TTL von 90min).
+    let isDemo: Bool
 }

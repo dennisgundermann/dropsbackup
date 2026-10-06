@@ -3,6 +3,19 @@ import CoreLocation
 import UserNotifications
 
 struct MainTabView: View {
+    /// Verzögerung bevor das WelcomeSheet nach Tab-Mount erscheint — damit erst
+    /// das Layout settled ist und das Sheet nicht beim ersten Render hochpoppt.
+    private static let welcomeSheetDelay: TimeInterval = 0.5
+    /// Mini-Tick bevor das Create-Sheet aus dem Quick-Action öffnet — selectedTab
+    /// muss erst zur Map gewechselt sein, sonst überlappt das Sheet die alte Tab-View.
+    private static let quickActionSheetDelay: TimeInterval = 0.1
+    /// Standort-Permission-Dialog 0.5s nach Push-Dialog — iOS stapelt sonst beide
+    /// und der User sieht nur einen.
+    private static let locationPermissionStagger: TimeInterval = 0.5
+    /// Bluetooth-Warmup 1.1s nach Push — nach Push + Location, damit die drei
+    /// System-Dialoge sequenziell kommen.
+    private static let bluetoothPermissionStagger: TimeInterval = 1.1
+
     @EnvironmentObject var store: AppStore
     @State private var showCreateSheet = false
     /// Hält den CLLocationManager am Leben bis der Permission-Dialog bestätigt ist.
@@ -162,22 +175,13 @@ struct MainTabView: View {
         .onAppear {
             cityGate.startChecking()
             if !hasSeenWelcome {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + Self.welcomeSheetDelay) {
                     showWelcomeSheet = true
                 }
             }
-            // Profilbild-Erinnerung planen falls kein Bild hinterlegt ist
-            let hasPic = !(store.profileImageURL?.isEmpty ?? true)
-            PushNotificationManager.shared.scheduleProfilePictureReminderIfNeeded(
-                hasProfileImage: hasPic
-            )
-        }
-        .onChange(of: store.profileImageURL) { _, newURL in
-            // Sobald ein Bild gesetzt wird, ausstehende Erinnerung abbrechen
-            let hasPic = !(newURL?.isEmpty ?? true)
-            if hasPic {
-                PushNotificationManager.shared.cancelProfilePictureReminder()
-            }
+            // Profilbild ist freiwillig — bereits geplante Erinnerungen aus
+            // älteren App-Versionen entfernen.
+            PushNotificationManager.shared.cancelProfilePictureReminder()
         }
         .sheet(isPresented: $showWelcomeSheet, onDismiss: {
             if pendingWalkthrough {
@@ -293,7 +297,7 @@ struct MainTabView: View {
         switch type {
         case "com.dennis.drops.shortcut.create":
             store.selectedTab = .map
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.quickActionSheetDelay) {
                 showCreateSheet = true
             }
         case "com.dennis.drops.shortcut.map":
@@ -326,16 +330,16 @@ struct MainTabView: View {
                 }
             }
         }
-        // 2. Standort — 0.5s Versatz damit Push-Dialog zuerst erscheint
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        // 2. Standort — Versatz damit Push-Dialog zuerst erscheint
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.locationPermissionStagger) {
             let mgr = CLLocationManager()
             permLocManager = mgr   // ARC-Referenz halten
             if mgr.authorizationStatus == .notDetermined {
                 mgr.requestWhenInUseAuthorization()
             }
         }
-        // 3. Bluetooth — 1.1s Versatz nach Push
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.1) {
+        // 3. Bluetooth — Versatz nach Push damit Dialoge nicht stapeln
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.bluetoothPermissionStagger) {
             store.bluetoothMeetup.warmUpForPermissionPrompt()
         }
     }
@@ -381,7 +385,7 @@ struct FirstDropCelebrationSheet: View {
                 LinearGradient(
                     colors: [
                         Color.brand.opacity(0.18),
-                        Color(UIColor.systemBackground),
+                        Color.bgPrimary,
                         Color.accentOrange.opacity(0.10)
                     ],
                     startPoint: .topLeading, endPoint: .bottomTrailing
@@ -409,7 +413,7 @@ struct FirstDropCelebrationSheet: View {
 
                     VStack(spacing: 12) {
                         Text(headline)
-                            .font(.system(size: 32, weight: .heavy, design: .rounded))
+                            .font(.system(size: 32, weight: .bold, design: .rounded))
                             .foregroundColor(.textPrimary)
                             .multilineTextAlignment(.center)
 
@@ -445,7 +449,7 @@ struct FirstDropCelebrationSheet: View {
                         )
                         .shadow(color: Color.brand.opacity(0.45), radius: 16, y: 8)
                     }
-                    .buttonStyle(.plain)
+                    .dropsPressable()
                     .padding(.horizontal, 28)
                     .padding(.bottom, 36)
                     .opacity(emojiAppeared ? 1.0 : 0.0)
@@ -577,53 +581,67 @@ struct ConfettiPiece: Identifiable {
 /// zweiten System-Dialog — der Sheet leitet daher zu den App-Einstellungen.
 struct PushReaskSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @State private var pulse = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            Spacer().frame(height: 8)
+        ZStack {
+            Color.brandCream.ignoresSafeArea()
 
-            RadarPulseHero(icon: "bell.badge.fill")
+            VStack(alignment: .leading, spacing: 20) {
+                Spacer()
 
-            Spacer().frame(height: 4)
+                ZStack {
+                    Circle()
+                        .fill(Color.brandLavender.opacity(0.9))
+                        .frame(width: 96, height: 96)
+                        .scaleEffect(pulse ? 1.05 : 0.98)
+                    Image(systemName: "bell.badge.fill")
+                        .font(.system(size: 42, weight: .heavy))
+                        .foregroundColor(.brandOrange)
+                }
+                .frame(maxWidth: .infinity, alignment: .center)
 
-            VStack(spacing: 10) {
-                Text(tr("tab.push_on_title"))
-                    .font(.system(size: 22, weight: .bold, design: .rounded))
-                    .foregroundColor(.textPrimary)
-                    .multilineTextAlignment(.center)
+                VStack(alignment: .leading, spacing: -2) {
+                    Text(tr("tab.push_on_title"))
+                        .foregroundColor(.brandNight)
+                }
+                .font(.system(size: 32, weight: .heavy, design: .rounded))
+                .padding(.horizontal, 28)
 
                 Text(tr("tab.push_on_body"))
-                    .font(.system(size: 15))
-                    .foregroundColor(.textSecondary)
-                    .multilineTextAlignment(.center)
+                    .font(.system(size: 16, weight: .medium, design: .rounded))
+                    .foregroundColor(.brandNight.opacity(0.65))
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 28)
-            }
 
-            Spacer()
+                Spacer()
 
-            VStack(spacing: 8) {
-                Button {
-                    if let url = URL(string: UIApplication.openSettingsURLString) {
-                        UIApplication.shared.open(url)
+                VStack(spacing: 8) {
+                    Button {
+                        if let url = URL(string: UIApplication.openSettingsURLString) {
+                            UIApplication.shared.open(url)
+                        }
+                        dismiss()
+                    } label: {
+                        Text(tr("tab.enable_push"))
+                            .dropsPrimaryButton()
                     }
-                    dismiss()
-                } label: {
-                    Text(tr("tab.enable_push"))
-                        .font(.system(size: 17, weight: .bold, design: .rounded))
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity).padding(.vertical, 16)
-                        .background(Capsule().fill(Color.brand))
-                }
-                .padding(.horizontal, 24)
+                    .dropsPressable()
+                    .padding(.horizontal, 20)
 
-                Button(tr("tab.maybe_later")) { dismiss() }
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(.textSecondary)
-                    .padding(.bottom, 28)
+                    Button(tr("tab.maybe_later")) { dismiss() }
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .foregroundColor(.brandNight.opacity(0.55))
+                        .padding(.vertical, 10)
+                        .padding(.bottom, 20)
+                }
             }
         }
-        .background(Color(UIColor.systemGroupedBackground).ignoresSafeArea())
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) {
+                pulse = true
+            }
+        }
     }
 }
 
@@ -645,7 +663,7 @@ struct WelcomeSheet: View {
         ("dot.radiowaves.left.and.right", Color.auroraOrange,  "welcome.feature1_title", "welcome.feature1_sub"),
         ("map.fill",                      Color.auroraGreen,  "welcome.feature2_title", "welcome.feature2_sub"),
         ("person.2.fill",                 Color.auroraAmber,  "welcome.feature3_title", "welcome.feature3_sub"),
-        ("lock.shield.fill",              Color(hex: "8b5cf6"),  "welcome.feature4_title", "welcome.feature4_sub"),
+        ("lock.shield.fill",              Color.brandViolet,     "welcome.feature4_title", "welcome.feature4_sub"),
     ]}
 
     var body: some View {
@@ -656,18 +674,24 @@ struct WelcomeSheet: View {
             // App-Icons (Drop-Center + pulsierende Wellen) statt eines
             // generischen SF-Symbols auf farbigem Rechteck.
             VStack(spacing: 8) {
-                DynamicIslandMock()
+                // Dazu Wortmarke als Hero (echter SVG-Pfad)
+                DazuWordmark(color: .brandNight, dotColor: .brandOrange)
+                    .frame(height: 80)
+                    .padding(.top, 20)
+                    .padding(.bottom, 32)
 
-                VStack(spacing: 6) {
-                    Text(tr("welcome.title"))
-                        .font(.system(size: 28, weight: .bold, design: .rounded))
-                        .foregroundColor(.textPrimary)
-                        .multilineTextAlignment(.center)
-                    Text(tr("welcome.subtitle"))
-                        .font(.system(size: 16))
-                        .foregroundColor(.textSecondary)
-                        .multilineTextAlignment(.center)
+                // Rondesignlab-Style Riesen-Statement
+                VStack(spacing: -4) {
+                    Text("Hingehen")
+                        .foregroundColor(.brandNight)
+                    Text("statt ")
+                        .foregroundColor(.brandNight) +
+                    Text("schreiben.")
+                        .foregroundColor(.brandViolet)
                 }
+                .font(.system(size: 42, weight: .bold, design: .rounded))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
             }
             .padding(.horizontal, 24)
 
@@ -717,21 +741,10 @@ struct WelcomeSheet: View {
                         Image(systemName: "plus.circle.fill")
                             .font(.system(size: 17, weight: .semibold))
                         Text(tr("tab.make_first_drop"))
-                            .font(.system(size: 17, weight: .bold, design: .rounded))
                     }
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 17)
-                    .background(
-                        Capsule().fill(
-                            LinearGradient(
-                                colors: [Color.auroraOrange, Color.auroraGreen],
-                                startPoint: .leading, endPoint: .trailing
-                            )
-                        )
-                    )
-                    .shadow(color: Color.auroraOrange.opacity(0.35), radius: 10, y: 4)
+                    .dropsPrimaryButton()
                 }
+                .dropsPressable()
 
                 // Secondary: nur zur Karte, kein Drop erstellt.
                 Button(action: onDismiss) {
@@ -744,7 +757,7 @@ struct WelcomeSheet: View {
             .padding(.horizontal, 24)
             .padding(.bottom, 36)
         }
-        .background(Color(UIColor.systemGroupedBackground).ignoresSafeArea())
+        .background(Color.bgGrouped.ignoresSafeArea())
     }
 }
 
@@ -760,7 +773,7 @@ struct PermissionGateView: View {
 
     var body: some View {
         ZStack {
-            Color(UIColor.systemGroupedBackground).ignoresSafeArea()
+            Color.bgGrouped.ignoresSafeArea()
 
             VStack(spacing: 20) {
                 Spacer()

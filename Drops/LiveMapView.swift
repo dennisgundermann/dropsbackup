@@ -1,6 +1,7 @@
 import SwiftUI
 import MapKit
 import FirebaseAuth
+import FirebaseFirestore
 
 // MARK: - Map Style Helper
 
@@ -106,19 +107,21 @@ struct LiveMapView: View {
     /// Einmaliger Power-Hour-Hinweis nach Update. Wird auf true gesetzt
     /// sobald der User den Hinweis-Sheet einmal gesehen hat.
     @AppStorage("hasSeenPowerHourIntro") private var hasSeenPowerHourIntro = false
+    @AppStorage("ud_presenceShareEnabled") private var presenceSharing = false
     @State private var showPowerHourIntro = false
     @StateObject private var locationManager = LocationManager()
-    @State private var mapPosition: MapCameraPosition = .region(MKCoordinateRegion(
-        center: CLLocationCoordinate2D(latitude: 48.1371, longitude: 11.5754),
-        span: MKCoordinateSpan(latitudeDelta: 0.012, longitudeDelta: 0.012)
-    ))
+    /// MKMapView-Region: ersetzt das vorherige SwiftUI MapCameraPosition.
+    /// MKMapView wrapped in MapKitMapView — Drop-Pins werden nativ verwaltet,
+    /// kein Wobble bei Pan/Zoom mehr.
+    /// Nil solange der User frei scrollt. Wird nur gesetzt wenn wir die Kamera
+    /// programmatisch bewegen wollen (Initial-Zoom, focusedDrop, Cluster-Zoom).
+    /// MapKitMapView konsumiert den Wert einmalig und cleared ihn — kein Feedback-Loop.
+    @State private var targetRegion: MKCoordinateRegion? = nil
     /// Vorberechnete Bildschirmpunkte der GeoZone-Grenze.
-    /// Werden ausschließlich in onMapCameraChange aktualisiert (synchron mit MapKit),
-    /// nicht im 60fps-Animations-Loop → kein Jitter mehr.
-    @State private var munichBoundaryPts: [CGPoint] = []
-    /// Pro-Stadt-Polygone in Screen-Koordinaten (5 Städte beim Launch).
-    /// Wird in onMapCameraChange synchron aktualisiert.
-    @State private var cityPolygonsPts: [[CGPoint]] = []
+    /// Referenz auf die echte MKMapView — für Live-Koordinaten im polygonsProvider.
+    /// @State damit dieselbe Instanz über alle SwiftUI-Re-Renders erhalten bleibt
+    /// (LiveMapView ist ein Struct — `let` würde bei jedem Re-Render neu allozieren).
+    @State private var mapViewBox = MapViewBox()
     @State private var hasInitiallyZoomed = false
     @State private var selectedItem: MapAnnotationItem? = nil
     /// Drop für den der Quick-Reply-Sheet (Anfrage senden mit optionaler
@@ -137,33 +140,39 @@ struct LiveMapView: View {
     /// Jede Gruppe enthält ≥1 MapAnnotationItem. Gruppen mit 1 Item = normaler Pin.
     @State private var clusterGroups: [[MapAnnotationItem]] = []
     /// Pixel-Radius innerhalb dem zwei Pins zu einem Cluster zusammengefasst werden.
-    private let clusterThreshold: CGFloat = 48
+    private let clusterThreshold: CGFloat = 36
 
     /// Bündelt `filteredAnnotations` nach Bildschirm-Nähe.
+    /// Setzt clusterGroups ohne Animation — verhindert das Pin-Ruckeln
+    /// beim .onEnd-Recompute (sonst animiert SwiftUI Position-Diffs).
+    private func setClusterGroups(_ groups: [[MapAnnotationItem]]) {
+        var tx = Transaction()
+        tx.disablesAnimations = true
+        withTransaction(tx) { clusterGroups = groups }
+    }
+
     /// Eigene Drops (type == .myDrop) werden NIE geclustert — sie erscheinen immer einzeln.
     /// Algorithmus: greedy O(n²), reicht für ~100 Pins problemlos.
-    func computeClusters(proxy: MapProxy) {
+    func computeClusters(mapView: MKMapView) {
         let items = filteredAnnotations
         var groups:   [[MapAnnotationItem]] = []
         var clustered = Set<UUID>()
 
         for item in items {
             guard !clustered.contains(item.id) else { continue }
-            // Eigene Drops: immer solo
-            if item.type == .myDrop {
+            // Eigene Drops + Demo-Drops: immer solo.
+            // Demo-Drops sollen einzeln tippbar sein — Clustering würde den
+            // Zoom-in-Pflicht erzeugen und den Tap auf einzelne Pins blockieren.
+            if item.type == .myDrop || item.isDemo {
                 groups.append([item])
                 clustered.insert(item.id)
                 continue
             }
-            guard let pt = proxy.convert(item.coordinate, to: .local) else {
-                groups.append([item])
-                clustered.insert(item.id)
-                continue
-            }
+            let pt = mapView.convert(item.coordinate, toPointTo: mapView)
             var group = [item]
             clustered.insert(item.id)
             for other in items where !clustered.contains(other.id) && other.type != .myDrop {
-                guard let otherPt = proxy.convert(other.coordinate, to: .local) else { continue }
+                let otherPt = mapView.convert(other.coordinate, toPointTo: mapView)
                 if hypot(pt.x - otherPt.x, pt.y - otherPt.y) < clusterThreshold {
                     group.append(other)
                     clustered.insert(other.id)
@@ -171,7 +180,7 @@ struct LiveMapView: View {
             }
             groups.append(group)
         }
-        clusterGroups = groups
+        setClusterGroups(groups)
     }
 
     /// Geografischer Mittelpunkt einer Gruppe.
@@ -197,9 +206,7 @@ struct LiveMapView: View {
             latitudeDelta:  max(0.003, (maxLat - minLat) * 3.0),
             longitudeDelta: max(0.003, (maxLon - minLon) * 3.0)
         )
-        withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
-            mapPosition = .region(MKCoordinateRegion(center: center, span: span))
-        }
+        targetRegion = MKCoordinateRegion(center: center, span: span)
     }
 
     /// Eigener 8-Char BLE-Token — wird explizit an DropMapPin übergeben (nicht per @EnvironmentObject,
@@ -225,6 +232,9 @@ struct LiveMapView: View {
         let base = store.allMapAnnotations.filter { ann in
             guard ann.type == .stranger else { return true }
             if ann.id.uuidString == joinedDropID { return true }
+            // Ghost-Drops (beendet) immer anzeigen — egal ob sie voll waren.
+            // Aktive, volle Drops dagegen ausblenden (nicht mehr beitretbar).
+            if ann.isGhost { return true }
             return !ann.isFull
         }
         // Der „Nur weiblich"-Filter läuft jetzt im Umgebungs-Tab, nicht mehr hier.
@@ -235,144 +245,128 @@ struct LiveMapView: View {
         }
     }
 
-    /// Konvertiert die Polygone ALLER Launch-Städte in eine flache Liste von
-    /// Screen-Koordinaten, mit `nil`-Separator zwischen Städten (damit der
-    /// Overlay weiß, wo ein Polygon endet und das nächste beginnt).
-    ///
-    /// Wir geben `[[CGPoint]]` zurück — also ein Array von Polygonen. Der
-    /// Canvas-Overlay iteriert und zeichnet jedes einzeln, mit gemeinsamer
-    /// Ausgrauung außerhalb aller Zonen.
-    static func allCityPolygonsPts(proxy: MapProxy) -> [[CGPoint]] {
+    /// Finale Annotations-Liste für MapKitMapView:
+    /// – clustered Drops → ein Cluster-Proxy-Item pro Gruppe
+    /// – solo Drops → normales MapAnnotationItem
+    /// – Suggested Spots → .suggested Items (non-interactive)
+    /// – Community Pins → .community Items
+    var mapDisplayAnnotations: [MapAnnotationItem] {
+        var items: [MapAnnotationItem] = []
+
+        // Drops: clustered oder solo
+        if clusterGroups.isEmpty {
+            items += filteredAnnotations
+        } else {
+            for group in clusterGroups {
+                if group.count == 1 {
+                    items.append(group[0])
+                } else {
+                    let coord = centroid(of: group)
+                    let stableKey = group.map(\.id.uuidString).sorted().joined()
+                    var proxy = MapAnnotationItem(
+                        id: AppStore.stableUUID(from: stableKey),
+                        name: "\(group.count) Pläne",
+                        emoji: group[0].emoji,
+                        activity: "",
+                        coordinate: coord,
+                        type: .cluster
+                    )
+                    proxy.clusterGroup = group
+                    items.append(proxy)
+                }
+            }
+        }
+
+        // Suggested Spots aus Drop-History (non-interactive)
+        for spot in store.suggestedSpots {
+            var ann = MapAnnotationItem(
+                id: AppStore.stableUUID(from: "spot_\(spot.id)"),
+                name: spot.activityName,
+                emoji: spot.activityEmoji,
+                activity: spot.activityName,
+                coordinate: spot.coordinate,
+                type: .suggested
+            )
+            ann.suggestedSpot = spot
+            items.append(ann)
+        }
+
+        // Community Pins
+        for community in (FeatureFlags.communitiesEnabled ? store.nearbyCommunities : []) {
+            var ann = MapAnnotationItem(
+                id: AppStore.stableUUID(from: "community_\(community.id)"),
+                name: community.displayName,
+                emoji: community.emoji,
+                activity: community.displayName,
+                coordinate: community.coordinate,
+                type: .community
+            )
+            ann.communityRef = community
+            items.append(ann)
+        }
+
+        return items
+    }
+
+    static func allCityPolygonsPts(mapView: MKMapView) -> [[CGPoint]] {
         ServiceCities.all.map { city in
             var closed = city.polygon
             if let first = closed.first { closed.append(first) }
-            return closed.compactMap { proxy.convert($0, to: .local) }
+            return closed.map { mapView.convert($0, toPointTo: mapView) }
         }
     }
 
     var body: some View {
         ZStack {
-            MapReader { proxy in
-                Map(position: $mapPosition) {
-                    // Eigener Standort — bei schlechtem GPS-Empfang ausblenden,
-                    // damit kein irreführender exakter Punkt suggeriert wird.
-                    // Nur den Accuracy-Ring zeigen → User sieht ungefähren Bereich.
-                    if locationManager.horizontalAccuracy > 0,
-                       locationManager.horizontalAccuracy <= 100 {
-                        UserAnnotation()
+            // Phase 1: MKMapView-Wrapper ersetzt SwiftUI Map.
+            // — Drop-Pins (active + ghost) rendern als MKAnnotation, nativ verwaltet.
+            // — User-Standort via showsUserLocation = true (blauer Punkt).
+            // Phase 2: Aurora-Overlay, Community-Pins, Suggested-Spots, Cluster-Logic.
+            MapKitMapView(
+                targetRegion: $targetRegion,
+                annotations: mapDisplayAnnotations,
+                myToken: myPinToken,
+                confirmedTokens: store.bluetoothMeetup.confirmedTokens,
+                isJoinedProvider: { id in
+                    joinedIDs.contains(id)
+                        || store.hasJoinedDrop(dropID: id)
+                        || store.activeJoinedDropID == id
+                },
+                onTapAnnotation: { item in
+                    if let group = item.clusterGroup {
+                        zoomToCluster(group)
+                    } else if let community = item.communityRef {
+                        selectedCommunity = community
+                    } else {
+                        selectedItem = item
                     }
-
-                    // GPS-Accuracy-Ring um den User.
-                    // Bei gutem Empfang erst ab 20m sichtbar, bei schlechtem (>100m)
-                    // immer — als einziger Standort-Hinweis statt des Punkts.
-                    if let loc = locationManager.userLocation,
-                       locationManager.horizontalAccuracy > 20 {
-                        MapCircle(center: loc, radius: locationManager.horizontalAccuracy)
-                            .foregroundStyle(Color.brand.opacity(0.12))
-                            .stroke(Color.brand.opacity(0.35), lineWidth: 1)
-                    }
-
-                    // Drops & Freunde — geclustert wenn Pins sich überlappen.
-                    // clusterGroups wird bei Kamera-Stillstand neu berechnet.
-                    // Gruppen mit 1 Item → normaler Pin; ≥2 → ClusterPin.
-                    // HINWEIS: @EnvironmentObject ist in Map-Annotation-Content nicht
-                    // zuverlässig (MapKit eigener View-Context). Wir übergeben alles explizit.
-                    ForEach(clusterGroups, id: \.first?.id) { group in
-                        if group.count == 1 {
-                            let item = group[0]
-                            Annotation("", coordinate: item.coordinate, anchor: .center) {
-                                DropMapPin(
-                                    item: item,
-                                    isJoined: joinedIDs.contains(item.id)
-                                        || store.hasJoinedDrop(dropID: item.id)
-                                        || store.activeJoinedDropID == item.id,
-                                    onTap: { selectedItem = item },
-                                    myToken: myPinToken,
-                                    confirmedTokens: store.bluetoothMeetup.confirmedTokens
-                                )
-                            }
-                        } else {
-                            Annotation("", coordinate: centroid(of: group), anchor: .center) {
-                                DropClusterPin(group: group) {
-                                    zoomToCluster(group)
-                                }
-                            }
-                        }
-                    }
-
-                    // ── Community-Pins ────────────────────────────────────
-                    // Genehmigte Sport-Communities fix auf der Karte.
-                    // (Deaktiviert via FeatureFlags.communitiesEnabled)
-                    if FeatureFlags.communitiesEnabled {
-                        ForEach(store.nearbyCommunities) { community in
-                            Annotation("", coordinate: community.coordinate, anchor: .bottom) {
-                                CommunityMapPin(community: community) {
-                                    selectedCommunity = community
-                                }
-                            }
-                        }
-                    }
-
-                }
-                .id(mapId)
-                .ignoresSafeArea()
-                // ── Punkte aktualisieren synchron mit jedem Kamera-Frame ─
-                // .continuous feuert für jeden MapKit-Render-Frame während
-                // Scroll/Zoom → Overlay-Geometrie ist immer in sync.
-                .onMapCameraChange(frequency: .continuous) { _ in
-                    // Alle 5 Launch-Städte als Polygon-Overlay — damit man beim
-                    // Rauszoomen auf Deutschland alle Service-Zones sieht.
-                    cityPolygonsPts = Self.allCityPolygonsPts(proxy: proxy)
-                }
-                .onMapCameraChange(frequency: .onEnd) { _ in
-                    // Cluster neu berechnen sobald Kamera zum Stillstand kommt.
-                    // .onEnd statt .continuous: spart CPU — nur 1x nach Zoom/Pan.
-                    computeClusters(proxy: proxy)
-                }
-                .onChange(of: filteredAnnotations.count) { _, _ in
-                    // Neue Drops oder Filter-Änderung → sofort neu clustern.
-                    computeClusters(proxy: proxy)
-                }
-                .onChange(of: store.activityCategoryFilter) { _, _ in
-                    computeClusters(proxy: proxy)
-                }
-                // ── Aurora-Grenzen um alle 5 Launch-Städte ──────────────
-                .overlay {
-                    MultiZoneOverlay(polygons: cityPolygonsPts)
-                        .ignoresSafeArea()
-                        .allowsHitTesting(false)
-                }
-            }
+                },
+                onCameraChange: { mapView in
+                    computeClusters(mapView: mapView)
+                },
+                preferredColorScheme: nil,
+                mapViewBox: mapViewBox
+            )
+            .ignoresSafeArea()
             .onAppear {
                 if let loc = locationManager.userLocation {
                     if !hasInitiallyZoomed {
-                        mapPosition = .region(MKCoordinateRegion(
+                        targetRegion = MKCoordinateRegion(
                             center: loc,
                             span: MKCoordinateSpan(latitudeDelta: 0.012, longitudeDelta: 0.012)
-                        ))
+                        )
                         hasInitiallyZoomed = true
                     }
                     store.updateUserLocation(loc)
-                }
-                // Initialcluster nach kurzem Delay — MapProxy braucht
-                // einen Render-Pass bevor convert() korrekte Werte liefert.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                    // proxy ist hier nicht verfügbar — wird über .onMapCameraChange
-                    // beim ersten Kamera-Stop gesetzt. Fallback: alle als solo.
-                    if clusterGroups.isEmpty {
-                        clusterGroups = filteredAnnotations.map { [$0] }
-                    }
                 }
             }
             .onChange(of: locationManager.userLocation) { _, loc in
                 guard let loc = loc else { return }
                 if !hasInitiallyZoomed {
-                    withAnimation {
-                        mapPosition = .region(MKCoordinateRegion(
-                            center: loc,
-                            span: MKCoordinateSpan(latitudeDelta: 0.012, longitudeDelta: 0.012)
-                        ))
-                    }
+                    targetRegion = MKCoordinateRegion(
+                        center: loc,
+                        span: MKCoordinateSpan(latitudeDelta: 0.012, longitudeDelta: 0.012)
+                    )
                     hasInitiallyZoomed = true
                 }
                 store.updateUserLocation(loc)
@@ -382,12 +376,10 @@ struct LiveMapView: View {
                 store.pendingDropID = nil
                 // Drop auf der Karte finden und Sheet öffnen
                 if let match = store.allMapAnnotations.first(where: { $0.id == dropID }) {
-                    withAnimation(.easeInOut(duration: 0.6)) {
-                        mapPosition = .region(MKCoordinateRegion(
-                            center: match.coordinate,
-                            span: MKCoordinateSpan(latitudeDelta: 0.008, longitudeDelta: 0.008)
-                        ))
-                    }
+                    targetRegion = MKCoordinateRegion(
+                        center: match.coordinate,
+                        span: MKCoordinateSpan(latitudeDelta: 0.008, longitudeDelta: 0.008)
+                    )
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                         selectedItem = match
                     }
@@ -395,19 +387,102 @@ struct LiveMapView: View {
             }
             .onChange(of: store.focusedDropCoordinate) { _, coord in
                 guard let coord = coord else { return }
-                withAnimation(.easeInOut(duration: 0.6)) {
-                    mapPosition = .region(MKCoordinateRegion(
-                        center: coord,
-                        span: MKCoordinateSpan(latitudeDelta: 0.008, longitudeDelta: 0.008)
-                    ))
-                }
+                targetRegion = MKCoordinateRegion(
+                    center: coord,
+                    span: MKCoordinateSpan(latitudeDelta: 0.008, longitudeDelta: 0.008)
+                )
                 // Reset nach dem Fokussieren, damit erneutes Tippen erneut feuert
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                     store.focusedDropCoordinate = nil
                 }
             }
 
+            // ── Aurora Zone-Overlay (Phase 2) ────────────────────────────
+            // Koordinaten kommen aus cityPolygonPts, das bei jeder Kamera-
+            // Bewegung (onCameraChange) synchron aktualisiert wird.
+            // .allowsHitTesting(false) damit Taps auf Karte + Pins durchkommen.
+            // Nur zeigen, wenn die City-Restriction aktiv ist — sonst sind die
+            // Linien irreführend (suggerieren Service-Grenze, die es nicht gibt).
+            if BetaConfig.cityRestrictionEnabled {
+                MultiZoneOverlay(polygonsProvider: {
+                    guard let mv = mapViewBox.mapView else { return [] }
+                    return LiveMapView.allCityPolygonsPts(mapView: mv)
+                })
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+            }
+
+            // ── Eigenes Profilbild als Standort-Marker ────────────────────
+            // Ersetzt den blauen UserLocation-Punkt wenn Presence-Sharing
+            // aktiv ist. Rendert an echter Position (nicht gefuzzt).
+            if presenceSharing {
+                SelfCharacterOverlay(
+                    profileImageURL: store.profileImageURL,
+                    fallbackEmoji: store.currentUser.emoji,
+                    pointProvider: {
+                        guard let mv = mapViewBox.mapView else { return nil }
+                        let coord = store.currentUser.coordinate
+                        guard CLLocationCoordinate2DIsValid(coord),
+                              abs(coord.latitude) > 0.001 || abs(coord.longitude) > 0.001
+                        else { return nil }
+                        return mv.convert(coord, toPointTo: mv)
+                    }
+                )
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+                .onAppear  { mapViewBox.mapView?.showsUserLocation = false }
+                .onDisappear { mapViewBox.mapView?.showsUserLocation = true  }
+            }
+
+            // ── Presence-Overlay (Delayed Location Sharing) ──────────────
+            // Freunde als Emoji/Bild-Avatar, Fremde als anonyme graue Punkte.
+            // Positionen werden pro Frame frisch aus MKMapView projiziert.
+            PresenceOverlay(pinsProvider: {
+                guard let mv = mapViewBox.mapView else { return [] }
+                let (friends, strangers) = store.filteredPresences()
+                let friendPins = friends.map { e -> PresencePin in
+                    PresencePin(
+                        id: e.uid,
+                        point: mv.convert(e.coordinate, toPointTo: mv),
+                        emoji: e.emoji,
+                        name: e.name,
+                        profileImageURL: e.profileImageURL,
+                        ageLabel: e.ageLabel,
+                        isFriend: true
+                    )
+                }
+                let strangerPins = strangers.map { e -> PresencePin in
+                    PresencePin(
+                        id: e.uid,
+                        point: mv.convert(e.coordinate, toPointTo: mv),
+                        emoji: e.emoji,
+                        name: nil,
+                        // Bild bleibt sichtbar — Schutz liegt in Position+Delay, nicht in Anonymität
+                        profileImageURL: e.profileImageURL,
+                        ageLabel: e.ageLabel,
+                        isFriend: false
+                    )
+                }
+                return friendPins + strangerPins
+            })
+            .ignoresSafeArea()
+            .allowsHitTesting(false)  // Map-Pinch/Pan muss durchkommen
+
             VStack {
+                // Dazu Floating Branding (links oben)
+                HStack {
+                    DazuWordmark(color: .brandNight, dotColor: .brandOrange)
+                        .frame(height: 22)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 9)
+                        .background(Capsule().fill(Color.white.opacity(0.75)))
+                        .overlay(Capsule().stroke(Color.brandViolet.opacity(0.18), lineWidth: 0.8))
+                        .shadow(color: Color.brandViolet.opacity(0.15), radius: 6, y: 2)
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 6)
+
                 // ── Activity-Indikator (links oben) ──────────────────────
                 // Zeigt wie viele Drops in der gefilterten Sicht sichtbar
                 // sind. Hilft dem User einzuschätzen ob's gerade „los ist"
@@ -415,8 +490,10 @@ struct LiveMapView: View {
                 // Drop sichtbar ist — bei Null würde die Empty-Map sich
                 // selbst erklären.
                 HStack {
+                    // Ghost-Drops aus dem "X in der Nähe"-Counter ausschließen —
+                    // die sind vorbei, sollten nicht als "aktive Drops" zählen.
                     let count = filteredAnnotations.filter {
-                        $0.type == .stranger || $0.type == .friend || $0.type == .myDrop
+                        !$0.isGhost && ($0.type == .stranger || $0.type == .friend || $0.type == .myDrop)
                     }.count
                     if count > 0 {
                         HStack(spacing: 6) {
@@ -428,7 +505,7 @@ struct LiveMapView: View {
                                 .foregroundColor(.textPrimary)
                         }
                         .padding(.horizontal, 11).padding(.vertical, 7)
-                        .background(.ultraThinMaterial, in: Capsule())
+                        .background(Capsule().fill(Color.white.opacity(0.75)))
                         .overlay(
                             Capsule().stroke(Color.primary.opacity(0.06), lineWidth: 0.5)
                         )
@@ -438,10 +515,6 @@ struct LiveMapView: View {
                     Spacer()
                 }
                 .padding(.top, 8)
-
-                // ── Kategorie-Filter-Chips ────────────────────────────────
-                ActivityFilterChipsView()
-                    .padding(.top, 4)
 
                 // ── Power-Hour Countdown-Pille (oben) ────────────────────
                 // Auto-updates jede Minute via TimelineView. Sichtbar in
@@ -470,9 +543,9 @@ struct LiveMapView: View {
                 // dem Recenter-Button (`maxWidth: .infinity` im HStack
                 // teilt sich den verfügbaren Platz gegen den Recenter).
                 HStack(alignment: .center, spacing: 10) {
-                    // Banner zeigt sich bei Boost-Phase ODER Power-Hour —
-                    // beides sind unabhängige Trigger für den Bonus.
-                    if store.isBoostPhaseActive || store.isPowerHourActive {
+                    // Banner zeigt sich NUR während aktiver Power-Hour-Slots
+                    // (nicht dauerhaft bei Boost-Phase).
+                    if store.isPowerHourActive {
                         Button {
                             store.selectedTab = .create
                         } label: {
@@ -495,29 +568,19 @@ struct LiveMapView: View {
                             .padding(.horizontal, 14)
                             .padding(.vertical, 12)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(
-                                Capsule().fill(
-                                    LinearGradient(
-                                        colors: [Color.accentOrange, Color.brand],
-                                        startPoint: .topLeading, endPoint: .bottomTrailing
-                                    )
-                                )
-                            )
-                            .shadow(color: Color.accentOrange.opacity(0.35), radius: 10, y: 3)
+                            .background(Capsule().fill(Color.brandOrange))
                         }
-                        .buttonStyle(.plain)
+                        .dropsPressable()
                         .accessibilityLabel(tr("map.boost_active_create"))
                     }
 
                     Button(action: {
                         let loc = locationManager.userLocation
                             ?? CLLocationCoordinate2D(latitude: 48.1371, longitude: 11.5754)
-                        withAnimation(.easeInOut(duration: 0.4)) {
-                            mapPosition = .region(MKCoordinateRegion(
-                                center: loc,
-                                span: MKCoordinateSpan(latitudeDelta: 0.012, longitudeDelta: 0.012)
-                            ))
-                        }
+                        targetRegion = MKCoordinateRegion(
+                            center: loc,
+                            span: MKCoordinateSpan(latitudeDelta: 0.012, longitudeDelta: 0.012)
+                        )
                     }) {
                         Image(systemName: "location.fill")
                             .font(.system(size: 16))
@@ -540,6 +603,21 @@ struct LiveMapView: View {
                 JoinerLiveInfoSheet(item: item)
                     .environmentObject(store)
                     .presentationDetents([.fraction(0.4)])
+                    .presentationDragIndicator(.visible)
+                    .sheetBackground()
+            } else if item.isDemo {
+                // Demo-Drop: Wachstums-Nudge statt Join-UI.
+                DemoDropCTASheet(item: item)
+                    .environmentObject(store)
+                    .presentationDetents([.fraction(0.65), .large])
+                    .presentationDragIndicator(.visible)
+                    .sheetBackground()
+            } else if item.isGhost {
+                // Ghost-Drop: bereits beendet, kein Join möglich.
+                // Kompakte Info-Karte statt DropJoinSheet (kein "Beitreten").
+                GhostDropInfoSheet(item: item)
+                    .environmentObject(store)
+                    .presentationDetents([.fraction(0.42)])
                     .presentationDragIndicator(.visible)
                     .sheetBackground()
             } else {
@@ -682,6 +760,8 @@ struct DropMapPin: View {
         case .joiner:   return .onlineGreen
         case .stranger:
             return item.creatorAgeGroup?.color ?? Color.auroraCyan
+        case .cluster, .suggested, .community:
+            return Color.auroraCyan
         }
     }
 
@@ -773,7 +853,7 @@ struct DropMapPin: View {
                     // Tinted material: sieht auf Karte eingefärbt aus (kein reines Grau)
                     .background {
                         ZStack {
-                            Capsule().fill(.thinMaterial)
+                            Capsule().fill(Color.white.opacity(0.75))
                             Capsule().fill(pinColor.opacity(0.18))
                         }
                     }
@@ -847,22 +927,57 @@ struct DropMapPin: View {
                 .shadow(color: pinColor.opacity(0.25), radius: 28, y: 0)
             }
         }
-        .buttonStyle(.plain)
+        .dropsPressable()
+        // Ghost-Drops: leicht verblasst + leicht entsättigt damit der Pin
+        // klar als "vergangen" erkennbar ist, aber noch lesbar bleibt.
+        // Demo-Drops: noch matter + kleiner — sie sind Seeder-Platzhalter,
+        // keine echten Community-Drops. Visuell klar untergeordnet.
+        .scaleEffect(item.isDemo ? 0.93 : 1.0)
+        .opacity(item.isDemo ? 0.82 : (item.isGhost ? 0.85 : 1.0))
+        .saturation(item.isDemo ? 0.80 : (item.isGhost ? 0.65 : 1.0))
         .onAppear {
-            // Fresh-Pin-Pulse (< 5 Min alt)
-            if isFresh {
+            // Fresh-Pin-Pulse (< 5 Min alt) — Ghost-Drops nicht pulsieren.
+            if isFresh && !item.isGhost {
                 withAnimation(.easeOut(duration: 1.6).repeatForever(autoreverses: false)) {
                     freshPulse = true
                 }
             }
             // Fog-Ring-Atem (nur bei Fuzzy-Pins): langsamer Sinus-Loop
             // der den gestrichelten Ring leicht skaliert + blinkt.
-            if item.isFuzzy {
+            if item.isFuzzy && !item.isGhost {
                 withAnimation(.easeInOut(duration: 2.2).repeatForever(autoreverses: true)) {
                     fogPulse = true
                 }
             }
         }
+    }
+}
+
+// MARK: - Suggested Spot Pin
+
+/// Subtiler Marker für einen Spot wo der User schon mehrfach gedroppt hat.
+/// Kein Tap-Handler — rein Hinweis ("hier hat dir's gefallen"). Spätere
+/// Iteration kann Tap → CreateDrop pre-filled mit Activity öffnen.
+struct SuggestedSpotPin: View {
+    let spot: AppStore.SuggestedSpot
+
+    var body: some View {
+        ZStack {
+            // Doppel-Glow als „beliebter Spot"-Signal — sehr dezent.
+            Circle()
+                .fill(Color.brand.opacity(0.08))
+                .frame(width: 44, height: 44)
+            Circle()
+                .fill(Color.white.opacity(0.75))
+                .frame(width: 26, height: 26)
+                .overlay(
+                    Circle().strokeBorder(Color.brand.opacity(0.4), lineWidth: 1.2)
+                )
+            Text(spot.activityEmoji)
+                .font(.system(size: 13))
+        }
+        .opacity(0.7)
+        .allowsHitTesting(false)   // Stört Drop-Pins nicht beim Tappen
     }
 }
 
@@ -909,7 +1024,7 @@ struct DropClusterPin: View {
                     // Emoji-Stack (max 2 übereinander, sonst Zahl)
                     if previewEmojis.count <= 2 {
                         HStack(spacing: -4) {
-                            ForEach(previewEmojis, id: \.self) { emoji in
+                            ForEach(Array(previewEmojis.enumerated()), id: \.offset) { _, emoji in
                                 Text(emoji)
                                     .font(.system(size: 14))
                             }
@@ -923,7 +1038,7 @@ struct DropClusterPin: View {
                 }
             }
         }
-        .buttonStyle(.plain)
+        .dropsPressable()
         .scaleEffect(pressed ? 0.92 : 1.0)
         .animation(.spring(response: 0.25, dampingFraction: 0.7), value: pressed)
         .simultaneousGesture(
@@ -931,7 +1046,7 @@ struct DropClusterPin: View {
                 .onChanged { _ in pressed = true }
                 .onEnded   { _ in pressed = false }
         )
-        .accessibilityLabel("\(group.count) Drops: \(activitiesLabel)")
+        .accessibilityLabel("\(group.count) Pläne: \(activitiesLabel)")
         .accessibilityHint(tr("map.tap_to_zoom"))
     }
 }
@@ -983,32 +1098,26 @@ struct IncomingJoinRequestSheet: View {
                 Image(systemName: "person.fill.badge.plus")
                     .font(.system(size: 11, weight: .bold))
                 Text(store.activeDrops.first?.activity.name ?? tr("map.join_request"))
-                    .font(.system(size: 12, weight: .heavy))
-                    .tracking(0.5)
+                    .font(.system(size: 12, weight: .heavy, design: .rounded))
+                    .tracking(0.8)
                     .textCase(.uppercase)
             }
-            .foregroundColor(.white)
-            .padding(.horizontal, 14).padding(.vertical, 7)
-            .background(
-                Capsule().fill(
-                    LinearGradient(colors: [Color.brand, Color.accentOrange],
-                                   startPoint: .leading, endPoint: .trailing)
-                )
-                .shadow(color: Color.brand.opacity(0.30), radius: 10, y: 3)
-            )
+            .foregroundColor(.brandViolet)
+            .padding(.horizontal, 14).padding(.vertical, 8)
+            .background(Capsule().fill(Color.brandLavender))
 
             // Mehrere Anfragen in Queue
             let waitingCount = max(0, store.pendingJoinRequests.count - 1)
             if waitingCount > 0 {
                 HStack(spacing: 5) {
                     Image(systemName: "person.2.fill")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.system(size: 10, weight: .bold))
                     Text((waitingCount == 1 ? tr("map.more_requests_singular") : tr("map.more_requests_plural")).replacingOccurrences(of: "{count}", with: "\(waitingCount)"))
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
                 }
-                .foregroundColor(.accentOrange)
-                .padding(.horizontal, 10).padding(.vertical, 4)
-                .background(Color.accentOrange.opacity(0.12), in: Capsule())
+                .foregroundColor(.brandOrange)
+                .padding(.horizontal, 10).padding(.vertical, 5)
+                .background(Capsule().fill(Color.brandOrange.opacity(0.14)))
                 .padding(.top, 8)
             }
 
@@ -1062,27 +1171,29 @@ struct IncomingJoinRequestSheet: View {
                     }
                 }
 
-                // Tier-Badge + Entfernung
+                // Trust-Badge + Entfernung — Badge nur wenn verlässlich.
                 HStack(spacing: 8) {
-                    HStack(spacing: 4) {
-                        Image(systemName: ReliabilityScore.badgeIcon(forPoints: request.joinerReliabilityPoints))
-                            .font(.system(size: 11, weight: .semibold))
-                        Text(ReliabilityScore.badge(forPoints: request.joinerReliabilityPoints))
-                            .font(.system(size: 12, weight: .semibold))
+                    if ReliabilityScore.isTrusted(forPoints: request.joinerReliabilityPoints) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "checkmark.seal.fill")
+                                .font(.system(size: 11, weight: .bold))
+                            Text(tr("tier.trusted"))
+                                .font(.system(size: 12, weight: .bold, design: .rounded))
+                        }
+                        .foregroundColor(.brandViolet)
+                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .background(Capsule().fill(Color.brandLavender))
                     }
-                    .foregroundColor(tierColor)
-                    .padding(.horizontal, 10).padding(.vertical, 5)
-                    .background(tierColor.opacity(0.12), in: Capsule())
 
                     if let meters = joinerDistanceMeters {
                         HStack(spacing: 4) {
-                            Image(systemName: "location.fill").font(.system(size: 10))
+                            Image(systemName: "location.fill").font(.system(size: 10, weight: .bold))
                             Text(formatDistance(meters))
-                                .font(.system(size: 12, weight: .medium))
+                                .font(.system(size: 12, weight: .bold, design: .rounded))
                         }
-                        .foregroundColor(.secondary)
-                        .padding(.horizontal, 10).padding(.vertical, 5)
-                        .background(Color(.systemGray5), in: Capsule())
+                        .foregroundColor(.brandOrange)
+                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .background(Capsule().fill(Color.brandOrange.opacity(0.14)))
                     }
                 }
             }
@@ -1090,21 +1201,22 @@ struct IncomingJoinRequestSheet: View {
             // ── Nachricht ─────────────────────────────────────────
             if let msg = request.joinerMessage,
                !msg.trimmingCharacters(in: .whitespaces).isEmpty {
-                HStack(alignment: .top, spacing: 10) {
+                HStack(alignment: .top, spacing: 12) {
                     Image(systemName: "bubble.left.fill")
-                        .font(.system(size: 13))
-                        .foregroundColor(.brand)
-                        .padding(.top, 1)
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(.brandViolet)
+                        .frame(width: 32, height: 32)
+                        .background(Circle().fill(Color.brandLavender))
                     Text(msg)
-                        .font(.system(size: 14))
-                        .foregroundColor(.textPrimary)
+                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                        .foregroundColor(.brandNight)
                         .multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                 }
                 .padding(.horizontal, 14).padding(.vertical, 12)
-                .background(Color.brand.opacity(0.07), in: RoundedRectangle(cornerRadius: 14))
-                .padding(.horizontal, 24)
+                .liquidGlass(cornerRadius: 18)
+                .padding(.horizontal, 20)
                 .padding(.top, 18)
             }
 
@@ -1117,18 +1229,18 @@ struct IncomingJoinRequestSheet: View {
                 HStack(spacing: 8) {
                     ZStack {
                         Circle()
-                            .stroke(Color.secondary.opacity(0.15), lineWidth: 2.5)
+                            .stroke(Color.brandLavender, lineWidth: 2.5)
                             .frame(width: 22, height: 22)
                         Circle()
                             .trim(from: 0, to: progress)
-                            .stroke(Color.accentOrange, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                            .stroke(Color.brandOrange, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
                             .frame(width: 22, height: 22)
                             .rotationEffect(.degrees(-90))
                             .animation(.linear(duration: 1), value: timeLeft)
                     }
                     Text(tr("map.auto_confirmed_in").replacingOccurrences(of: "{time}", with: "\(timeLeft / 60):\(String(format: "%02d", timeLeft % 60))"))
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundColor(.brandNight.opacity(0.65))
                 }
                 .padding(.top, 16)
             }
@@ -1136,7 +1248,7 @@ struct IncomingJoinRequestSheet: View {
             Spacer(minLength: 20)
 
             // ── Buttons ───────────────────────────────────────────
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
                 Button {
                     store.declineJoinRequest(request)
                     dismiss()
@@ -1145,14 +1257,14 @@ struct IncomingJoinRequestSheet: View {
                         Image(systemName: "xmark")
                             .font(.system(size: 14, weight: .bold))
                         Text(tr("map.reject"))
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(.system(size: 15, weight: .bold, design: .rounded))
                     }
-                    .foregroundStyle(.red)
+                    .foregroundColor(.brandNight.opacity(0.65))
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 15)
-                    .background(Color.red.opacity(0.10), in: RoundedRectangle(cornerRadius: 16))
-                    .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.red.opacity(0.25), lineWidth: 1))
+                    .padding(.vertical, 16)
+                    .background(Capsule().fill(Color.brandLavender.opacity(0.6)))
                 }
+                .dropsPressable()
 
                 Button {
                     store.acceptJoinRequest(request)
@@ -1162,21 +1274,17 @@ struct IncomingJoinRequestSheet: View {
                         Image(systemName: "checkmark")
                             .font(.system(size: 14, weight: .bold))
                         Text(tr("map.confirm"))
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(.system(size: 15, weight: .bold, design: .rounded))
                     }
-                    .foregroundStyle(.white)
+                    .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 15)
-                    .background(
-                        LinearGradient(colors: [Color.brand, Color.brand.opacity(0.80)],
-                                       startPoint: .topLeading, endPoint: .bottomTrailing),
-                        in: RoundedRectangle(cornerRadius: 16)
-                    )
-                    .shadow(color: Color.brand.opacity(0.30), radius: 8, y: 3)
+                    .padding(.vertical, 16)
+                    .background(Capsule().fill(Color.brandViolet))
                 }
+                .dropsPressable()
             }
             .padding(.horizontal, 20)
-            .padding(.bottom, 32)
+            .padding(.bottom, 28)
         }
         .onReceive(timer) { _ in
             timeLeft = autoAcceptSeconds
@@ -1261,26 +1369,27 @@ struct DropJoinSheet: View {
             HStack(spacing: 14) {
                 ZStack {
                     Circle()
-                        .fill(accentColor.opacity(0.12))
-                        .frame(width: 56, height: 56)
+                        .fill(Color.brandLavender)
+                        .frame(width: 60, height: 60)
                     // Fallback ✨ wenn beim Drop-Erstellen kein Emoji gewählt
                     Text(item.emoji.isEmpty ? "✨" : item.emoji)
-                        .font(.system(size: 28))
+                        .font(.system(size: 30))
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         // Aktivität als Haupttitel — bei Fremden und Freunden
                         Text(item.type == .myDrop ? item.activity : (item.isStranger ? item.activity : item.name))
-                            .font(.system(size: 17, weight: .bold))
-                            .foregroundColor(.textPrimary)
+                            .font(.system(size: 19, weight: .heavy, design: .rounded))
+                            .foregroundColor(.brandNight)
                         if item.isStranger {
                             Text(tr("drop.open_to_all"))
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundColor(accentColor)
-                                .padding(.horizontal, 6).padding(.vertical, 2)
-                                .background(accentColor.opacity(0.12))
-                                .cornerRadius(6)
+                                .font(.system(size: 10, weight: .heavy, design: .rounded))
+                                .tracking(0.6)
+                                .textCase(.uppercase)
+                                .foregroundColor(.brandViolet)
+                                .padding(.horizontal, 7).padding(.vertical, 3)
+                                .background(Capsule().fill(Color.brandLavender))
                         }
                     }
                     // Host-Name + Avatar — tappbar bei allen fremden Drops
@@ -1319,11 +1428,11 @@ struct DropJoinSheet: View {
                                     .foregroundColor(.textTertiary)
                             }
                         }
-                        .buttonStyle(.plain)
+                        .dropsPressable()
                     } else {
                         Label(tr("drop.my_drop"), systemImage: "star.fill")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(.accentOrange)
+                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                            .foregroundColor(.brandOrange)
                     }
                     // ETA + Distanz — immer auf echtem Standort (effectiveCoordinate).
                     // Fuzzy-Drops: realCoordinate ist gesetzt → korrekte Walk-Time statt
@@ -1332,12 +1441,12 @@ struct DropJoinSheet: View {
                         HStack(spacing: 10) {
                             Label(store.etaString(to: item.effectiveCoordinate) + " Weg",
                                   systemImage: "figure.walk")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundColor(accentColor)
+                                .font(.system(size: 12, weight: .bold, design: .rounded))
+                                .foregroundColor(.brandViolet)
                             Label(store.distanceString(to: item.effectiveCoordinate),
                                   systemImage: "mappin.circle.fill")
-                                .font(.system(size: 12))
-                                .foregroundColor(.textSecondary)
+                                .font(.system(size: 12, weight: .medium, design: .rounded))
+                                .foregroundColor(.brandNight.opacity(0.6))
                         }
                     }
                 }
@@ -1364,15 +1473,14 @@ struct DropJoinSheet: View {
                                 }
                             }
                             HStack(spacing: 5) {
-                                Image(systemName: ReliabilityScore.badgeIcon(forPoints: p.reliabilityScore))
-                                    .font(.system(size: 9, weight: .semibold))
-                                    .foregroundColor(ReliabilityScore.color(forPoints: p.reliabilityScore))
-                                Text(ReliabilityScore.badge(forPoints: p.reliabilityScore))
-                                    .font(.system(size: 10, weight: .medium))
-                                    .foregroundColor(ReliabilityScore.color(forPoints: p.reliabilityScore))
-                                Circle()
-                                    .fill(Color.textTertiary)
-                                    .frame(width: 2, height: 2)
+                                if ReliabilityScore.isTrusted(forPoints: p.reliabilityScore) {
+                                    Image(systemName: "checkmark.seal.fill")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundColor(.brandViolet)
+                                    Circle()
+                                        .fill(Color.textTertiary)
+                                        .frame(width: 2, height: 2)
+                                }
                                 Text(tr("map.already_on_site"))
                                     .font(.system(size: 11))
                                     .foregroundColor(.textSecondary)
@@ -1441,18 +1549,19 @@ struct DropJoinSheet: View {
                 .padding(.top, 10)
             }
 
-            // Aktiv-Dauer (ohne Startzeit)
-            HStack(spacing: 5) {
+            // Aktiv-Dauer-Chip (Lavendel + orangener Dot)
+            HStack(spacing: 6) {
                 Circle()
-                    .fill(Color.onlineGreen)
-                    .frame(width: 6, height: 6)
+                    .fill(Color.brandOrange)
+                    .frame(width: 7, height: 7)
                 Text(activeSince)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(.onlineGreen)
-                Spacer()
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .foregroundColor(.brandNight)
             }
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .background(Capsule().fill(Color.brandLavender))
             .padding(.horizontal, 18)
-            .padding(.top, 8)
+            .padding(.top, 10)
             .onReceive(timer) { _ in now = Date() }
 
             // Optionale Zusatzinfos (Uhrzeit nur bei geplanten Drops, nicht bei "Jetzt")
@@ -1490,9 +1599,11 @@ struct DropJoinSheet: View {
                 VStack(spacing: 10) {
                     HStack(spacing: 8) {
                         Image(systemName: "clock.badge.checkmark.fill")
-                            .font(.system(size: 13)).foregroundColor(.accentOrange)
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(.brandOrange)
                         Text(tr("drop.waiting_for_joiners"))
-                            .font(.system(size: 13)).foregroundColor(.textSecondary)
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .foregroundColor(.brandNight.opacity(0.7))
                     }
 
 
@@ -1500,16 +1611,16 @@ struct DropJoinSheet: View {
                         showCancelAlert = true
                     } label: {
                         HStack(spacing: 8) {
-                            Image(systemName: "xmark.circle.fill").font(.system(size: 16))
-                            Text(tr("drop.end_drop")).font(.system(size: 15, weight: .semibold))
+                            Image(systemName: "flag.checkered").font(.system(size: 14, weight: .bold))
+                            Text(tr("drop.end_drop"))
+                                .font(.system(size: 15, weight: .bold, design: .rounded))
                         }
-                        .foregroundColor(.white)
+                        .foregroundColor(.brandNight.opacity(0.65))
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(Color.accentRed, in: RoundedRectangle(cornerRadius: Radius.lg))
-                        .shadow(color: Color.accentRed.opacity(0.3), radius: 8, y: 4)
+                        .padding(.vertical, 16)
+                        .background(Capsule().fill(Color.brandLavender.opacity(0.6)))
                     }
-                    .buttonStyle(.plain)
+                    .dropsPressable()
                     .padding(.horizontal, 18)
                 }
                 .padding(.bottom, 24)
@@ -1632,18 +1743,18 @@ struct DropJoinSheet: View {
                             }
                         }
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
+                        .padding(.vertical, 18)
                         .background(
                             Capsule().fill(
-                                inCooldown ? Color.textTertiary :
-                                isDeclined ? Color.red.opacity(0.7) :
-                                isJoined   ? Color.onlineGreen :
-                                joining    ? accentColor.opacity(0.7) : accentColor
+                                inCooldown ? Color.brandNight.opacity(0.25)
+                              : isDeclined ? Color.brandOrange
+                              : isJoined   ? Color.brandViolet
+                              : joining    ? Color.brandViolet.opacity(0.6)
+                                           : Color.brandViolet
                             )
-                            .shadow(color: (inCooldown ? Color.clear : accentColor).opacity(0.4), radius: 12, y: 5)
                         )
                     }
-                    .buttonStyle(.plain)
+                    .dropsPressable()
                     .disabled(isJoined || joining || inCooldown)
                     .animation(.spring(response: 0.3), value: isJoined)
                     .animation(.spring(response: 0.3), value: joining)
@@ -1655,7 +1766,7 @@ struct DropJoinSheet: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.ultraThinMaterial)
+        .background(Color.brandCream.ignoresSafeArea())
         .onAppear {
             geocodeAddress()
             // Drop-View für Drops+ „wer hat geschaut" erfassen
@@ -1798,7 +1909,7 @@ struct InAppRouteSheet: View {
                             .font(.system(size: 13)).foregroundColor(.textSecondary)
                     }
                     .padding(20)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Radius.lg))
+                    .background(RoundedRectangle(cornerRadius: Radius.lg).fill(Color.white.opacity(0.85)))
                 }
             }
             .frame(maxHeight: .infinity)
@@ -1854,7 +1965,7 @@ struct InAppRouteSheet: View {
                         .padding(.vertical, 14)
                         .background(accentColor.opacity(0.1), in: RoundedRectangle(cornerRadius: Radius.lg))
                 }
-                .buttonStyle(.plain)
+                .dropsPressable()
 
                 // Sekundär: Turn-by-Turn in Apple Maps
                 Button {
@@ -1870,7 +1981,7 @@ struct InAppRouteSheet: View {
                         .font(.system(size: 12))
                         .foregroundColor(.textTertiary)
                 }
-                .buttonStyle(.plain)
+                .dropsPressable()
             }
             .padding(.horizontal, 18)
             .padding(.top, 16)
@@ -2155,10 +2266,10 @@ struct ActiveDropTabView: View {
 
     var accentColor: Color {
         switch item.type {
-        case .myDrop:   return .accentOrange
-        case .joiner:   return .onlineGreen
-        case .stranger: return item.creatorAgeGroup?.color ?? Color.auroraCyan
-        default:        return .brand
+        case .myDrop:   return .brandOrange
+        case .joiner:   return .brandViolet
+        case .stranger: return .brandViolet
+        default:        return .brandViolet
         }
     }
 
@@ -2179,20 +2290,9 @@ struct ActiveDropTabView: View {
 
     @ViewBuilder
     private var activeDropBackground: some View {
-        ZStack {
-            // Aurora-Hintergrund — folgt System-ColorScheme
-            AppAuroraBackground()
-
-            // Scrim: im Dark-Mode abdunkeln, im Light-Mode nix
-            Color.black.opacity((colorScheme == .dark ? 0.68 : 0.0))
-
-            // Dezenter Akzent-Glow in Drop-Farbe
-            RadialGradient(
-                colors: [accentColor.opacity(colorScheme == .dark ? 0.22 : 0.15), Color.clear],
-                center: UnitPoint(x: 0.5, y: 0.15),
-                startRadius: 0, endRadius: 380
-            )
-        }
+        // Standard-Cream-Aurora wie Rest der App — kein dunkles Scrim,
+        // kein Drop-Farben-Glow mehr. Alles einheitlich im dazu-Look.
+        AppAuroraBackground()
     }
 
     var body: some View {
@@ -2272,71 +2372,85 @@ struct ActiveDropTabView: View {
 
     @ViewBuilder
     private var dropHeader: some View {
-        let hasParticipants = !confirmedHere.isEmpty || !onTheWay.isEmpty
         // ── Abgelaufen-Banner (Drop unsichtbar für neue User, aber noch aktiv) ──
         if isOwnDrop && item.isTimeExpired {
-            HStack(spacing: 8) {
+            HStack(spacing: 10) {
                 Image(systemName: "clock.badge.xmark")
-                    .font(.system(size: 13))
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(.brandViolet)
+                    .frame(width: 32, height: 32)
+                    .background(Circle().fill(Color.brandLavender))
                 VStack(alignment: .leading, spacing: 1) {
                     Text(tr("map.drop_no_longer_visible"))
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundColor(.brandNight)
                     Text(tr("map.no_new_joiners"))
-                        .font(.system(size: 11))
-                        .opacity(0.7)
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .foregroundColor(.brandNight.opacity(0.6))
                 }
                 Spacer()
             }
-            .foregroundColor(.accentOrange)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(Color.accentOrange.opacity(0.12), in: RoundedRectangle(cornerRadius: Radius.md))
+            .padding(.horizontal, 14).padding(.vertical, 10)
+            .liquidGlass(cornerRadius: 18)
             .padding(.horizontal, 20)
             .padding(.top, 12)
         }
-        HStack(spacing: 16) {
-            // Emoji-Kreis — kleiner wenn Personen vorhanden
-            ZStack {
-                Circle()
-                    .fill(accentColor.opacity(0.16))
-                    .frame(width: hasParticipants ? 62 : 90,
-                           height: hasParticipants ? 62 : 90)
-                Text(item.emoji)
-                    .font(.system(size: hasParticipants ? 32 : 46))
-            }
-            .animation(.spring(response: 0.4), value: hasParticipants)
 
-            // Titel + Status
-            VStack(alignment: .leading, spacing: 5) {
+        // Rondesignlab-Headline: Status als Caps-Lead, dann großer Aktivitäts-
+        // Name mit Emoji-Dot, darunter Live-Chip + Teilnehmer-Infos als Chips.
+        VStack(alignment: .leading, spacing: 14) {
+            Text((isOwnDrop ? tr("drop.my_drop_active") : (isArrived ? tr("drop.arrived") : tr("drop.on_the_way"))).uppercased())
+                .font(.system(size: 11, weight: .heavy, design: .rounded))
+                .tracking(1.4)
+                .foregroundColor(.brandViolet.opacity(0.75))
+
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Text(item.activity)
-                    .font(.system(size: hasParticipants ? 20 : 24, weight: .bold))
-                    .foregroundColor(Color.textPrimary)
-                HStack(spacing: 5) {
-                    Circle().fill(Color.auroraBlue).frame(width: 6, height: 6)
-                    Text(isOwnDrop ? tr("drop.my_drop_active") : (isArrived ? tr("drop.arrived") : tr("drop.on_the_way")))
-                        .font(.system(size: 12, weight: .semibold)).foregroundColor(Color.auroraBlue)
-                    Text("· \(activeSince)").font(.system(size: 12)).foregroundColor(Color.textSecondary)
+                    .font(.system(size: 38, weight: .heavy, design: .rounded))
+                    .foregroundColor(.brandNight)
+                Text(item.emoji)
+                    .font(.system(size: 32))
+                Spacer(minLength: 0)
+            }
+
+            HStack(spacing: 8) {
+                // Live-seit-Chip
+                HStack(spacing: 6) {
+                    Circle().fill(Color.brandOrange).frame(width: 7, height: 7)
+                    Text(activeSince)
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundColor(.brandNight)
                 }
-                // Teilnehmer-Slots
-                HStack(spacing: 4) {
-                    Image(systemName: "person.2.fill").font(.system(size: 9)).foregroundColor(Color.textTertiary)
-                    // Bei fremden Drops: mind. 1 (der Host), sonst echte Anzahl
-                    let joined = isOwnDrop ? item.participants.count : max(1, confirmedHere.count + (isArrived ? 0 : 1))
-                    let maxP   = item.maxParticipants
-                    Text(tr("map.participants").replacingOccurrences(of: "{joined}", with: "\(joined)").replacingOccurrences(of: "{max}", with: "\(maxP)"))
-                        .font(.system(size: 11)).foregroundColor(Color.textTertiary)
+                .padding(.horizontal, 10).padding(.vertical, 6)
+                .background(Capsule().fill(Color.brandLavender))
+
+                // Teilnehmer-Chip
+                let joined = isOwnDrop
+                    ? item.participants.count
+                    : max(1, confirmedHere.count + (isArrived ? 0 : 1))
+                let maxP = item.maxParticipants
+                HStack(spacing: 5) {
+                    Image(systemName: "person.2.fill").font(.system(size: 10, weight: .bold))
+                    Text(tr("map.participants")
+                        .replacingOccurrences(of: "{joined}", with: "\(joined)")
+                        .replacingOccurrences(of: "{max}", with: "\(maxP)"))
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
                     if joined >= maxP {
-                        Text("· \(tr("map.full"))").font(.system(size: 11, weight: .semibold)).foregroundColor(.accentOrange)
+                        Text("· \(tr("map.full"))")
+                            .font(.system(size: 11, weight: .heavy, design: .rounded))
+                            .foregroundColor(.brandOrange)
                     }
                 }
+                .foregroundColor(.brandViolet)
+                .padding(.horizontal, 10).padding(.vertical, 6)
+                .background(Capsule().fill(Color.brandLavender))
 
+                Spacer(minLength: 0)
             }
-            Spacer()
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 16)
-        .padding(.bottom, hasParticipants ? 10 : 20)
-        .animation(.spring(response: 0.4), value: hasParticipants)
+        .padding(.horizontal, 24)
+        .padding(.top, 20)
+        .padding(.bottom, 16)
     }
 
     @ViewBuilder
@@ -2345,16 +2459,9 @@ struct ActiveDropTabView: View {
             content()
         }
         .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-                .fill(Color.bgSecondary)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-                .stroke(Color.glassBorder, lineWidth: 1)
-        )
+        .liquidGlass(cornerRadius: 20)
         .padding(.horizontal, 16)
-        .padding(.top, 8)
+        .padding(.top, 10)
     }
 
     // MARK: - Unterwegs-Ansicht
@@ -2407,7 +2514,7 @@ struct ActiveDropTabView: View {
                             .padding(.horizontal, 14).padding(.vertical, 9)
                             .background(accentColor.opacity(0.12), in: Capsule())
                     }
-                    .buttonStyle(.plain)
+                    .dropsPressable()
                 }
             }
         }
@@ -2529,7 +2636,7 @@ struct ActiveDropTabView: View {
                         .font(.system(size: 22))
                         .foregroundColor(.accentOrange)
                 }
-                .buttonStyle(.plain)
+                .dropsPressable()
             }
         }
     }
@@ -2841,7 +2948,7 @@ struct ActiveDropTabView: View {
                                 in: RoundedRectangle(cornerRadius: Radius.md)
                             )
                         }
-                        .buttonStyle(.plain)
+                        .dropsPressable()
                     }
                 }
             }
@@ -2872,7 +2979,7 @@ struct ActiveDropTabView: View {
                 }
                 .foregroundColor(accentColor)
             }
-            .buttonStyle(.plain)
+            .dropsPressable()
         }
         .sheet(isPresented: $showShareSheet) {
             // Wichtig: www-Subdomain nutzen weil drops-app.de → www.drops-app.de
@@ -2880,7 +2987,7 @@ struct ActiveDropTabView: View {
             // Redirects — der Link würde sonst im Browser statt in der App
             // öffnen. Beide Hosts sind in den Entitlements als applinks
             // registriert, also gleich autoritativ.
-            let dropLink = URL(string: "https://www.drops-app.de/drop/\(item.id.uuidString)")!
+            let dropLink = URL(string: AppLinks.dropShareURL(dropID: item.id.uuidString))!
             let location = item.locationTitle.isEmpty ? "" : " · \(item.locationTitle)"
             let subject = "\(item.emoji) \(item.activity)\(location) — komm vorbei. 📍"
             ShareSheet(items: [dropLink], subject: subject)
@@ -2979,34 +3086,22 @@ struct ActiveDropTabView: View {
             } label: {
                 HStack(spacing: 7) {
                     Image(systemName: onCooldown ? "clock" : "clock.arrow.circlepath")
-                        .font(.system(size: 14))
+                        .font(.system(size: 14, weight: .bold))
                     if let secs = extendCooldownRemaining {
                         Text(tr("map.extend_cooldown").replacingOccurrences(of: "{time}", with: formatCooldown(secs)))
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.system(size: 14, weight: .bold, design: .rounded))
                             .contentTransition(.numericText())
                     } else {
                         Text(tr("map.extend"))
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.system(size: 14, weight: .bold, design: .rounded))
                     }
                 }
-                .foregroundColor(onCooldown ? .textTertiary : .brand)
+                .foregroundColor(onCooldown ? .brandNight.opacity(0.4) : .brandViolet)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(
-                    onCooldown
-                        ? Color(UIColor.systemGray5)
-                        : Color.brand.opacity(0.12),
-                    in: RoundedRectangle(cornerRadius: Radius.card)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: Radius.card)
-                        .stroke(
-                            onCooldown ? Color.clear : Color.brand.opacity(0.25),
-                            lineWidth: 1
-                        )
-                )
+                .padding(.vertical, 14)
+                .background(Capsule().fill(Color.brandLavender.opacity(onCooldown ? 0.45 : 0.9)))
             }
-            .buttonStyle(.plain)
+            .dropsPressable()
             .disabled(onCooldown)
             .padding(.horizontal, 18)
             .sheet(isPresented: $showExtendSheet) {
@@ -3030,29 +3125,27 @@ struct ActiveDropTabView: View {
                 else { showLeaveConfirm = true }
             } label: {
                 HStack(spacing: 8) {
-                    Image(systemName: isOwnDrop ? "xmark.circle.fill" : "rectangle.portrait.and.arrow.right")
-                        .font(.system(size: 15))
+                    Image(systemName: isOwnDrop ? "flag.checkered" : "rectangle.portrait.and.arrow.right")
+                        .font(.system(size: 14, weight: .bold))
                     Text(isOwnDrop ? tr("drop.end_drop") : tr("drop.leave_drop"))
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
                 }
-                .foregroundColor(.white)
+                .foregroundColor(.brandNight.opacity(0.65))
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)
-                .background(isOwnDrop ? Color.accentRed : Color.accentOrange,
-                            in: RoundedRectangle(cornerRadius: Radius.lg))
-                .shadow(color: (isOwnDrop ? Color.accentRed : Color.accentOrange).opacity(0.3), radius: 8, y: 4)
+                .background(Capsule().fill(Color.brandLavender.opacity(0.5)))
             }
-            .buttonStyle(.plain)
+            .dropsPressable()
             .padding(.horizontal, 18)
 
             // Info: wann der Drop automatisch endet (nur bei gesetzter Dauer)
             if item.durationMinutes > 0 && !item.timeRemainingString.isEmpty {
                 HStack(spacing: 4) {
-                    Image(systemName: "clock").font(.system(size: 10))
+                    Image(systemName: "clock").font(.system(size: 10, weight: .bold))
                     Text(item.timeRemainingString)
-                        .font(.system(size: 11))
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
                 }
-                .foregroundColor(Color.textTertiary)
+                .foregroundColor(.brandNight.opacity(0.5))
                 .padding(.top, 6)
             }
         }
@@ -3247,26 +3340,16 @@ struct ParticipantDetailRow: View {
                                 BetaBadge()
                             }
                         }
-                        HStack(spacing: 7) {
-                            GeometryReader { geo in
-                                ZStack(alignment: .leading) {
-                                    RoundedRectangle(cornerRadius: 3).fill(Color.textSecondary.opacity(0.3))
-                                    RoundedRectangle(cornerRadius: 3).fill(displayColor)
-                                        // Tier-Progress geclampt auf 0–1, damit
-                                        // die Bar nicht über den 52pt-Frame
-                                        // hinausläuft und den Punktetext
-                                        // optisch durchstreicht.
-                                        .frame(width: geo.size.width * CGFloat(min(1.0, max(0.0, displayBarFill))))
-                                }
+                        // Trust-Badge nur anzeigen wenn verlässlich.
+                        if ReliabilityScore.isTrusted(forPoints: displayPoints) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "checkmark.seal.fill")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundColor(.brandViolet)
+                                Text(tr("tier.trusted"))
+                                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                                    .foregroundColor(.brandViolet)
                             }
-                            .frame(width: 52, height: 4)
-                            .clipShape(RoundedRectangle(cornerRadius: 3))
-                            Text("\(displayPoints)")
-                                .font(.system(size: 11, weight: .semibold)).foregroundColor(displayColor)
-                            Image(systemName: displayBadgeIcon)
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundColor(displayColor)
-                            Text(displayBadge).font(.system(size: 10)).foregroundColor(Color.textSecondary)
                         }
                     }
 
@@ -3342,7 +3425,7 @@ struct ParticipantDetailRow: View {
                 .background(RoundedRectangle(cornerRadius: Radius.md).fill(Color.bgSecondary))
             }
         }
-        .buttonStyle(.plain)
+        .dropsPressable()
         // Live-Standort-Sheet für Unterwegs-Personen
         .sheet(isPresented: $showLiveLocation) {
             ParticipantLiveLocationSheet(
@@ -3364,7 +3447,7 @@ struct ParticipantLiveLocationSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var route: MKRoute? = nil
-    @State private var mapRegion = MKCoordinateRegion(
+    @State private var targetRegion = MKCoordinateRegion(
         center: CLLocationCoordinate2D(latitude: 48.1371, longitude: 11.5754),
         span: MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02)
     )
@@ -3479,7 +3562,7 @@ struct ParticipantLiveLocationSheet: View {
                     }
                     .foregroundColor(.white)
                     .padding(.horizontal, 12).padding(.vertical, 6)
-                    .background(.ultraThinMaterial, in: Capsule())
+                    .background(Capsule().fill(Color.white.opacity(0.75)))
                     .padding(.bottom, 10)
                 }
             }
@@ -3542,7 +3625,7 @@ struct ParticipantLiveLocationSheet: View {
 
             Spacer(minLength: 20)
         }
-        .background(.ultraThinMaterial)
+        .background(Color.white.opacity(0.75))
     }
 
     // MARK: - Helpers
@@ -3681,7 +3764,7 @@ struct MiniProfileSheet: View {
     var profileImageURL: String? = nil
     var reliabilityScore: Int = 85
     var totalCommits: Int = 0
-    var subtitle: String = "Drops-Nutzer"
+    var subtitle: String = "Dazu-Nutzer"
     var accentColor: Color = Color.auroraCyan
     var isPlus: Bool = false
     /// Wenn gesetzt, wird der Drops+ Status live aus Firebase nachgezogen — dadurch
@@ -3704,6 +3787,8 @@ struct MiniProfileSheet: View {
     /// Aus Firebase nachgezogen — für Beta-Badge-Cutoff und Alter im Subtitle.
     @State private var fetchedCreatedAt: Date? = nil
     @State private var fetchedAge: Int? = nil
+    /// Hero-Gradient des anderen Users — aus Firestore geladen.
+    @State private var fetchedHeroTemplate: ProfileHeroTemplate = .aurora
 
     /// Beta-Badge-Cutoff: Nutzer ab 04.05.2026 (Europe/Berlin) bekommen kein Badge mehr.
     /// Frühere Nutzer (Early Adopter) behalten den Badge dauerhaft. Wenn createdAt
@@ -3776,39 +3861,54 @@ struct MiniProfileSheet: View {
     }
 
     var body: some View {
+        ZStack(alignment: .top) {
+            // Vollflächiger Hintergrund-Gradient — vivid oben, läuft nach ~60% aus.
+            // Liegt hinter allem anderen, passt sich automatisch an das Template an.
+            LinearGradient(
+                colors: [
+                    (fetchedHeroTemplate.colors.first ?? .auroraOrange).opacity(0.30),
+                    (fetchedHeroTemplate.colors.last  ?? .auroraGreen).opacity(0.14),
+                    Color.clear
+                ],
+                startPoint: .top,
+                endPoint: UnitPoint(x: 0.5, y: 1.0)
+            )
+            .ignoresSafeArea()
+
         VStack(spacing: 0) {
-            Capsule().fill(Color(UIColor.systemGray4))
-                .frame(width: 36, height: 4)
-                .padding(.top, 10).padding(.bottom, 18)
+            // ── Hero-Gradient-Header ───────────────────────────────────
+            ZStack(alignment: .bottom) {
+                // 1. Animierter Gradient-Hintergrund
+                AnimatedHeroGradient(template: fetchedHeroTemplate,
+                                     opacity: fetchedHeroTemplate.cardGradientOpacity)
+                    .frame(maxWidth: .infinity)
 
-            // ── Avatar mit Sunset-Glow-Ring ────────────────────────────
-            // Vorher: dünner accentColor-Ring (Cyan/Brand-Grün, abh. vom
-            // Caller). Jetzt: Sunset-Gradient-Ring (Orange→Grün) als
-            // einheitliches Branding, plus subtiler doppelter Glow für
-            // mehr Premium-Feeling. Avatar selbst etwas größer (84→92).
-            ZStack {
-                // Outer Glow (dezent)
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [Color.auroraOrange.opacity(0.20),
-                                     Color.auroraGreen.opacity(0.16)],
-                            startPoint: .topLeading, endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: 116, height: 116)
-                    .blur(radius: 14)
+                // 2. Emoji-Scatter-Muster
+                if !emoji.isEmpty {
+                    EmojiScatterBackground(emoji: emoji)
+                }
 
-                // Gradient-Ring (Sunset)
-                Circle()
-                    .stroke(
-                        LinearGradient(
-                            colors: [Color.auroraOrange, Color.auroraGreen],
-                            startPoint: .topLeading, endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 2.5
-                    )
-                    .frame(width: 96, height: 96)
+                VStack(spacing: 0) {
+                    Capsule().fill(Color.white.opacity(0.55))
+                        .frame(width: 36, height: 4)
+                        .padding(.top, 10).padding(.bottom, 14)
+
+                    // ── Avatar ────────────────────────────────────────
+                    ZStack {
+                        // Outer Glow in Hero-Farben
+                        Circle()
+                            .fill(LinearGradient(
+                                colors: [
+                                    (fetchedHeroTemplate.colors.first ?? .auroraOrange).opacity(0.28),
+                                    (fetchedHeroTemplate.colors.last  ?? .auroraGreen).opacity(0.20)
+                                ],
+                                startPoint: .topLeading, endPoint: .bottomTrailing
+                            ))
+                            .frame(width: 116, height: 116)
+                            .blur(radius: 14)
+
+                        // Animierter Gradient-Ring in Hero-Farben
+                        GradientAvatarRing(template: fetchedHeroTemplate, size: 96, lineWidth: 2.5)
 
                 if let img = selfie {
                     Image(uiImage: img)
@@ -3820,21 +3920,37 @@ struct MiniProfileSheet: View {
                                        strokeColor: .clear)
                 } else {
                     Circle()
-                        .fill(
-                            LinearGradient(
-                                colors: [Color.auroraOrange.opacity(0.14),
-                                         Color.auroraGreen.opacity(0.10)],
-                                startPoint: .topLeading, endPoint: .bottomTrailing
-                            )
-                        )
+                        .fill(LinearGradient(
+                            colors: [
+                                (fetchedHeroTemplate.colors.first ?? .auroraOrange).opacity(0.18),
+                                (fetchedHeroTemplate.colors.last  ?? .auroraGreen).opacity(0.12)
+                            ],
+                            startPoint: .topLeading, endPoint: .bottomTrailing
+                        ))
                         .frame(width: 92, height: 92)
                         .overlay(Text(emoji).font(.system(size: 44)))
                 }
-            }
-            .frame(height: 120)
-            .padding(.bottom, 10)
+                }   // Avatar ZStack
+                .frame(height: 120)
+                .padding(.bottom, 16)
+            }       // VStack (Capsule + Avatar)
+        }           // ZStack Hero-Header
+        .frame(maxHeight: 170)
+        .mask(
+            LinearGradient(
+                stops: [
+                    .init(color: .black,            location: 0.00),
+                    .init(color: .black,            location: 0.48),
+                    .init(color: .black.opacity(0.7), location: 0.68),
+                    .init(color: .black.opacity(0.3), location: 0.85),
+                    .init(color: .clear,            location: 1.00)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
 
-            HStack(spacing: 6) {
+        HStack(spacing: 6) {
                 Text(name)
                     .font(.system(size: 22, weight: .bold, design: .rounded))
                     .foregroundColor(.textPrimary)
@@ -3882,35 +3998,32 @@ struct MiniProfileSheet: View {
             // Vorher: 1 separate Card pro Info. Jetzt: kompakter Combo-
             // Layout mit Divider — weniger vertikalem Platz, dichter Info.
             VStack(spacing: 0) {
-                // Tier-Ring + Badge
-                HStack(spacing: 14) {
-                    ZStack {
-                        Circle()
-                            .stroke(tierColor.opacity(0.15), lineWidth: 5)
-                            .frame(width: 56, height: 56)
-                        Circle()
-                            .trim(from: 0, to: CGFloat(tierProgress))
-                            .stroke(tierColor, style: StrokeStyle(lineWidth: 5, lineCap: .round))
-                            .frame(width: 56, height: 56)
-                            .rotationEffect(.degrees(-90))
-                            .animation(.easeOut(duration: 0.6), value: reliabilityScore)
-                        Image(systemName: tierIcon)
-                            .font(.system(size: 19, weight: .semibold))
-                            .foregroundColor(tierColor)
+                // Trust-Badge — nur anzeigen wenn der User verlässlich ist.
+                // Vorher: 5-Tier-Ring + Punkte-Rechnerei. Jetzt: binärer Marker.
+                if ReliabilityScore.isTrusted(forPoints: reliabilityScore) {
+                    HStack(spacing: 14) {
+                        ZStack {
+                            Circle()
+                                .fill(Color.brandLavender)
+                                .frame(width: 44, height: 44)
+                            Image(systemName: "checkmark.seal.fill")
+                                .font(.system(size: 20, weight: .bold))
+                                .foregroundColor(.brandViolet)
+                        }
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(tr("tier.trusted"))
+                                .font(.system(size: 15, weight: .bold, design: .rounded))
+                                .foregroundColor(.textPrimary)
+                            if totalCommits > 0 {
+                                Text("\(totalCommits) Treffen bestätigt")
+                                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                                    .foregroundColor(.textSecondary)
+                            }
+                        }
+                        Spacer()
                     }
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(tierLabel)
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundColor(.textPrimary)
-                        Text(totalCommits > 0
-                             ? tr("map.points_drops").replacingOccurrences(of: "{points}", with: "\(reliabilityScore)").replacingOccurrences(of: "{drops}", with: "\(totalCommits)")
-                             : tr("map.points_only").replacingOccurrences(of: "{points}", with: "\(reliabilityScore)"))
-                            .font(.system(size: 12))
-                            .foregroundColor(.textSecondary)
-                    }
-                    Spacer()
+                    .padding(.horizontal, 16).padding(.vertical, 14)
                 }
-                .padding(.horizontal, 16).padding(.vertical, 14)
 
                 // Sekundär-Zeilen — Member-Seit, frühere Begegnungen.
                 // Jeweils mit Divider und kompakter Icon-Spalte für visuelle
@@ -3975,7 +4088,7 @@ struct MiniProfileSheet: View {
                         .shadow(color: Color.auroraOrange.opacity(inviteSent ? 0 : 0.35),
                                 radius: 12, y: 5)
                     }
-                    .buttonStyle(.plain)
+                    .dropsPressable()
                     .disabled(inviteSent)
                     .padding(.horizontal, 20)
                     .padding(.bottom, 10)
@@ -3994,7 +4107,7 @@ struct MiniProfileSheet: View {
                         .liquidGlass(cornerRadius: 14)
                         .overlay(RoundedRectangle(cornerRadius: Radius.card).stroke(Color.accentRed.opacity(0.25), lineWidth: 1))
                     }
-                    .buttonStyle(.plain)
+                    .dropsPressable()
                     .padding(.horizontal, 20)
                     .padding(.bottom, 30)
                 } else if canBlock {
@@ -4010,7 +4123,7 @@ struct MiniProfileSheet: View {
                             .liquidGlass(cornerRadius: 14)
                             .overlay(RoundedRectangle(cornerRadius: Radius.card).stroke(Color.accentOrange.opacity(0.25), lineWidth: 1))
                         }
-                        .buttonStyle(.plain)
+                        .dropsPressable()
 
                         Button { showBlockAlert = true } label: {
                             HStack(spacing: 6) {
@@ -4023,7 +4136,7 @@ struct MiniProfileSheet: View {
                             .liquidGlass(cornerRadius: 14)
                             .overlay(RoundedRectangle(cornerRadius: Radius.card).stroke(Color.accentRed.opacity(0.25), lineWidth: 1))
                         }
-                        .buttonStyle(.plain)
+                        .dropsPressable()
                     }
                     .padding(.horizontal, 20)
                     .padding(.bottom, 30)
@@ -4033,8 +4146,9 @@ struct MiniProfileSheet: View {
             } else {
                 Spacer(minLength: 20)
             }
-        }
-        .background(.ultraThinMaterial)
+        }           // VStack body
+        }           // ZStack fullscreen gradient
+        .background(Color.white.opacity(0.75))
         .alert(tr("profile.confirm_block_title"), isPresented: $showBlockAlert) {
             Button(tr("common.cancel"), role: .cancel) {}
             Button(tr("map.block"), role: .destructive) {
@@ -4079,6 +4193,15 @@ struct MiniProfileSheet: View {
                         }
                     }
                 }
+            }
+            // Hero-Gradient aus Firestore laden
+            if let uid = userUID, !uid.isEmpty {
+                Firestore.firestore().collection("users").document(uid)
+                    .getDocument { snap, _ in
+                        guard let raw = snap?.data()?["heroTemplate"] as? String,
+                              let tpl = ProfileHeroTemplate(rawValue: raw) else { return }
+                        DispatchQueue.main.async { fetchedHeroTemplate = tpl }
+                    }
             }
         }
     }
@@ -4196,9 +4319,14 @@ struct MunichZoneOverlay: View {
 /// einer gemeinsamen Ausgrauung außerhalb aller Zonen. Even-Odd-Fill mit
 /// N+1 Subpaths (Außen-Rechteck + N Polygone) erzeugt N Löcher im Grau.
 struct MultiZoneOverlay: View {
-    let polygons: [[CGPoint]]
+    /// Liefert die aktuellen Screen-Pixel-Polygone. Wird in jedem TimelineView-
+    /// Tick (12 fps) aufgerufen, holt sich also direkt aus dem aktuellen
+    /// MapProxy die frisch projizierten Punkte. Dadurch: kein @State auf
+    /// LiveMapView, kein parent-Re-Render, Pins bleiben stabil.
+    let polygonsProvider: () -> [[CGPoint]]
 
-    private static let hueStops: [Double] = [0.530, 0.370, 0.720, 0.920, 0.100, 0.530]
+    // Violett (#5B3DF5, hue≈0.694) ↔ Mint (#4DEBBE, hue≈0.453) — App-Farben
+    private static let hueStops: [Double] = [0.694, 0.573, 0.453, 0.573, 0.694]
 
     private func hue(at arcPos: Double, phase: Double) -> Color {
         let t = (arcPos + phase).truncatingRemainder(dividingBy: 1.0)
@@ -4207,13 +4335,16 @@ struct MultiZoneOverlay: View {
         let i = min(Int(scaled), stops.count - 2)
         let f = scaled - Double(i)
         let h = stops[i] + (stops[i + 1] - stops[i]) * f
-        return Color(hue: h, saturation: 0.78, brightness: 0.92)
+        return Color(hue: h, saturation: 0.90, brightness: 0.96)
     }
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 12.0, paused: false)) { timeline in
+        TimelineView(.animation) { timeline in
             let phase = timeline.date.timeIntervalSinceReferenceDate
                 .truncatingRemainder(dividingBy: 20.0) / 20.0
+            // Polygone auf jedem Display-Frame frisch aus dem MKMapView holen —
+            // Aurora folgt der Kamera ohne Drift (kein minimumInterval-Cap).
+            let polygons = polygonsProvider()
 
             Canvas { ctx, size in
                 guard !polygons.isEmpty else { return }
@@ -4365,7 +4496,7 @@ struct MapBoostCard: View {
                             .padding(6)
                             .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .dropsPressable()
                     .accessibilityLabel("Einklappen")
                 }
             }
@@ -4424,50 +4555,61 @@ private struct ExtendDropSheet: View {
     let onExtended: (Int) -> Void  // übergibt die gewählten Minuten
 
     var body: some View {
-        VStack(spacing: 20) {
-            // Handle
-            Capsule()
-                .fill(Color(UIColor.systemGray4))
-                .frame(width: 36, height: 4)
-                .padding(.top, 12)
+        ZStack {
+            Color.brandCream.ignoresSafeArea()
 
-            Text(tr("map.extend_drop"))
-                .font(.system(size: 17, weight: .semibold))
-
-            Text(tr("map.extend_drop_msg"))
-                .font(.system(size: 13))
-                .foregroundColor(.textSecondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
-
-            let options: [(String, Int)] = [
-                (tr("map.extend_30min"), 30), (tr("map.extend_1h"), 60), (tr("map.extend_2h"), 120), (tr("map.extend_4h"), 240)
-            ]
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-                ForEach(options, id: \.1) { label, minutes in
-                    Button {
-                        store.extendDrop(id: dropID, byMinutes: minutes)
-                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                        onExtended(minutes)
-                        dismiss()
-                    } label: {
-                        Text(label)
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(Color.brand, in: RoundedRectangle(cornerRadius: Radius.card))
-                            .shadow(color: Color.brand.opacity(0.3), radius: 6, y: 3)
-                    }
-                    .buttonStyle(.plain)
+            VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: -2) {
+                    Text("Runde")
+                        .foregroundColor(.brandNight)
+                    Text("verlängern.")
+                        .foregroundColor(.brandViolet)
                 }
-            }
-            .padding(.horizontal, 20)
+                .font(.system(size: 30, weight: .heavy, design: .rounded))
+                .padding(.horizontal, 24)
+                .padding(.top, 24)
 
-            Button(tr("map.cancel")) { dismiss() }
-                .font(.system(size: 14))
-                .foregroundColor(.textSecondary)
-                .padding(.bottom, 12)
+                Text(tr("map.extend_drop_msg"))
+                    .font(.system(size: 15, weight: .medium, design: .rounded))
+                    .foregroundColor(.brandNight.opacity(0.65))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 24)
+
+                let options: [(String, Int)] = [
+                    (tr("map.extend_30min"), 30), (tr("map.extend_1h"), 60),
+                    (tr("map.extend_2h"), 120), (tr("map.extend_4h"), 240)
+                ]
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                    ForEach(options, id: \.1) { label, minutes in
+                        Button {
+                            store.extendDrop(id: dropID, byMinutes: minutes)
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                            onExtended(minutes)
+                            dismiss()
+                        } label: {
+                            Text(label)
+                                .font(.system(size: 16, weight: .bold, design: .rounded))
+                                .foregroundColor(.brandNight)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 18)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                        .fill(Color.brandLavender.opacity(0.9))
+                                )
+                        }
+                        .dropsPressable()
+                    }
+                }
+                .padding(.horizontal, 20)
+
+                Spacer()
+
+                Button(tr("map.cancel")) { dismiss() }
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .foregroundColor(.brandNight.opacity(0.55))
+                    .frame(maxWidth: .infinity)
+                    .padding(.bottom, 22)
+            }
         }
     }
 }
@@ -4712,7 +4854,7 @@ struct JoinerLiveInfoSheet: View {
             .padding(.horizontal, 20).padding(.bottom, 24)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.ultraThinMaterial)
+        .background(Color.white.opacity(0.75))
     }
 
     @ViewBuilder
@@ -4729,5 +4871,704 @@ struct JoinerLiveInfoSheet: View {
                 .foregroundColor(.textSecondary)
         }
         .frame(maxWidth: .infinity)
+    }
+}
+
+// MARK: - Ghost Drop Info Sheet
+
+/// Read-only Info-Karte für bereits beendete Drops. Kein Join-Button —
+/// der Drop ist vorbei. Zeigt Activity, Host, Teilnehmer-Namen (Chips,
+/// keine Bilder) und Zeit-Status.
+// MARK: - Demo Drop CTA Sheet
+
+struct DemoDropCTASheet: View {
+    @EnvironmentObject var store: AppStore
+    @Environment(\.dismiss) private var dismiss
+    let item: MapAnnotationItem
+
+    @State private var resolvedAddress: String? = nil
+
+    private static let demoNamePool = [
+        "Lena", "Max", "Sophie", "Tim", "Anna", "Jonas", "Lisa", "Felix",
+        "Marie", "Paul", "Hannah", "Leon", "Emma", "Noah", "Mia", "Ben",
+        "Sarah", "Luca", "Lara", "Erik",
+    ]
+
+    private var participantCount: Int { item.effectiveParticipantCount }
+
+    private var participantNames: [String] {
+        guard participantCount > 0 else { return [] }
+        var result: [String] = []
+        let hostName = item.name.trimmingCharacters(in: .whitespaces)
+        if !hostName.isEmpty { result.append(hostName) }
+        let seed = item.id.uuidString.hashValue
+        var rng = SeededRNG(seed: UInt64(bitPattern: Int64(seed)))
+        var pool = Self.demoNamePool.filter { $0 != hostName }
+        while result.count < participantCount && !pool.isEmpty {
+            let idx = Int(rng.next() % UInt64(pool.count))
+            result.append(pool.remove(at: idx))
+        }
+        return result
+    }
+
+    private var countLabel: String {
+        if participantCount == 1 { return tr("ghost.were_there_one") }
+        return tr("ghost.were_there_many").replacingOccurrences(of: "{n}", with: "\(participantCount)")
+    }
+
+    private var endedLabel: String {
+        guard let endedAt = item.endedAt else { return "" }
+        let minutes = Int(Date().timeIntervalSince(endedAt) / 60)
+        if minutes < 60 {
+            return tr("ghost.ended_ago_min").replacingOccurrences(of: "{n}", with: "\(max(1, minutes))")
+        }
+        return tr("ghost.ended_ago_hr").replacingOccurrences(of: "{n}", with: "\(max(1, minutes / 60))")
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // ── Header ────────────────────────────────────────────────────
+            HStack(alignment: .top, spacing: 14) {
+                ZStack {
+                    Circle()
+                        .fill(Color(UIColor.tertiarySystemFill))
+                        .frame(width: 52, height: 52)
+                    Text(item.emoji.isEmpty ? "👻" : item.emoji)
+                        .font(.system(size: 24))
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(item.activity)
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundColor(.textPrimary)
+                    if !item.locationTitle.isEmpty {
+                        Text(item.locationTitle)
+                            .font(.system(size: 13))
+                            .foregroundColor(.brand)
+                    } else if let addr = resolvedAddress {
+                        Text(addr)
+                            .font(.system(size: 12))
+                            .foregroundColor(.textTertiary)
+                    }
+                    if !endedLabel.isEmpty {
+                        Text(endedLabel)
+                            .font(.system(size: 12))
+                            .foregroundColor(.textTertiary)
+                            .padding(.top, 1)
+                    }
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 20)
+            .padding(.bottom, 18)
+            .task(id: item.id) {
+                // Nur geocoden wenn kein Venue-Name vorhanden (sonst Adresse oft ungenau)
+                guard item.locationTitle.isEmpty else { return }
+                let loc = CLLocation(latitude: item.coordinate.latitude, longitude: item.coordinate.longitude)
+                CLGeocoder().reverseGeocodeLocation(loc) { placemarks, _ in
+                    guard let p = placemarks?.first else { return }
+                    let street = [p.thoroughfare, p.subThoroughfare]
+                        .compactMap { $0 }.joined(separator: " ")
+                    guard !street.isEmpty else { return }
+                    DispatchQueue.main.async { resolvedAddress = street }
+                }
+            }
+
+            // ── Teilnehmer-Chips ──────────────────────────────────────────
+            if !participantNames.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(countLabel)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.textSecondary)
+                        .textCase(.uppercase)
+                        .tracking(0.5)
+                        .padding(.horizontal, 20)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(Array(participantNames.enumerated()), id: \.offset) { _, name in
+                                Text(name)
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundColor(.textPrimary)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 7)
+                                    .background(Capsule().fill(Color(UIColor.secondarySystemFill)))
+                            }
+                        }
+                        .padding(.horizontal, 20)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.bottom, 4)
+            }
+
+            // ── CTA-Bereich ───────────────────────────────────────────────
+            VStack(spacing: 6) {
+                Text("🌱")
+                    .font(.system(size: 32))
+                    .padding(.top, 20)
+                Text("Pläne wachsen mit der Community")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(.textPrimary)
+                    .multilineTextAlignment(.center)
+                Text("Teile die App mit Freunden — je mehr mitmachen, desto mehr echte Pläne in deiner Stadt.")
+                    .font(.system(size: 13))
+                    .foregroundColor(.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 4)
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 22)
+
+            // ── Buttons ───────────────────────────────────────────────────
+            HStack(spacing: 10) {
+                ShareLink(
+                    item: URL(string: "https://apps.apple.com/de/app/drops-triff-leute/id6762097493")!,
+                    subject: Text("Dazu App"),
+                    message: Text("Spontane Treffen in deiner Stadt 🌱")
+                ) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("Teilen")
+                            .font(.system(size: 14, weight: .semibold))
+                    }
+                    .foregroundColor(.brand)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(Capsule().strokeBorder(Color.brand.opacity(0.6), lineWidth: 1.5))
+                }
+                Button {
+                    dismiss()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        store.selectedTab = .create
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("Plan starten")
+                            .font(.system(size: 14, weight: .semibold))
+                    }
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(Capsule().fill(Color.brand))
+                }
+                .dropsPressable()
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 32)
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+// MARK: - Ghost Drop Info Sheet
+
+struct GhostDropInfoSheet: View {
+    @EnvironmentObject var store: AppStore
+    @Environment(\.dismiss) private var dismiss
+    let item: MapAnnotationItem
+
+    /// Pool deutscher Vornamen für deterministisch erzeugte Demo-Teilnehmer.
+    /// Selber drop.id-Seed → selbe Namen-Auswahl bei jedem Sheet-Open.
+    private static let demoNamePool = [
+        "Lena", "Max", "Sophie", "Tim", "Anna", "Jonas", "Lisa", "Felix",
+        "Marie", "Paul", "Hannah", "Leon", "Emma", "Noah", "Mia", "Ben",
+        "Sarah", "Luca", "Lara", "Erik",
+    ]
+
+    private var participantCount: Int {
+        item.effectiveParticipantCount
+    }
+
+    /// Deterministische Namensliste aus drop.id-Seed. Host (`item.name`)
+    /// kommt zuerst, dann weitere Namen aus dem Pool — alle unique.
+    private var participantNames: [String] {
+        guard participantCount > 0 else { return [] }
+        var result: [String] = []
+        let hostName = item.name.trimmingCharacters(in: .whitespaces)
+        if !hostName.isEmpty { result.append(hostName) }
+
+        // Deterministischer Seed aus UUID — gleicher Drop → gleiche Reihenfolge.
+        let seed = item.id.uuidString.hashValue
+        var rng = SeededRNG(seed: UInt64(bitPattern: Int64(seed)))
+        var pool = Self.demoNamePool.filter { $0 != hostName }
+        while result.count < participantCount && !pool.isEmpty {
+            let idx = Int(rng.next() % UInt64(pool.count))
+            result.append(pool.remove(at: idx))
+        }
+        return result
+    }
+
+    private var countLabel: String {
+        if participantCount == 1 { return tr("ghost.were_there_one") }
+        return tr("ghost.were_there_many").replacingOccurrences(of: "{n}", with: "\(participantCount)")
+    }
+
+    private var endedLabel: String {
+        guard let endedAt = item.endedAt else { return "" }
+        let minutes = Int(Date().timeIntervalSince(endedAt) / 60)
+        if minutes < 60 {
+            return tr("ghost.ended_ago_min").replacingOccurrences(of: "{n}", with: "\(max(1, minutes))")
+        }
+        let hours = max(1, minutes / 60)
+        return tr("ghost.ended_ago_hr").replacingOccurrences(of: "{n}", with: "\(hours)")
+    }
+
+    var body: some View {
+        VStack(spacing: 14) {
+            // Activity-Header
+            HStack(spacing: 14) {
+                ZStack {
+                    Circle()
+                        .fill(Color.textTertiary.opacity(0.12))
+                        .frame(width: 60, height: 60)
+                    Text(item.emoji)
+                        .font(.system(size: 30))
+                        .saturation(0.7)
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(item.activity)
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundColor(.textPrimary)
+                    if !item.locationTitle.isEmpty {
+                        Text(item.locationTitle)
+                            .font(.system(size: 13))
+                            .foregroundColor(.textSecondary)
+                    }
+                    if !item.name.isEmpty {
+                        Text(tr("ghost.host_was").replacingOccurrences(of: "{name}", with: item.name))
+                            .font(.system(size: 12))
+                            .foregroundColor(.textTertiary)
+                    }
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 22)
+            .padding(.top, 18)
+
+            // Namen-Chips + Count
+            if !participantNames.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(countLabel)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.textSecondary)
+                    // FlowLayout-Style: einfaches HStack das umbricht
+                    // wenn zu viele Namen — mit ScrollView horizontal
+                    // als Fallback (selten >5 Teilnehmer).
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(Array(participantNames.enumerated()), id: \.offset) { _, name in
+                                Text(name)
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundColor(.textPrimary)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(Capsule().fill(Color.textTertiary.opacity(0.12)))
+                            }
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 22)
+            }
+
+            // Status-Label
+            VStack(spacing: 4) {
+                Text(tr("ghost.title"))
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(.textPrimary)
+                if !endedLabel.isEmpty {
+                    Text(endedLabel)
+                        .font(.system(size: 13))
+                        .foregroundColor(.textSecondary)
+                }
+                Text(tr("ghost.subtitle"))
+                    .font(.system(size: 12))
+                    .foregroundColor(.textTertiary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 22)
+            }
+            .padding(.top, 4)
+
+            Spacer(minLength: 0)
+
+            // Schließen-Button
+            Button(action: { dismiss() }) {
+                Text(tr("common.close"))
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 13)
+                    .background(Capsule().fill(Color.brand))
+            }
+            .dropsPressable()
+            .padding(.horizontal, 22)
+            .padding(.bottom, 22)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// Mini-RNG für deterministische Demo-Daten. Linear Congruential Generator —
+/// reicht völlig für "selber Seed → selbe Sequenz" bei Demo-Inhalten.
+private struct SeededRNG {
+    private var state: UInt64
+    init(seed: UInt64) { self.state = seed == 0 ? 1 : seed }
+    mutating func next() -> UInt64 {
+        state = state &* 6364136223846793005 &+ 1442695040888963407
+        return state
+    }
+}
+
+// MARK: - Stable Cluster Key
+
+/// Hash der sortierten Member-UUIDs als stabile View-Identität für
+/// Cluster-Gruppen. Gleiche Mitglieder → gleicher Key → SwiftUI behält
+/// die Annotation-Identität bei Cluster-Recompute, kein Re-Render-Flash.
+extension Array where Element == MapAnnotationItem {
+    var stableClusterKey: String {
+        map { $0.id.uuidString }.sorted().joined(separator: "|")
+    }
+}
+
+// MARK: - MKMapView UIKit-Wrapper (Phase 1: Drop-Pins)
+//
+// Hintergrund: SwiftUI Map re-rendert ihren Body bei jedem Pan-Event (mapPosition-
+// Binding). Annotations werden dabei pro Frame re-evaluiert → subtiles Wobble der
+// Pins. MKMapView verwaltet Annotations nativ; Pan/Zoom triggert keine SwiftUI-
+// Re-Renders → Pins stehen pixelgenau still.
+//
+// Diese Phase: nur Drop-Pins (active + ghost) via MKAnnotation. Andere
+// Map-Inhalte (Aurora-Overlay, Joiner-Pins, Communities, GPS-Ring, Suggested
+// Spots) bleiben vorerst auf SwiftUI-Seite oder werden temporär ausgeblendet.
+
+/// Custom MKAnnotation, hält Referenz auf das MapAnnotationItem.
+final class MapKitDropAnnotation: NSObject, MKAnnotation {
+    var item: MapAnnotationItem
+    /// `coordinate` ist via KVO observierbar — MKMapView nutzt das wenn wir die
+    /// Position aktualisieren. Stabile Identität gibt's via `item.id`.
+    var coordinate: CLLocationCoordinate2D { item.coordinate }
+    /// Cache des letzten Render-Keys → wenn unverändert: skip re-configure.
+    /// Verhindert Flashing alle 5-10s wenn LiveMapView wegen Location-Updates
+    /// rendered und updateUIView() durchläuft.
+    var lastRenderKey: String = ""
+    init(item: MapAnnotationItem) {
+        self.item = item
+        super.init()
+    }
+}
+
+/// Render-Key für eine Annotation. Wenn der String unverändert ist, muss die
+/// View nicht neu konfiguriert werden — alle render-relevanten Felder sind drin.
+fileprivate func annotationRenderKey(_ item: MapAnnotationItem, isJoined: Bool) -> String {
+    let parts: [String] = [
+        item.emoji,
+        item.activity,
+        item.name,
+        item.isGhost ? "G" : "_",
+        item.isFuzzy ? "F" : "_",
+        "\(item.maxParticipants)",
+        "\(item.liveParticipantCount ?? -1)",
+        "\(item.participants.count)",
+        isJoined ? "J" : "_",
+        "\(item.type)",
+        "\(item.clusterGroup?.count ?? 0)"
+    ]
+    return parts.joined(separator: "|")
+}
+
+/// Custom MKAnnotationView die unsere existierende `DropMapPin` SwiftUI-View via
+/// UIHostingController rendert. Damit behalten wir das ganze Pin-Design ohne
+/// es in UIView neu zu schreiben.
+final class MapKitDropAnnotationView: MKAnnotationView {
+    static let reuseID = "MapKitDropAnnotationView"
+
+    private var host: UIHostingController<AnyView>?
+    var onTap: (() -> Void)?
+
+    override init(annotation: MKAnnotation?, reuseIdentifier: String?) {
+        super.init(annotation: annotation, reuseIdentifier: reuseIdentifier)
+        canShowCallout = false
+        // Eigener Tap-Handler — Standard-MKAnnotationView öffnet sonst Callout.
+        let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap))
+        addGestureRecognizer(tap)
+        backgroundColor = .clear
+        // Core-Animation implicit animations deaktivieren — MapKit triggert
+        // sonst alle paar Sekunden Fade/Position-Animationen auf den Annotation-
+        // Views (z.B. bei Location-Updates), was als Blinken sichtbar wird.
+        layer.actions = [
+            "opacity":   NSNull(),
+            "position":  NSNull(),
+            "bounds":    NSNull(),
+            "transform": NSNull(),
+            "contents":  NSNull(),
+        ]
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    @objc private func handleTap() { onTap?() }
+
+    /// SwiftUI-Pin (re-)konfigurieren. Wird bei dequeue + bei Updates aufgerufen.
+    func configure(item: MapAnnotationItem,
+                   isJoined: Bool,
+                   myToken: String,
+                   confirmedTokens: Set<String>,
+                   onTap: @escaping () -> Void) {
+        self.onTap = onTap
+
+        let rootView: AnyView
+        switch item.type {
+        case .cluster:
+            let group = item.clusterGroup ?? []
+            rootView = AnyView(DropClusterPin(group: group, onTap: onTap))
+            isUserInteractionEnabled = true
+        case .suggested:
+            let spot = item.suggestedSpot ?? AppStore.SuggestedSpot(
+                id: item.id.uuidString, coordinate: item.coordinate,
+                activityEmoji: item.emoji, activityName: item.activity,
+                occurrences: 1, lastSeen: Date())
+            rootView = AnyView(SuggestedSpotPin(spot: spot))
+            isUserInteractionEnabled = false
+        case .community:
+            if let community = item.communityRef {
+                rootView = AnyView(CommunityMapPin(community: community, action: onTap))
+            } else {
+                rootView = AnyView(EmptyView())
+            }
+            isUserInteractionEnabled = true
+        default:
+            rootView = AnyView(DropMapPin(
+                item: item,
+                isJoined: isJoined,
+                onTap: onTap,
+                myToken: myToken,
+                confirmedTokens: confirmedTokens
+            ))
+            isUserInteractionEnabled = true
+        }
+
+        if let h = host {
+            // SwiftUI-Update ohne UIKit-Animation-Wrapper damit kein Flash entsteht
+            // wenn MapKit zwischen Frames refresht.
+            UIView.performWithoutAnimation {
+                h.rootView = rootView
+            }
+        } else {
+            let h = UIHostingController(rootView: rootView)
+            h.view.backgroundColor = .clear
+            h.view.translatesAutoresizingMaskIntoConstraints = false
+            // Implicit Animation auch am Hosting-Layer deaktivieren
+            h.view.layer.actions = [
+                "opacity":   NSNull(),
+                "position":  NSNull(),
+                "bounds":    NSNull(),
+                "transform": NSNull(),
+                "contents":  NSNull(),
+            ]
+            addSubview(h.view)
+            NSLayoutConstraint.activate([
+                h.view.centerXAnchor.constraint(equalTo: centerXAnchor),
+                h.view.centerYAnchor.constraint(equalTo: centerYAnchor),
+            ])
+            host = h
+        }
+
+        // SwiftUI-View kann selbst-sized werden — eigene Frame-Größe daraus ableiten
+        // damit MKMapView den Touch-Hitbox-Bereich richtig setzt.
+        // layoutIfNeeded() reicht NICHT wenn die View noch nicht im Window-Hierarchy
+        // ist (z.B. beim ersten viewFor-annotation-Aufruf) → size wäre .zero → kein
+        // Tap-Bereich. Daher: sofort versuchen, bei .zero auf nächsten Run-Loop warten.
+        host?.view.layoutIfNeeded()
+        let immediateSize = host?.view.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
+            ?? CGSize(width: 60, height: 60)
+        if immediateSize.width > 4 && immediateSize.height > 4 {
+            bounds = CGRect(origin: .zero, size: immediateSize)
+        } else {
+            // Noch nicht gemessen — nächsten Run-Loop abwarten
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self, let h = self.host else { return }
+                h.view.layoutIfNeeded()
+                let size = h.view.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
+                if size.width > 4 && size.height > 4 {
+                    self.bounds = CGRect(origin: .zero, size: size)
+                }
+            }
+        }
+        centerOffset = CGPoint(x: 0, y: 0)
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        onTap = nil
+    }
+}
+
+/// Referenz-Box die die echte MKMapView hält. Damit kann der polygonsProvider-
+/// Closure des Aurora-Overlays bei jedem 12fps-Tick convert() direkt aufrufen
+/// statt einen statischen Snapshot zu nutzen — Overlay folgt der Kamera live.
+final class MapViewBox {
+    weak var mapView: MKMapView?
+}
+
+/// SwiftUI-Wrapper um MKMapView. Drop-Pins werden nativ verwaltet — kein Wobble
+/// beim Pannen.
+struct MapKitMapView: UIViewRepresentable {
+    /// Einweg-Intent: non-nil → Kamera dorthin bewegen, danach auto-clear.
+    /// Nil → Map frei scrollbar ohne SwiftUI-Interference.
+    @Binding var targetRegion: MKCoordinateRegion?
+    let annotations: [MapAnnotationItem]
+    let myToken: String
+    let confirmedTokens: Set<String>
+    let isJoinedProvider: (UUID) -> Bool
+    let onTapAnnotation: (MapAnnotationItem) -> Void
+    let onCameraChange: ((MKMapView) -> Void)?
+    let preferredColorScheme: ColorScheme?
+    /// Wird in makeUIView befüllt — ermöglicht Live-Koordinaten-Konvertierung
+    /// außerhalb von updateUIView (z.B. polygonsProvider im Aurora-Overlay).
+    let mapViewBox: MapViewBox
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeUIView(context: Context) -> MKMapView {
+        let map = MKMapView()
+        map.delegate = context.coordinator
+        mapViewBox.mapView = map
+        map.showsUserLocation = true
+        map.isPitchEnabled = false
+        map.isRotateEnabled = false
+        // POI-Filter analog zur SwiftUI-Map: kuratierte Hangout-Spots
+        map.pointOfInterestFilter = MKPointOfInterestFilter(including: [
+            .cafe, .restaurant, .bakery, .brewery, .winery,
+            .nightlife, .museum, .park, .beach, .amusementPark,
+        ])
+        map.register(MapKitDropAnnotationView.self,
+                     forAnnotationViewWithReuseIdentifier: MapKitDropAnnotationView.reuseID)
+        // Initialer Zoom kommt via targetRegion (userLocation-onAppear).
+        // Default: München-Mitte als Fallback bis GPS verfügbar.
+        let defaultRegion = MKCoordinateRegion(
+            center: CLLocationCoordinate2D(latitude: 48.1371, longitude: 11.5754),
+            span: MKCoordinateSpan(latitudeDelta: 0.12, longitudeDelta: 0.12)
+        )
+        map.setRegion(targetRegion ?? defaultRegion, animated: false)
+        return map
+    }
+
+    func updateUIView(_ map: MKMapView, context: Context) {
+        context.coordinator.parent = self
+
+        // ── Programmatischer Kamera-Intent ──
+        // targetRegion ist nur non-nil wenn jemand die Kamera explizit bewegen
+        // will (Initial-Zoom, focusedDrop, Cluster-Zoom). Einmalig konsumieren
+        // und sofort clearen — kein Feedback-Loop, kein Überschreiben von Gesten.
+        if let target = targetRegion {
+            map.setRegion(target, animated: true)
+            DispatchQueue.main.async { self.targetRegion = nil }
+        }
+
+        // ── Annotation-Diff ──
+        let current = map.annotations.compactMap { $0 as? MapKitDropAnnotation }
+        let currentByID = Dictionary(uniqueKeysWithValues: current.map { ($0.item.id, $0) })
+        let newIDs = Set(annotations.map { $0.id })
+
+        // Entfernen was nicht mehr da ist
+        let toRemove = current.filter { !newIDs.contains($0.item.id) }
+        if !toRemove.isEmpty { map.removeAnnotations(toRemove) }
+
+        // Hinzufügen neue
+        let toAdd = annotations.compactMap { item -> MapKitDropAnnotation? in
+            currentByID[item.id] == nil ? MapKitDropAnnotation(item: item) : nil
+        }
+        if !toAdd.isEmpty { map.addAnnotations(toAdd) }
+
+        // Update existierende — aber NUR wenn sich render-relevante Felder
+        // geändert haben. updateUIView läuft sonst alle paar Sekunden durch
+        // (Location-Updates), und ein blindes view.configure() würde alle
+        // Pins kurz aufblitzen lassen.
+        for item in annotations {
+            if let anno = currentByID[item.id] {
+                // Koord-Änderung? Über willChangeValue für KVO (MapKit observed).
+                let oldCoord = anno.coordinate
+                if abs(oldCoord.latitude - item.coordinate.latitude) > 0.00001
+                || abs(oldCoord.longitude - item.coordinate.longitude) > 0.00001 {
+                    anno.willChangeValue(forKey: "coordinate")
+                    anno.item = item
+                    anno.didChangeValue(forKey: "coordinate")
+                } else {
+                    anno.item = item
+                }
+                let isJoined = isJoinedProvider(item.id)
+                let key = annotationRenderKey(item, isJoined: isJoined)
+                if key != anno.lastRenderKey {
+                    if let view = map.view(for: anno) as? MapKitDropAnnotationView {
+                        view.configure(
+                            item: item,
+                            isJoined: isJoined,
+                            myToken: myToken,
+                            confirmedTokens: confirmedTokens,
+                            onTap: { onTapAnnotation(item) }
+                        )
+                    }
+                    anno.lastRenderKey = key
+                }
+            }
+        }
+
+        // Dark/Light Mode — nur setzen wenn anders als aktuell, sonst triggert
+        // jeder updateUIView ein UIKit-Layout-Pass auf der MapView.
+        let targetStyle: UIUserInterfaceStyle = preferredColorScheme.map {
+            $0 == .dark ? .dark : .light
+        } ?? .unspecified
+        if map.overrideUserInterfaceStyle != targetStyle {
+            map.overrideUserInterfaceStyle = targetStyle
+        }
+    }
+
+    final class Coordinator: NSObject, MKMapViewDelegate {
+        var parent: MapKitMapView
+        /// Debounce: Cluster-Recompute 150ms nach letztem regionDidChange.
+        /// Verhindert O(n²)-Arbeit auf jedem Pan-Frame.
+        private var pendingClusterWork: DispatchWorkItem?
+
+        init(_ parent: MapKitMapView) {
+            self.parent = parent
+        }
+
+        func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
+            // Kein Region-Sync zurück zu SwiftUI — targetRegion ist ein
+            // Einweg-Intent, nicht ein Two-Way-Binding. Dadurch: null Re-Renders
+            // während des Pannens, kein Kamera-Sprung durch stale State.
+            pendingClusterWork?.cancel()
+            let work = DispatchWorkItem { [weak self, weak mapView] in
+                guard let self = self, let mapView = mapView else { return }
+                self.parent.onCameraChange?(mapView)
+            }
+            pendingClusterWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
+        }
+
+        func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
+            // User-Location bleibt MapKit-default
+            if annotation is MKUserLocation { return nil }
+            guard let drop = annotation as? MapKitDropAnnotation else { return nil }
+            let view = mapView.dequeueReusableAnnotationView(
+                withIdentifier: MapKitDropAnnotationView.reuseID, for: drop
+            ) as? MapKitDropAnnotationView
+            let isJoined = parent.isJoinedProvider(drop.item.id)
+            view?.configure(
+                item: drop.item,
+                isJoined: isJoined,
+                myToken: parent.myToken,
+                confirmedTokens: parent.confirmedTokens,
+                onTap: { [weak self] in self?.parent.onTapAnnotation(drop.item) }
+            )
+            drop.lastRenderKey = annotationRenderKey(drop.item, isJoined: isJoined)
+            return view
+        }
     }
 }

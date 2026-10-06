@@ -737,7 +737,7 @@ final class CommunityManager: ObservableObject {
                     result.append(CommunityDropEntry(
                         id:          s.key,
                         emoji:       dict["emoji"]               as? String ?? "✨",
-                        activity:    dict["activityName"]        as? String ?? "Drop",
+                        activity:    dict["activityName"]        as? String ?? "Plan",
                         scheduled:   dict["scheduledTime"]       as? String ?? "Jetzt",
                         participants: dict["currentParticipants"] as? Int ?? 1,
                         max:         dict["maxParticipants"]     as? Int ?? 10,
@@ -868,7 +868,7 @@ struct CommunityCreatorApplicationSheet: View {
                 .frame(width: 18, height: 18)
             VStack(alignment: .leading, spacing: 0) {
                 Text(brand)
-                    .font(.system(size: 9, weight: .heavy, design: .rounded))
+                    .font(.system(size: 9, weight: .bold, design: .rounded))
                     .tracking(0.8)
                     .foregroundColor(accent)
                 Text(subtitle)
@@ -952,7 +952,7 @@ struct CommunityCreatorApplicationSheet: View {
                     .fill(isSelected ? Color.cleroGreen : Color.bgSecondary)
             )
         }
-        .buttonStyle(.plain)
+        .dropsPressable()
     }
 
     private var locationBlock: some View {
@@ -1012,7 +1012,7 @@ struct CommunityCreatorApplicationSheet: View {
                         .fill(isSelected ? Color.cleroGreen : Color.bgSecondary)
                 )
         }
-        .buttonStyle(.plain)
+        .dropsPressable()
     }
 
     @ViewBuilder
@@ -1269,7 +1269,7 @@ struct CommunityCreatorDashboardSheet: View {
                         .fill(Color.bgSecondary)
                 )
             }
-            .buttonStyle(.plain)
+            .dropsPressable()
             .sheet(isPresented: $showLeavePicker) {
                 TransferOwnershipSheet(
                     community: community,
@@ -1323,7 +1323,7 @@ struct CommunityCreatorDashboardSheet: View {
                     )
             )
         }
-        .buttonStyle(.plain)
+        .dropsPressable()
         .disabled(isDeleting)
         .padding(.top, 8)
     }
@@ -1395,7 +1395,7 @@ struct CommunityCreatorDashboardSheet: View {
                     .fill(Color.bgSecondary)
             )
         }
-        .buttonStyle(.plain)
+        .dropsPressable()
     }
 
     private var statsBlock: some View {
@@ -1449,7 +1449,7 @@ struct CommunityCreatorDashboardSheet: View {
                         HStack(spacing: 3) {
                             Circle().fill(Color.cleroGreen).frame(width: 5, height: 5)
                             Text(tr("community.live"))
-                                .font(.system(size: 8, weight: .heavy, design: .rounded))
+                                .font(.system(size: 8, weight: .bold, design: .rounded))
                                 .tracking(0.5)
                         }
                         .foregroundColor(.cleroGreen)
@@ -1551,7 +1551,7 @@ struct CommunityCreatorDashboardSheet: View {
             )
             .shadow(color: Color.cleroGreen.opacity(0.35), radius: 10, y: 4)
         }
-        .buttonStyle(.plain)
+        .dropsPressable()
     }
 
     private var pushBlock: some View {
@@ -1580,7 +1580,7 @@ struct CommunityCreatorDashboardSheet: View {
             )
             .shadowMd(color: .auroraGreen)
         }
-        .buttonStyle(.plain)
+        .dropsPressable()
     }
 
     private var membersBlock: some View {
@@ -1631,7 +1631,7 @@ struct CommunityCreatorDashboardSheet: View {
                         .padding(8)
                         .background(Color.accentRed.opacity(0.10), in: Circle())
                 }
-                .buttonStyle(.plain)
+                .dropsPressable()
             }
         }
         .padding(.horizontal, 10)
@@ -1695,7 +1695,7 @@ struct CommunityCreatorDashboardSheet: View {
                 }
                 if member.qualifiesForBetaBadge {
                     Text(tr("shared.beta"))
-                        .font(.system(size: 9, weight: .heavy, design: .rounded))
+                        .font(.system(size: 9, weight: .bold, design: .rounded))
                         .tracking(0.6)
                         .foregroundColor(.white)
                         .padding(.horizontal, 6).padding(.vertical, 2)
@@ -1980,7 +1980,7 @@ struct CommunityMapPin: View {
                     .offset(y: -3)
             }
         }
-        .buttonStyle(.plain)
+        .dropsPressable()
         .onAppear { pulsate = true }
     }
 
@@ -2095,7 +2095,7 @@ struct CommunityJoinSheet: View {
                     .scaledToFit()
                     .frame(width: 14, height: 14)
                 Text("DROPS")
-                    .font(.system(size: 9, weight: .heavy, design: .rounded))
+                    .font(.system(size: 9, weight: .bold, design: .rounded))
                     .tracking(1)
                     .foregroundColor(.auroraOrange)
                 Text("×")
@@ -2106,7 +2106,7 @@ struct CommunityJoinSheet: View {
                     .scaledToFit()
                     .frame(width: 14, height: 14)
                 Text("CLERO")
-                    .font(.system(size: 9, weight: .heavy, design: .rounded))
+                    .font(.system(size: 9, weight: .bold, design: .rounded))
                     .tracking(1)
                     .foregroundColor(.brand)
             }
@@ -2232,7 +2232,7 @@ struct AdminCommunityRequestsSheet: View {
                             .foregroundColor(.textPrimary)
                         if isDuplicate && req.status == "pending" {
                             Text(tr("community.duplicate_badge"))
-                                .font(.system(size: 9, weight: .heavy, design: .rounded))
+                                .font(.system(size: 9, weight: .bold, design: .rounded))
                                 .tracking(0.8)
                                 .foregroundColor(.white)
                                 .padding(.horizontal, 6).padding(.vertical, 2)
@@ -2282,7 +2282,7 @@ struct AdminCommunityRequestsSheet: View {
                             )
                     }
                 }
-                .buttonStyle(.plain)
+                .dropsPressable()
             } else {
                 HStack(spacing: 6) {
                     Image(systemName: req.status == "approved" ? "checkmark.seal.fill" : "xmark.circle.fill")
@@ -2469,7 +2469,7 @@ struct TransferOwnershipSheet: View {
                     )
             )
         }
-        .buttonStyle(.plain)
+        .dropsPressable()
     }
 
     private func confirmButton(_ member: CommunityMember) -> some View {

@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>de</string>
 	<key>CFBundleDisplayName</key>
-	<string>Drops</string>
+	<string>dazu</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIconName</key>
@@ -45,23 +45,23 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>2</string>
+	<string>15</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>Drops nutzt Bluetooth nur während eines aktiven Drops, um deine Ankunft am Treffpunkt automatisch zu erkennen und andere Teilnehmer zu bestätigen.</string>
+	<string>Dazu nutzt Bluetooth nur während eines laufenden Plans, um deine Ankunft am Treffpunkt automatisch zu erkennen und andere Teilnehmer zu bestätigen.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Drops nutzt die Kamera nur wenn du ein neues Profilbild aufnehmen möchtest.</string>
+	<string>Dazu nutzt die Kamera nur wenn du ein neues Profilbild aufnehmen möchtest.</string>
 	<key>NSContactsUsageDescription</key>
-	<string>Drops gleicht deine Kontakte mit anderen Drops-Nutzern ab, damit du Freunde per Telefonnummer hinzufügen kannst. Kontaktdaten werden nicht gespeichert.</string>
+	<string>Dazu gleicht deine Kontakte mit anderen Dazu-Nutzern ab, damit du Freunde per Telefonnummer hinzufügen kannst. Kontaktdaten werden nicht gespeichert.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Drops zeigt dir Drops in deiner Nähe auf der Live-Karte und teilt deinen Standort ausschließlich während eines aktiven Drops mit den Teilnehmern.</string>
+	<string>dazu zeigt dir Pläne in deiner Nähe auf der Live-Karte und teilt deinen Standort ausschließlich während eines laufenden Plans mit den Teilnehmern.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Drops greift auf deine Fotos zu wenn du ein Profilbild aus der Fotomediathek auswählen möchtest.</string>
+	<string>Dazu greift auf deine Fotos zu wenn du ein Profilbild aus der Fotomediathek auswählen möchtest.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>NSUserNotificationsUsageDescription</key>
-	<string>Drops benachrichtigt dich wenn Freunde in der Nähe einen Drop starten oder jemand deinem Drop beitritt.</string>
+	<string>Dazu benachrichtigt dich wenn Freunde in der Nähe einen Plan starten oder jemand zu deinem Plan dazukommt.</string>
 	<key>UIApplicationShortcutItems</key>
 	<array>
 		<dict>
@@ -78,7 +78,7 @@
 			<key>UIApplicationShortcutItemIconType</key>
 			<string>UIApplicationShortcutIconTypeLocation</string>
 			<key>UIApplicationShortcutItemSubtitle</key>
-			<string>Drops in deiner Nähe</string>
+			<string>Pläne in deiner Nähe</string>
 			<key>UIApplicationShortcutItemTitle</key>
 			<string>Karte öffnen</string>
 			<key>UIApplicationShortcutItemType</key>
