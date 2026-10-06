@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <meta name="theme-color" content="#5B3DF5" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#17112E" media="(prefers-color-scheme: dark)">
+  <title>dazu öffnen</title>
+
+  <!-- Smart App Banner: zeigt iOS-User automatisch einen "OPEN/INSTALL"-Button für die dazu-App -->
+  <meta name="apple-itunes-app" content="app-id=6762097493">
+
+  <link rel="apple-touch-icon" href="/assets/app-icon.png">
+  <link rel="icon" href="/assets/app-icon.png">
+
+  <style>
+    /* dazu Universal-Link Landing */
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; }
+
+    :root {
+      --orange:   #5B3DF5;
+      --green:    #FFA02E;
+      --bg:       #F6F3FF;
+      --text:     #17112E;
+      --text-2:   rgba(17,20,24,0.66);
+      --text-3:   rgba(17,20,24,0.42);
+      --border:   rgba(0,0,0,0.08);
+      --gradient: linear-gradient(135deg, #7C5CFF 0%, #5B3DF5 100%);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg:     #100B22;
+        --text:   #F5F5F7;
+        --text-2: rgba(245,245,247,0.65);
+        --text-3: rgba(245,245,247,0.42);
+        --border: rgba(255,255,255,0.10);
+      }
+    }
+
+    body {
+      font-family: 'Poppins', -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      min-height: 100vh;
+      position: relative;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Aurora-Background */
+    body::before, body::after {
+      content: ""; position: fixed; z-index: -1;
+      border-radius: 50%; filter: blur(80px);
+      pointer-events: none;
+    }
+    body::before {
+      width: 460px; height: 460px;
+      background: var(--orange); opacity: 0.22;
+      top: -100px; left: -60px;
+    }
+    body::after {
+      width: 360px; height: 360px;
+      background: var(--green); opacity: 0.16;
+      bottom: -80px; right: -60px;
+    }
+    @media (prefers-color-scheme: dark) {
+      body::before { opacity: 0.28; }
+      body::after  { opacity: 0.22; }
+    }
+
+    .card {
+      max-width: 420px;
+      width: 100%;
+      text-align: center;
+      position: relative;
+      z-index: 1;
+    }
+    .icon {
+      width: 128px;
+      height: 128px;
+      border-radius: 28px;
+      box-shadow: 0 20px 60px rgba(91,61,245,0.30), 0 8px 24px rgba(0, 0, 0, 0.08);
+      margin: 0 auto 28px;
+      display: block;
+    }
+    h1 {
+      font-size: 28px;
+      font-weight: 900;
+      letter-spacing: -0.035em;
+      margin-bottom: 12px;
+    }
+    p {
+      font-size: 15px;
+      color: var(--text-2);
+      line-height: 1.5;
+      margin-bottom: 28px;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      width: 100%;
+      max-width: 320px;
+      padding: 16px 22px;
+      border-radius: 999px;
+      font-size: 16px;
+      font-weight: 700;
+      text-decoration: none;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+      margin-bottom: 12px;
+    }
+    .btn:active { transform: scale(0.98); }
+    .btn-primary {
+      background: var(--gradient);
+      color: #fff;
+      box-shadow: 0 10px 30px rgba(91,61,245,0.35);
+    }
+    .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 14px 36px rgba(91,61,245,0.42); }
+    .btn-secondary {
+      background: rgba(0, 0, 0, 0.05);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    @media (prefers-color-scheme: dark) {
+      .btn-secondary { background: rgba(255,255,255,0.06); }
+    }
+    .footer {
+      margin-top: 32px;
+      font-size: 12px;
+      color: var(--text-3);
+    }
+    .footer a {
+      color: var(--text-2);
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .footer a:hover { color: var(--text); text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <!-- Drop-Preview-Karte: wird nur befüllt wenn /drop/<id> erreichbar ist
+         UND die Cloud Function getDropSummary erfolgreich antwortet.
+         Default: hidden — fallback zur generischen Smart-Banner-View. -->
+    <div id="dropPreview" style="display:none; margin-bottom: 24px;">
+      <div style="font-size: 72px; line-height: 1; margin-bottom: 12px;" id="dpEmoji">📍</div>
+      <div style="font-size: 24px; font-weight: 800; color: var(--text); letter-spacing: -0.5px;" id="dpActivity">Plan</div>
+      <div style="font-size: 14px; color: var(--text-2); margin-top: 6px;" id="dpLocation"></div>
+      <div style="display:flex; gap:12px; justify-content:center; margin-top: 16px; font-size: 13px;">
+        <span id="dpHost" style="display:inline-flex; align-items:center; gap:6px; padding:6px 12px; background: rgba(0,0,0,0.05); border-radius:999px;">
+          <span id="dpHostEmoji">👤</span>
+          <span id="dpHostName">Jemand</span>
+        </span>
+        <span id="dpStatus" style="display:inline-flex; align-items:center; gap:6px; padding:6px 12px; background: rgba(63,184,82,0.15); color:#2A9940; border-radius:999px; font-weight:600;">
+          <span style="width:8px;height:8px;background:#3FB852;border-radius:50%;display:inline-block;"></span>
+          live
+        </span>
+      </div>
+      <div style="font-size: 13px; color: var(--text-3); margin-top: 12px;" id="dpParticipants">— / —</div>
+    </div>
+
+    <img src="/assets/app-icon.png" alt="dazu" class="icon" id="defaultIcon">
+    <h1 id="defaultTitle">dazu öffnen</h1>
+    <p id="subtitle">
+      Tippe auf den Button — wenn du dazu installiert hast, öffnet sich die App direkt.
+      Sonst lädst du sie kostenlos im App Store.
+    </p>
+
+    <!-- Primary: Versuche App per Universal Link zu öffnen -->
+    <a id="openApp" class="btn btn-primary" href="#">
+      📲 In dazu öffnen
+    </a>
+
+    <!-- Fallback: App Store -->
+    <a id="storeBtn" class="btn btn-secondary" href="https://apps.apple.com/de/app/drops-triff-leute/id6762097493" target="_blank">
+      Im App Store laden
+    </a>
+
+    <div class="footer">
+      <a href="/">dazuapp.com</a>
+    </div>
+  </div>
+
+  <script>
+    // ── Universal Link + App Store Fallback ──────────────────────────────
+    // Re-konstruiere den Original-Universal-Link aus dem aktuellen Pfad
+    // (z.B. /drop/<UUID> oder /invite/<UID>) und triggere ihn beim Klick.
+    (function () {
+      const path = window.location.pathname;
+      // iOS Safari öffnet keine Universal Links auf derselben Domain.
+      // drops:// Custom Scheme umgeht das Problem direkt.
+      // Beispiel: /drop/<UUID> → drops://drop/<UUID>
+      const segments = path.split("/").filter(Boolean); // ["drop", "<UUID>"]
+      const dropsSchemeUrl = segments.length >= 2
+          ? "drops://" + segments[0] + "/" + segments[1]
+          : "drops://home";
+      const openBtn = document.getElementById("openApp");
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+      const target = isIOS ? dropsSchemeUrl : "https://dazuapp.com" + path;
+      openBtn.href = target;
+
+      // Auf iOS / Safari: nach 1.5s Fallback auf App Store wenn die App
+      // den Universal Link nicht abfängt (= App nicht installiert).
+      openBtn.addEventListener("click", function (e) {
+        if (!isIOS) return;  // Auf Desktop: einfach Link folgen lassen
+
+        // Auf iOS: drops:// öffnet die App direkt. Falls App nicht installiert
+        // (Schema unbekannt), nach 1.5s auf App Store fallen.
+        const fallbackTimer = setTimeout(function () {
+          window.location.href = "itms-apps://apps.apple.com/de/app/drops-triff-leute/id6762097493";
+        }, 1500);
+
+        // Wenn die Page in den Hintergrund geht (App hat geöffnet) → Timer canceln
+        document.addEventListener("visibilitychange", function () {
+          if (document.hidden) clearTimeout(fallbackTimer);
+        }, { once: true });
+      });
+
+      // App-Store-Button: auf iOS itms-apps:// (öffnet App Store direkt,
+      // kein Web-Redirect). Auf Desktop target="_blank" reicht.
+      const storeBtn = document.getElementById("storeBtn");
+      if (isIOS) {
+        storeBtn.href = "itms-apps://apps.apple.com/de/app/drops-triff-leute/id6762097493";
+        storeBtn.removeAttribute("target"); // kein neues Tab auf iOS nötig
+      }
+
+      // Subtitle anpassen je nach URL-Typ (Default-State, wird ggf. von der
+      // Drop-Preview-Logik überschrieben).
+      const subtitle = document.getElementById("subtitle");
+      if (path.startsWith("/drop/")) {
+        subtitle.textContent = "Jemand hat dir einen Plan geschickt. Tippe, um ihn in der App zu öffnen.";
+      } else if (path.startsWith("/invite/")) {
+        subtitle.textContent = "Du wurdest zu dazu eingeladen — tippe um die App zu öffnen oder lade sie kostenlos im App Store.";
+      }
+    })();
+
+    // ── Drop Preview (Strava-Pattern) ────────────────────────────────────
+    // Liest Drop-ID aus URL-Pfad, ruft die Cloud Function getDropSummary auf,
+    // rendert Drop-Details vor Install. Bei Fehler: silent fallback zur
+    // Default-Smart-Banner-View — User sieht keinen Error.
+    (async function loadDropPreview() {
+      const match = window.location.pathname.match(/^\/drop\/([A-Z0-9-]{8,64})$/i);
+      if (!match) return;
+      const dropID = match[1];
+
+      // Cloud-Function-URL — region+project muss matchen mit functions/index.ts.
+      const FN_URL = "https://europe-west1-drops-858d1.cloudfunctions.net/getDropSummary";
+
+      try {
+        const res = await fetch(`${FN_URL}?id=${encodeURIComponent(dropID)}`);
+        if (!res.ok) return;
+        const d = await res.json();
+        if (d.error) return;
+
+        // Drop-Preview-Karte befüllen + sichtbar machen.
+        document.getElementById("dpEmoji").textContent = d.activityEmoji || "📍";
+        document.getElementById("dpActivity").textContent = d.activityName || "Plan";
+        document.getElementById("dpLocation").textContent = d.locationTitle || "";
+        document.getElementById("dpHostEmoji").textContent = d.hostEmoji || "👤";
+        document.getElementById("dpHostName").textContent = d.hostName || "Jemand";
+
+        // Live-Status: läuft / startet gleich / abgelaufen
+        const status = document.getElementById("dpStatus");
+        if (!d.isLive) {
+          const now = Date.now();
+          if (d.createdAt > now) {
+            status.innerHTML = '<span style="width:8px;height:8px;background:#F6BD4D;border-radius:50%;display:inline-block;"></span> startet gleich';
+            status.style.background = "rgba(246,189,77,0.15)";
+            status.style.color = "#8a5a00";
+          } else {
+            status.innerHTML = '<span style="width:8px;height:8px;background:#888;border-radius:50%;display:inline-block;"></span> beendet';
+            status.style.background = "rgba(0,0,0,0.05)";
+            status.style.color = "#888";
+          }
+        } else if (d.expiresAt) {
+          const remainingMin = Math.max(1, Math.floor((d.expiresAt - Date.now()) / 60000));
+          const remainingLabel = remainingMin >= 60
+            ? `noch ${Math.floor(remainingMin/60)}h ${remainingMin%60}m`
+            : `noch ${remainingMin} Min`;
+          status.innerHTML = `<span style="width:8px;height:8px;background:#3FB852;border-radius:50%;display:inline-block;"></span> live · ${remainingLabel}`;
+        }
+
+        // Teilnehmer
+        const cur = d.currentParticipants ?? 1;
+        const max = d.maxParticipants ?? 10;
+        document.getElementById("dpParticipants").textContent = `${cur} / ${max} dabei`;
+
+        // UI-Switch: Drop-Preview einblenden, Default-Icon+Titel ausblenden,
+        // Subtitle auf Drop-spezifischen Call-To-Action.
+        document.getElementById("dropPreview").style.display = "block";
+        document.getElementById("defaultIcon").style.display = "none";
+        document.getElementById("defaultTitle").style.display = "none";
+        document.getElementById("subtitle").textContent =
+          d.isLive ? "Komm vorbei — öffne den Plan in der App." :
+                     "Der Plan ist schon vorbei. Lade dazu und sei beim nächsten dabei.";
+      } catch (err) {
+        // Silent fail — fallback bleibt aktiv. User sieht weiter den Smart-Banner.
+        console.warn("getDropSummary fetch failed", err);
+      }
+    })();
+  </script>
+</body>
+</html>
