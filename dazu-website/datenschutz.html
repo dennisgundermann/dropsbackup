@@ -101,10 +101,13 @@ Einwilligungen kannst du jederzeit über die App-Einstellungen oder durch Kontol
       <div class="section-text">dazu erhebt deinen Standort <strong style="color:var(--text)">nur</strong>, wenn mindestens eine dieser Bedingungen erfüllt ist:
 • Du hast einen aktiven Plan erstellt
 • Du bist einem Plan beigetreten
+• Du hast in den Einstellungen freiwillig „Auf der Karte sichtbar“ aktiviert (standardmäßig aus)
 
 <strong style="color:var(--text)">Genauigkeit:</strong> GPS mit bester Auflösung (kCLLocationAccuracyBest). Auf der Karte für andere Nutzer wird der Standort durch den Plan-Radius maskiert.
 
-<strong style="color:var(--text)">Hintergrund-Modus:</strong> Damit dazu auch im Hintergrund aktualisiert werden, läuft Location-Tracking weiter, solange ein Plan aktiv ist. Ohne aktiven Plan werden sofort keine Standortdaten mehr erhoben oder übertragen.
+<strong style="color:var(--text)">Hintergrund-Modus:</strong> Damit dazu auch im Hintergrund aktualisiert werden, läuft Location-Tracking weiter, solange ein Plan aktiv ist. Ohne aktiven Plan werden keine Standortdaten mehr erhoben oder übertragen — es sei denn, du hast „Auf der Karte sichtbar“ aktiviert.
+
+<strong style="color:var(--text)">Kartenpräsenz (optional):</strong> Wenn du „Auf der Karte sichtbar“ aktivierst, wird deine letzte bekannte Position auf ein Raster von ca. 500 m gerundet (nie straßengenau) und erst nach mindestens 20 Minuten für andere angezeigt — Live-Tracking ist nicht möglich. Alle Nutzer sehen dein Profilbild bzw. Emoji, nur Freunde zusätzlich deinen Namen. Ohne neue Bewegung verschwindet dein Eintrag nach 4 Stunden; beim Deaktivieren wird er sofort gelöscht.
 
 <strong style="color:var(--text)">Speicherung:</strong> Der aktuelle Standort wird live an die Firebase Realtime Database (EU-Region, Frankfurt) übertragen und bei Plan-Beendigung sofort gelöscht. Wir speichern <strong style="color:var(--text)">keine historischen Bewegungsprofile</strong>.</div>
     </div>

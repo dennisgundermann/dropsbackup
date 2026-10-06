@@ -248,20 +248,26 @@ You can withdraw consent at any time via the app settings or by deleting your ac
 Dazu erhebt deinen Standort NUR, wenn mindestens eine dieser Bedingungen erfüllt ist:
 • Du hast einen aktiven Plan erstellt
 • Du bist einem Plan beigetreten
+• Du hast in den Einstellungen freiwillig „Auf der Karte sichtbar“ aktiviert (standardmäßig aus)
 
 GENAUIGKEIT: GPS mit bester Auflösung. Auf der Karte für andere Nutzer wird der Standort durch den Plan-Radius maskiert.
 
-HINTERGRUND-MODUS: Damit Pläne auch im Hintergrund aktualisiert werden, läuft Location-Tracking weiter, solange ein Plan aktiv ist. Ohne aktiven Plan werden sofort keine Standortdaten mehr erhoben oder übertragen.
+HINTERGRUND-MODUS: Damit Pläne auch im Hintergrund aktualisiert werden, läuft Location-Tracking weiter, solange ein Plan aktiv ist. Ohne aktiven Plan werden keine Standortdaten mehr erhoben oder übertragen — es sei denn, du hast „Auf der Karte sichtbar“ aktiviert.
+
+KARTENPRÄSENZ (OPTIONAL): Wenn du „Auf der Karte sichtbar“ aktivierst, wird deine letzte bekannte Position auf ein Raster von ca. 500 m gerundet (nie straßengenau) und erst nach mindestens 20 Minuten für andere angezeigt — Live-Tracking ist nicht möglich. Alle Nutzer sehen dein Profilbild bzw. Emoji, nur Freunde zusätzlich deinen Namen. Ohne neue Bewegung verschwindet dein Eintrag nach 4 Stunden; beim Deaktivieren wird er sofort gelöscht.
 
 SPEICHERUNG: Der aktuelle Standort wird live an die Firebase Realtime Database (EU-Region, Frankfurt) übertragen und bei Plan-Beendigung sofort gelöscht. Wir speichern KEINE historischen Bewegungsprofile.
 """, """
 Dazu collects your location ONLY when at least one of the following applies:
 • You created an active Plan
 • You joined a Plan
+• You voluntarily enabled “Visible on the map” in settings (off by default)
 
 ACCURACY: GPS at best resolution. On the map for other users, your location is masked by the Plan radius.
 
-BACKGROUND MODE: To allow Plans to update in the background, location tracking continues as long as a Plan is active. Without an active Plan, location data is immediately no longer collected or transmitted.
+BACKGROUND MODE: To allow Plans to update in the background, location tracking continues as long as a Plan is active. Without an active Plan, location data is no longer collected or transmitted — unless you enabled “Visible on the map”.
+
+MAP PRESENCE (OPTIONAL): If you enable “Visible on the map”, your last known position is rounded to a grid of about 500 m (never street-level) and shown to others only after at least 20 minutes — live tracking is not possible. All users see your profile picture or emoji; only friends also see your name. Without new movement your entry disappears after 4 hours; when you disable the setting it is deleted immediately.
 
 STORAGE: Your current location is transmitted live to the Firebase Realtime Database (EU region, Frankfurt) and deleted immediately when the Plan ends. We do NOT store historical movement profiles.
 """)

@@ -85,7 +85,7 @@ private let strings: [String: [String: String]] = [
     "welcome.feature3_title":       ["de": "Du entscheidest wer kommt", "en": "You decide who comes"],
     "welcome.feature3_sub":         ["de": "Name und Alter bei jedem. Anfragen kannst du ablehnen, Leute blockieren geht mit einem Tap.", "en": "Name and age on every profile. Reject join requests, block with one tap."],
     "welcome.feature4_title":       ["de": "Privat & sicher",           "en": "Private & safe"],
-    "welcome.feature4_sub":         ["de": "Standort nur, solange ein Plan läuft. Danach weiß keiner, wo du steckst.", "en": "Location only while a plan is running. After that, nobody knows where you are."],
+    "welcome.feature4_sub":         ["de": "Dein Standort ist nur während eines Plans live. Optional zeigst du dich verzögert und grob auf der Karte — du entscheidest.", "en": "Your location is only live during a plan. Optionally, show up on the map delayed and roughly — your call."],
 
     // ── Common ───────────────────────────────────────────────────
     "common.cancel":    ["de": "Abbrechen",  "en": "Cancel"],
@@ -331,7 +331,7 @@ private let strings: [String: [String: String]] = [
     "settings.blocked_users":               ["de": "Blockierte Nutzer",                  "en": "Blocked Users"],
     "settings.no_blocked":                  ["de": "Keine blockierten Nutzer",           "en": "No blocked users"],
     "settings.x_blocked":                   ["de": "{count} blockiert",                  "en": "{count} blocked"],
-    "settings.privacy_note":                ["de": "Dein Standort wird nur während eines aktiven Plans geteilt und ist ausschließlich für Teilnehmer sichtbar. dazu speichert keine Bewegungsverläufe.", "en": "Your location is only shared during an active Plan and visible only to participants. Dazu does not store movement history."],
+    "settings.privacy_note":                ["de": "Live geteilt wird dein Standort nur während eines aktiven Plans, und zwar nur mit den Teilnehmern. Schaltest du „Auf der Karte sichtbar“ ein, sehen andere dich zusätzlich mit 20 Min Verzögerung und nur auf ca. 500 m gerundet. dazu speichert keine Bewegungsverläufe.", "en": "Your location is shared live only during an active Plan, and only with its participants. If you turn on “Visible on the map”, others also see you with a 20-minute delay and rounded to about 500 m. Dazu does not store movement history."],
     "settings.deleting_account":            ["de": "Konto wird gelöscht…",               "en": "Deleting account…"],
     "settings.plus_unlimited":              ["de": "Plus: bis zu 25km oder unbegrenzt",  "en": "Plus: up to 25km or unlimited"],
     "settings.radius":                      ["de": "Radius",                             "en": "Radius"],
@@ -832,7 +832,7 @@ private let strings: [String: [String: String]] = [
     "shared.how_was_host":              ["de": "Wie war der Host?",                       "en": "How was the host?"],
     "shared.power_hour_running":        ["de": "Power-Hour läuft · noch {time}",          "en": "Power Hour active · {time} left"],
     "shared.close_banner":              ["de": "Banner schließen",                        "en": "Close banner"],
-    "shared.boost_bonus_amount":        ["de": "+{bonus} Punkte Bonus für deinen Plan",   "en": "+{bonus} points bonus for your Plan"],
+    "shared.boost_bonus_amount":        ["de": "+{bonus} Punkte Bonus für deine Runde",   "en": "+{bonus} points bonus for your round"],
     "shared.power_hour_bonus_amount":   ["de": "+{bonus} Punkte Power-Hour Bonus",        "en": "+{bonus} points Power Hour bonus"],
     "shared.ph_starting_in":            ["de": "Power-Hour in {time}",                    "en": "Power Hour in {time}"],
     "shared.ph_ending_in":              ["de": "Power-Hour endet in {time}",              "en": "Power Hour ends in {time}"],
