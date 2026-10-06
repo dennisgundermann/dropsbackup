@@ -151,12 +151,12 @@
          UND die Cloud Function getDropSummary erfolgreich antwortet.
          Default: hidden — fallback zur generischen Smart-Banner-View. -->
     <div id="dropPreview" style="display:none; margin-bottom: 24px;">
-      <div style="font-size: 72px; line-height: 1; margin-bottom: 12px;" id="dpEmoji">📍</div>
+      <div style="font-size: 72px; line-height: 1; margin-bottom: 12px;" id="dpEmoji"></div>
       <div style="font-size: 24px; font-weight: 800; color: var(--text); letter-spacing: -0.5px;" id="dpActivity">Plan</div>
       <div style="font-size: 14px; color: var(--text-2); margin-top: 6px;" id="dpLocation"></div>
       <div style="display:flex; gap:12px; justify-content:center; margin-top: 16px; font-size: 13px;">
         <span id="dpHost" style="display:inline-flex; align-items:center; gap:6px; padding:6px 12px; background: rgba(0,0,0,0.05); border-radius:999px;">
-          <span id="dpHostEmoji">👤</span>
+          <span id="dpHostEmoji"></span>
           <span id="dpHostName">Jemand</span>
         </span>
         <span id="dpStatus" style="display:inline-flex; align-items:center; gap:6px; padding:6px 12px; background: rgba(63,184,82,0.15); color:#2A9940; border-radius:999px; font-weight:600;">
@@ -176,7 +176,7 @@
 
     <!-- Primary: Versuche App per Universal Link zu öffnen -->
     <a id="openApp" class="btn btn-primary" href="#">
-      📲 In dazu öffnen
+      In dazu öffnen
     </a>
 
     <!-- Fallback: App Store -->
@@ -261,10 +261,10 @@
         if (d.error) return;
 
         // Drop-Preview-Karte befüllen + sichtbar machen.
-        document.getElementById("dpEmoji").textContent = d.activityEmoji || "📍";
+        document.getElementById("dpEmoji").textContent = d.activityEmoji || "";
         document.getElementById("dpActivity").textContent = d.activityName || "Plan";
         document.getElementById("dpLocation").textContent = d.locationTitle || "";
-        document.getElementById("dpHostEmoji").textContent = d.hostEmoji || "👤";
+        document.getElementById("dpHostEmoji").textContent = d.hostEmoji || "";
         document.getElementById("dpHostName").textContent = d.hostName || "Jemand";
 
         // Live-Status: läuft / startet gleich / abgelaufen
