@@ -304,3 +304,5 @@ footer a:hover { color: var(--violett); }
   .mapbg { width: 100%; height: 320px; top: auto; bottom: 0;
     -webkit-mask-image: linear-gradient(180deg, transparent 0%, #000 28%, #000 80%, transparent 100%); mask-image: linear-gradient(180deg, transparent 0%, #000 28%, #000 80%, transparent 100%); -webkit-mask-composite: source-over; mask-composite: add; }
 }
+
+.mapbg .pt { font: 600 14px var(--font-h); fill: var(--nacht); }
