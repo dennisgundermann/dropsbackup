@@ -1,6 +1,8 @@
 import SwiftUI
 import FirebaseAuth
 import FirebaseDatabase
+import FirebaseStorage
+import UserNotifications
 
 // MARK: - Admin Panel
 
@@ -22,6 +24,7 @@ struct AdminPanelView: View {
     @State private var showCommunityRequests = false
     @State private var pendingCommunityCount = 0
     @State private var debugResetToast: String? = nil
+    @State private var isWipingPastDrops = false
     @State private var nameChangeRequests: [RealtimeDBManager.NameChangeRequest] = []
     // Demo-Drops Toggle: spiegelt /config/demoDropsEnabled in RTDB.
     // Schreibt direkt zurück bei Toggle-Änderung (admin-only via security rule).
@@ -163,7 +166,7 @@ struct AdminPanelView: View {
                                 withAnimation(.spring(response: 0.3)) { activeFilter = .all }
                             }
                             AdminStatCard(
-                                title: "Aktive Pläne",
+                                title: "Aktive Runden",
                                 value: "\(s.activeDrops)",
                                 icon: "dot.radiowaves.left.and.right",
                                 color: .green,
@@ -196,7 +199,7 @@ struct AdminPanelView: View {
                         if !nameChangeRequests.isEmpty {
                             VStack(alignment: .leading, spacing: 8) {
                                 HStack(spacing: 8) {
-                                    Image(systemName: "person.text.rectangle.fill")
+                                    DazuIcon("person.text.rectangle.fill")
                                         .font(.system(size: 14, weight: .semibold))
                                         .foregroundColor(.brand)
                                     Text("Namensänderungen")
@@ -217,7 +220,7 @@ struct AdminPanelView: View {
                                                 Text(req.oldName)
                                                     .font(.system(size: 13))
                                                     .foregroundColor(.textSecondary)
-                                                Image(systemName: "arrow.right")
+                                                DazuIcon("arrow.right")
                                                     .font(.system(size: 11))
                                                     .foregroundColor(.textTertiary)
                                                 Text(req.newName)
@@ -237,7 +240,7 @@ struct AdminPanelView: View {
                                                 }
                                             }
                                         } label: {
-                                            Image(systemName: "xmark.circle.fill")
+                                            DazuIcon("xmark.circle.fill")
                                                 .font(.system(size: 22))
                                                 .foregroundColor(.accentRed.opacity(0.8))
                                         }
@@ -255,7 +258,7 @@ struct AdminPanelView: View {
                                                 }
                                             }
                                         } label: {
-                                            Image(systemName: "checkmark.circle.fill")
+                                            DazuIcon("checkmark.circle.fill")
                                                 .font(.system(size: 22))
                                                 .foregroundColor(.onlineGreen)
                                         }
@@ -281,7 +284,7 @@ struct AdminPanelView: View {
                                     RoundedRectangle(cornerRadius: Radius.md)
                                         .fill(Color.accentOrange.opacity(0.15))
                                         .frame(width: 40, height: 40)
-                                    Image(systemName: "flag.fill")
+                                    DazuIcon("flag.fill")
                                         .font(.system(size: 18, weight: .semibold))
                                         .foregroundColor(.accentOrange)
                                 }
@@ -303,7 +306,7 @@ struct AdminPanelView: View {
                                         .foregroundColor(.textSecondary)
                                 }
                                 Spacer()
-                                Image(systemName: "chevron.right")
+                                DazuIcon("chevron.right")
                                     .font(.system(size: 13, weight: .semibold))
                                     .foregroundColor(.textTertiary)
                             }
@@ -323,7 +326,7 @@ struct AdminPanelView: View {
                                     RoundedRectangle(cornerRadius: Radius.md)
                                         .fill(Color.purple.opacity(0.15))
                                         .frame(width: 40, height: 40)
-                                    Image(systemName: "arrow.counterclockwise.circle.fill")
+                                    DazuIcon("arrow.counterclockwise.circle.fill")
                                         .font(.system(size: 18, weight: .semibold))
                                         .foregroundColor(.purple)
                                 }
@@ -336,7 +339,7 @@ struct AdminPanelView: View {
                                         .foregroundColor(.textSecondary)
                                 }
                                 Spacer()
-                                Image(systemName: "chevron.right")
+                                DazuIcon("chevron.right")
                                     .font(.system(size: 13, weight: .semibold))
                                     .foregroundColor(.textTertiary)
                             }
@@ -346,37 +349,7 @@ struct AdminPanelView: View {
                         }
                         .dropsPressable()
 
-                        // Power-Hour Force-Toggle: zwingt Power-Hour permanent
-                        // an, unabhängig von Wochentag/Uhrzeit. Praktisch zum
-                        // Testen von Banner, Toast und Bonus-Logik ohne 18-Uhr
-                        // abwarten zu müssen.
-                        HStack(spacing: 12) {
-                            ZStack {
-                                RoundedRectangle(cornerRadius: Radius.md)
-                                    .fill(Color.accentOrange.opacity(0.15))
-                                    .frame(width: 40, height: 40)
-                                Image(systemName: "bolt.fill")
-                                    .font(.system(size: 18, weight: .semibold))
-                                    .foregroundColor(.accentOrange)
-                            }
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Power-Hour erzwingen")
-                                    .font(.system(size: 15, weight: .semibold))
-                                    .foregroundColor(.textPrimary)
-                                Text(store.debugForcePowerHour
-                                     ? "Aktiv — Bonus +25 immer"
-                                     : "Aus — folgt dem Zeitplan")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.textSecondary)
-                            }
-                            Spacer()
-                            Toggle("", isOn: $store.debugForcePowerHour)
-                                .tint(.accentOrange)
-                                .labelsHidden()
-                        }
-                        .padding(12)
-                        .liquidGlass(cornerRadius: 14)
-                        .padding(.horizontal, 20)
+                        // Power-Hour-Toggle entfernt — Feature wurde eingestampft.
 
                         // Demo-Drops-Toggle: schreibt /config/demoDropsEnabled.
                         // Cloud Function seedDemoDrops liest den Flag bei jedem
@@ -387,12 +360,12 @@ struct AdminPanelView: View {
                                 RoundedRectangle(cornerRadius: Radius.md)
                                     .fill(Color.brand.opacity(0.15))
                                     .frame(width: 40, height: 40)
-                                Image(systemName: "sparkles")
+                                DazuIcon("sparkles")
                                     .font(.system(size: 18, weight: .semibold))
                                     .foregroundColor(.brand)
                             }
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("Demo-Pläne")
+                                Text("Demo-Runden")
                                     .font(.system(size: 15, weight: .semibold))
                                     .foregroundColor(.textPrimary)
                                 Text(demoDropsEnabled
@@ -437,6 +410,7 @@ struct AdminPanelView: View {
                                 }
                         }
 
+
                         // Live Drops Monitor — öffnet Sheet
                         Button {
                             showDropsMonitor = true
@@ -446,7 +420,7 @@ struct AdminPanelView: View {
                                     RoundedRectangle(cornerRadius: Radius.md)
                                         .fill(Color.brand.opacity(0.15))
                                         .frame(width: 40, height: 40)
-                                    Image(systemName: "dot.radiowaves.left.and.right")
+                                    DazuIcon("dot.radiowaves.left.and.right")
                                         .font(.system(size: 18, weight: .semibold))
                                         .foregroundColor(.brand)
                                 }
@@ -454,12 +428,210 @@ struct AdminPanelView: View {
                                     Text("Live-Monitor")
                                         .font(.system(size: 15, weight: .semibold))
                                         .foregroundColor(.textPrimary)
-                                    Text("Aktuelle Pläne anschauen & moderieren")
+                                    Text("Aktuelle Runden anschauen & moderieren")
                                         .font(.system(size: 12))
                                         .foregroundColor(.textSecondary)
                                 }
                                 Spacer()
-                                Image(systemName: "chevron.right")
+                                DazuIcon("chevron.right")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundColor(.textTertiary)
+                            }
+                            .padding(12)
+                            .liquidGlass(cornerRadius: 14)
+                            .padding(.horizontal, 20)
+                        }
+                        .dropsPressable()
+
+                        // Meine eigenen vergangenen Runden löschen — Firebase
+                        // (`users/{myUID}/pastDrops`) + lokaler UserDefaults-
+                        // Cache, damit Profil, Stats und Suggested-Spots
+                        // auf der Karte sofort leer sind. Nur eigenes Konto,
+                        // andere User nicht betroffen (dafür: Admin → User-Detail).
+                        Button {
+                            confirmAction = ConfirmAction(
+                                title: "Meine vergangenen Runden löschen?",
+                                message: "Löscht deine Historie aus Firebase und dem lokalen Cache. Nicht rückgängig machbar.",
+                                destructive: true,
+                                action: {
+                                    guard let myUID = Auth.auth().currentUser?.uid else { return }
+                                    isWipingPastDrops = true
+                                    RealtimeDBManager.shared.wipePastDrops(forUID: myUID) { ok in
+                                        store.pastDrops.removeAll()
+                                        UserDefaults.standard.removeObject(forKey: "ud_pastDrops")
+                                        isWipingPastDrops = false
+                                        debugResetToast = ok ? "Deine Historie gelöscht" : "Fehler beim Löschen in Firebase"
+                                    }
+                                }
+                            )
+                        } label: {
+                            HStack(spacing: 12) {
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: Radius.md)
+                                        .fill(Color.red.opacity(0.15))
+                                        .frame(width: 40, height: 40)
+                                    if isWipingPastDrops {
+                                        ProgressView()
+                                            .scaleEffect(0.75)
+                                            .tint(.red)
+                                    } else {
+                                        DazuIcon("trash.fill")
+                                            .font(.system(size: 18, weight: .semibold))
+                                            .foregroundColor(.red)
+                                    }
+                                }
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Meine vergangenen Runden löschen")
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .foregroundColor(.textPrimary)
+                                    Text("Firebase + lokaler Cache — nur dein Konto")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.textSecondary)
+                                }
+                                Spacer()
+                                DazuIcon("chevron.right")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundColor(.textTertiary)
+                            }
+                            .padding(12)
+                            .liquidGlass(cornerRadius: 14)
+                            .padding(.horizontal, 20)
+                        }
+                        .dropsPressable()
+                        .disabled(isWipingPastDrops)
+
+                        // Demo-Daten seeden: 11 Mock-Freunde + 12 pastDrops
+                        // für App-Store-Screenshots. Lädt Avatar-URLs aus
+                        // Firebase Storage (demo/avatars/avatar_01-11.jpg)
+                        // und baut Freundschaftsbeziehungen + Historie auf.
+                        Button {
+                            seedDemoData()
+                        } label: {
+                            HStack(spacing: 12) {
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: Radius.md)
+                                        .fill(Color.brandViolet.opacity(0.18))
+                                        .frame(width: 40, height: 40)
+                                    DazuIcon("wand.and.stars")
+                                        .font(.system(size: 18, weight: .semibold))
+                                        .foregroundColor(.brandViolet)
+                                }
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Demo-Daten seeden")
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .foregroundColor(.textPrimary)
+                                    Text("11 Mock-Freunde + 12 vergangene Runden")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.textSecondary)
+                                        .lineLimit(2)
+                                }
+                                Spacer()
+                                DazuIcon("chevron.right")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundColor(.textTertiary)
+                            }
+                            .padding(12)
+                            .liquidGlass(cornerRadius: 14)
+                            .padding(.horizontal, 20)
+                        }
+                        .dropsPressable()
+
+                        // Aktive Demo-Runden auf der Karte + Umgebung: 6 Pins
+                        // mit Mock-Freunden als Hosts, verteilt auf München.
+                        // Werden als isDemo=true markiert, laufen 4h.
+                        Button {
+                            seedLiveDemoDrops()
+                        } label: {
+                            HStack(spacing: 12) {
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: Radius.md)
+                                        .fill(Color.accentOrange.opacity(0.18))
+                                        .frame(width: 40, height: 40)
+                                    DazuIcon("mappin.and.ellipse")
+                                        .font(.system(size: 18, weight: .semibold))
+                                        .foregroundColor(.accentOrange)
+                                }
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Live-Runden auf Karte seeden")
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .foregroundColor(.textPrimary)
+                                    Text("6 aktive Runden, Mock-Freunde als Hosts, 4h TTL")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.textSecondary)
+                                        .lineLimit(2)
+                                }
+                                Spacer()
+                                DazuIcon("chevron.right")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundColor(.textTertiary)
+                            }
+                            .padding(12)
+                            .liquidGlass(cornerRadius: 14)
+                            .padding(.horizontal, 20)
+                        }
+                        .dropsPressable()
+
+                        // Räumt alle Demo-Drops (isDemo:true) sofort aus RTDB.
+                        // Nutzt die existierende `purgeDemoDrops` Cloud Function.
+                        Button {
+                            purgeDemoDrops()
+                        } label: {
+                            HStack(spacing: 12) {
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: Radius.md)
+                                        .fill(Color.red.opacity(0.15))
+                                        .frame(width: 40, height: 40)
+                                    DazuIcon("trash.fill")
+                                        .font(.system(size: 18, weight: .semibold))
+                                        .foregroundColor(.red)
+                                }
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Demo-Drops auf Karte löschen")
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .foregroundColor(.textPrimary)
+                                    Text("Räumt alle isDemo:true-Pins sofort")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.textSecondary)
+                                        .lineLimit(2)
+                                }
+                                Spacer()
+                                DazuIcon("chevron.right")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundColor(.textTertiary)
+                            }
+                            .padding(12)
+                            .liquidGlass(cornerRadius: 14)
+                            .padding(.horizontal, 20)
+                        }
+                        .dropsPressable()
+
+                        // Push-Debug: triggert mit 3-5s Delay echte iOS-
+                        // Notifications. Zum Testen App zuklappen oder Handy
+                        // sperren — Push erscheint als Banner, Dynamic Island
+                        // oder auf dem Sperrbildschirm. Jeder Tap = andere Variante.
+                        Button {
+                            sendTestPush()
+                        } label: {
+                            HStack(spacing: 12) {
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: Radius.md)
+                                        .fill(Color.brandOrange.opacity(0.18))
+                                        .frame(width: 40, height: 40)
+                                    DazuIcon("bell.badge.fill")
+                                        .font(.system(size: 18, weight: .semibold))
+                                        .foregroundColor(.brandOrange)
+                                }
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Test-Push senden")
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .foregroundColor(.textPrimary)
+                                    Text("5s Delay — App schließen, erscheint als iOS-Push")
+                                        .font(.system(size: 12))
+                                        .foregroundColor(.textSecondary)
+                                        .lineLimit(2)
+                                }
+                                Spacer()
+                                DazuIcon("chevron.right")
                                     .font(.system(size: 13, weight: .semibold))
                                     .foregroundColor(.textTertiary)
                             }
@@ -479,7 +651,7 @@ struct AdminPanelView: View {
                                     RoundedRectangle(cornerRadius: Radius.md)
                                         .fill(Color.brand.opacity(0.15))
                                         .frame(width: 40, height: 40)
-                                    Image(systemName: "star.circle.fill")
+                                    DazuIcon("star.circle.fill")
                                         .font(.system(size: 18, weight: .semibold))
                                         .foregroundColor(.brand)
                                 }
@@ -503,7 +675,7 @@ struct AdminPanelView: View {
                                         .foregroundColor(.textSecondary)
                                 }
                                 Spacer()
-                                Image(systemName: "chevron.right")
+                                DazuIcon("chevron.right")
                                     .font(.system(size: 13, weight: .semibold))
                                     .foregroundColor(.textTertiary)
                             }
@@ -517,7 +689,7 @@ struct AdminPanelView: View {
 
                     // ── Suchfeld ──────────────────────────────────────────
                     HStack(spacing: 10) {
-                        Image(systemName: "magnifyingglass")
+                        DazuIcon("magnifyingglass")
                             .foregroundColor(.textTertiary)
                             .font(.system(size: 15))
                         TextField("Name, Telefon, E-Mail oder UID", text: $searchText)
@@ -527,7 +699,7 @@ struct AdminPanelView: View {
                             .textInputAutocapitalization(.never)
                         if !searchText.isEmpty {
                             Button { searchText = "" } label: {
-                                Image(systemName: "xmark.circle.fill")
+                                DazuIcon("xmark.circle.fill")
                                     .foregroundColor(.textTertiary)
                             }
                         }
@@ -538,7 +710,7 @@ struct AdminPanelView: View {
 
                     // ── Sortier-Picker ────────────────────────────────────
                     HStack(spacing: 8) {
-                        Image(systemName: "arrow.up.arrow.down")
+                        DazuIcon("arrow.up.arrow.down")
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundColor(.textSecondary)
                         Text("Sortieren:")
@@ -556,7 +728,7 @@ struct AdminPanelView: View {
                     // ── Nutzerliste ───────────────────────────────────────
                     if isLoading {
                         VStack(spacing: 12) {
-                            ProgressView().tint(.brand)
+                            DazuLoader().tint(.brand)
                             Text("Lade Daten…")
                                 .font(.system(size: 13))
                                 .foregroundColor(.textSecondary)
@@ -565,7 +737,7 @@ struct AdminPanelView: View {
                         .padding(.top, 40)
                     } else if filteredUsers.isEmpty {
                         VStack(spacing: 12) {
-                            Image(systemName: "person.slash")
+                            DazuIcon("person.slash")
                                 .font(.system(size: 36))
                                 .foregroundColor(.textTertiary)
                             Text(searchText.isEmpty ? "Keine Nutzer" : "Keine Treffer")
@@ -584,7 +756,7 @@ struct AdminPanelView: View {
                             ForEach(groupedByCity, id: \.key) { group in
                                 VStack(spacing: 10) {
                                     HStack(spacing: 8) {
-                                        Image(systemName: "mappin.circle.fill")
+                                        DazuIcon("mappin.circle.fill", accent: false)
                                             .font(.system(size: 14, weight: .semibold))
                                             .foregroundColor(group.key == nil ? .textTertiary : .blue)
                                         Text(group.key ?? "Ohne Stadt")
@@ -652,7 +824,7 @@ struct AdminPanelView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button { dismiss() } label: {
-                        Image(systemName: "xmark.circle.fill")
+                        DazuIcon("xmark.circle.fill")
                             .font(.system(size: 22))
                             .foregroundStyle(.tertiary)
                     }
@@ -662,7 +834,7 @@ struct AdminPanelView: View {
                         withAnimation { isLoading = true }
                         loadData()
                     } label: {
-                        Image(systemName: "arrow.clockwise")
+                        DazuIcon("arrow.clockwise")
                             .font(.system(size: 15, weight: .semibold))
                             .foregroundColor(.brand)
                     }
@@ -767,6 +939,26 @@ struct AdminPanelView: View {
                                 }
                             )
                         }
+                    },
+                    onWipePastDrops: {
+                        selectedUser = nil
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                            confirmAction = ConfirmAction(
+                                title: "Vergangene Runden löschen",
+                                message: "\(user.name): komplette Historie aus Firebase löschen? Nicht rückgängig machbar.",
+                                destructive: true,
+                                action: {
+                                    RealtimeDBManager.shared.wipePastDrops(forUID: user.id) { ok in
+                                        // Wenn der betroffene User man selbst ist: lokalen Cache gleich mitputzen
+                                        if user.id == Auth.auth().currentUser?.uid {
+                                            store.pastDrops.removeAll()
+                                            UserDefaults.standard.removeObject(forKey: "ud_pastDrops")
+                                        }
+                                        debugResetToast = ok ? "Historie von \(user.name) gelöscht" : "Fehler beim Löschen"
+                                    }
+                                }
+                            )
+                        }
                     }
                 )
             }
@@ -812,6 +1004,301 @@ struct AdminPanelView: View {
             pendingCommunityCount = reqs.filter { $0.status == "pending" }.count
         }
     }
+
+    // MARK: - Demo-Daten Seed für App-Store-Screenshots
+
+    /// Mock-Freunde + pastDrops in Dennis' Account seeden. Avatars werden
+    /// aus Firebase Storage (`demo/avatars/avatar_01-11.jpg`) via downloadURL
+    /// aufgelöst. Freundschaften werden in `friends/{myUID}/{mockUID}` +
+    /// umgekehrt eingetragen; Mock-User-Nodes landen unter `users/mock_*`.
+    /// Reversibel: Lösche `friends/{myUID}/mock_*` + `users/mock_*` von
+    /// Hand in der Firebase Console, oder nutze den "Vergangene Runden
+    /// löschen"-Button für die Historie.
+    private func seedDemoData() {
+        guard let myUID = Auth.auth().currentUser?.uid else {
+            debugResetToast = "Nicht eingeloggt"
+            return
+        }
+
+        struct Mock { let id: String; let name: String; let age: Int; let gender: String; let avatarPath: String }
+        let mocks: [Mock] = [
+            .init(id: "mock_max",    name: "Max",    age: 34, gender: "männlich",  avatarPath: "random-person.jpeg"),
+            .init(id: "mock_lea",    name: "Lea",    age: 28, gender: "weiblich",  avatarPath: "random-person-2.jpeg"),
+            .init(id: "mock_jana",   name: "Jana",   age: 26, gender: "weiblich",  avatarPath: "random-person-9.jpeg"),
+            .init(id: "mock_mia",    name: "Mia",    age: 25, gender: "weiblich",  avatarPath: "random-person-8.jpeg"),
+            .init(id: "mock_leo",    name: "Leo",    age: 28, gender: "männlich",  avatarPath: "random-person-5.jpeg"),
+            .init(id: "mock_sophie", name: "Sophie", age: 27, gender: "weiblich",  avatarPath: "random-person-6.jpeg"),
+            .init(id: "mock_finn",   name: "Finn",   age: 25, gender: "männlich",  avatarPath: "random-person-7.jpeg"),
+            .init(id: "mock_tim",    name: "Tim",    age: 30, gender: "männlich",  avatarPath: "random-person-4.jpeg"),
+            .init(id: "mock_jonas",  name: "Jonas",  age: 27, gender: "männlich",  avatarPath: "random-person-3.jpeg"),
+            .init(id: "mock_lisa",   name: "Lisa",   age: 24, gender: "weiblich",  avatarPath: "random-person-10.jpeg"),
+            .init(id: "mock_felix",  name: "Felix",  age: 36, gender: "männlich",  avatarPath: "random-person-11.jpeg"),
+        ]
+
+        let db = Database.database().reference()
+        let group = DispatchGroup()
+        var urls: [String: String] = [:]   // mockID → avatarURL
+
+        // Monogramm-Avatare (keine KI-Portraits mehr) nach
+        // demoavatars/mono_<mockID>.png rendern und uploaden.
+        for m in mocks {
+            group.enter()
+            MonogramAvatar.generateAndUpload(mockID: m.id, name: m.name) { url in
+                if let s = url { urls[m.id] = s }
+                group.leave()
+            }
+        }
+
+        group.notify(queue: .main) {
+            // Mock-User-Nodes anlegen + Freundschaft beidseitig.
+            // birthdate wird für die Alter-Anzeige in der Freundeliste
+            // gebraucht (fetchUserMeta liest nicht `age`, sondern birthdate).
+            // lastActiveAt als "letzter Online-Heartbeat" — gestreut 2–45 min
+            // damit die Avatars glaubhaft "gerade / vor x Min online" wirken.
+            let cal = Calendar.current
+            let nowMs = Date().timeIntervalSince1970 * 1000
+            for m in mocks {
+                let avatar = urls[m.id] ?? ""
+                let birthdate = cal.date(byAdding: .year, value: -m.age, to: Date()) ?? Date()
+                let bdOffsetDays = Int.random(in: 0...364)
+                let adjustedBirthdate = cal.date(byAdding: .day, value: -bdOffsetDays, to: birthdate) ?? birthdate
+                let minutesAgo = Int.random(in: 2...45)
+                let lastActiveMs = nowMs - Double(minutesAgo) * 60_000
+                db.child("users").child(m.id).updateChildValues([
+                    "name":            m.name,
+                    "age":             m.age,
+                    "gender":          m.gender,
+                    "birthdate":       adjustedBirthdate.timeIntervalSince1970,
+                    "profileImageURL": avatar,
+                    "reliabilityPoints": Int.random(in: 180...480),
+                    "lastActiveAt":    lastActiveMs,
+                    "isMock":          true
+                ])
+                db.child("friends").child(myUID).child(m.id).setValue(true)
+                db.child("friends").child(m.id).child(myUID).setValue(true)
+            }
+
+            // 12 PastDrops seeden — gemischt Host/Joiner, über 6 Wochen verteilt.
+            let now = Date()
+            let samples: [(String, String, String, Bool, Int)] = [
+                ("☕️", "Kaffee",       "Café Katz & Maus",      true,  3),
+                ("🏃", "Lauftreff",    "Englischer Garten",     false, 5),
+                ("🍻", "Afterwork",    "Augustiner Keller",     false, 4),
+                ("🧘", "Yoga",         "Luitpoldpark",          true,  4),
+                ("🍕", "Pizza",        "L'Osteria Schwabing",   false, 3),
+                ("🎾", "Padel",        "MTTC Iphitos",          true,  2),
+                ("🚶", "Spaziergang",  "Isar-Ufer",             false, 4),
+                ("🎬", "Kino",         "Mathäser Filmpalast",   false, 3),
+                ("🧗", "Bouldern",     "Boulderwelt Ost",       true,  2),
+                ("🥐", "Brunch",       "Rotkehlchen",           false, 5),
+                ("🚴", "Fahrrad",      "Olympiapark",           true,  3),
+                ("🍵", "Matcha",       "Man Versus Machine",    false, 2),
+            ]
+            let myName = store.currentUser.name.isEmpty ? "Du" : store.currentUser.name
+
+            for (idx, s) in samples.enumerated() {
+                let date = cal.date(byAdding: .day, value: -(idx * 3 + 1), to: now) ?? now
+                let joinerCount = s.4 - 1
+                let shuffled = mocks.shuffled().prefix(joinerCount)
+                var parts: [[String: Any]] = []
+                parts.append([
+                    "name": myName,
+                    "emoji": "🙂",
+                    "reliabilityScore": 100,
+                    "wasHost": s.3,
+                    "didShowUp": true,
+                    "profileImageURL": store.profileImageURL ?? ""
+                ])
+                for m in shuffled {
+                    parts.append([
+                        "name": m.name,
+                        "emoji": "🙂",
+                        "reliabilityScore": Int.random(in: 180...480),
+                        "wasHost": false,
+                        "didShowUp": true,
+                        "profileImageURL": urls[m.id] ?? ""
+                    ])
+                }
+                let dropID = UUID().uuidString
+                db.child("users").child(myUID).child("pastDrops").child(dropID).setValue([
+                    "activityEmoji":  s.0,
+                    "activityName":   s.1,
+                    "locationName":   s.2,
+                    "date":           date.timeIntervalSince1970,
+                    "wasHost":        s.3,
+                    "participantCount": s.4,
+                    "participantNames": parts.compactMap { $0["name"] as? String },
+                    "participants":   parts,   // volle Dicts mit profileImageURL
+                    "latitude":       48.137 + Double.random(in: -0.03...0.03),
+                    "longitude":      11.575 + Double.random(in: -0.04...0.04)
+                ]) { err, _ in
+                    if let err = err {
+                        print("[seed] ✗ pastDrop \(s.1): \(err.localizedDescription)")
+                    } else {
+                        print("[seed] ✓ pastDrop \(s.1) geschrieben")
+                    }
+                }
+            }
+
+            let avatarsOK = urls.count
+            debugResetToast = "11 Freunde + 12 Runden geseedet (Avatars: \(avatarsOK)/11). App neu starten."
+        }
+    }
+
+    /// Räumt alle Demo-Drops direkt in RTDB: alles mit `isDemo:true`
+    /// (Seeder-Ghosts aus Cloud Function) ODER `isDemoLive:true` (Live-
+    /// Mocks aus dem Live-Runden-Button hier). Lokaler Write statt
+    /// HTTPS damit auch die neuen Live-Mocks mit erfasst werden.
+    private func purgeDemoDrops() {
+        let db = Database.database().reference()
+        db.child("drops").observeSingleEvent(of: .value) { snap in
+            var removed = 0
+            for case let child as DataSnapshot in snap.children {
+                guard let d = child.value as? [String: Any] else { continue }
+                let isDemo     = (d["isDemo"]     as? Bool) ?? false
+                let isDemoLive = (d["isDemoLive"] as? Bool) ?? false
+                if isDemo || isDemoLive {
+                    db.child("drops").child(child.key).removeValue()
+                    removed += 1
+                }
+            }
+            DispatchQueue.main.async {
+                debugResetToast = "\(removed) Demo-Drops gelöscht"
+            }
+        }
+    }
+
+    /// 6 aktive Demo-Runden auf die Karte seeden — nutzt die 11 Mock-Freunde
+    /// als Hosts. Pins sind isDemo=true, laufen 4h, danach räumt sie
+    /// `purgeDemoDrops`-Function (oder manuell über Admin). Avatars werden
+    /// aus Storage demoavatars/ geladen und als `hostProfileImageURL` eingefroren.
+    private func seedLiveDemoDrops() {
+        struct LiveMock {
+            let userID: String   // mock_X → Freund, demo_live_X → anonymer Stranger
+            let hostName: String; let hostAge: Int; let hostGender: String
+            let avatarPath: String
+            let emoji: String; let activity: String; let location: String
+            let lat: Double; let lng: Double
+            let currentParticipants: Int; let maxParticipants: Int
+        }
+        // 3 Drops sind von Mock-Freunden (werden als Freund + eigener Drop
+        // auf der Karte angezeigt → "Live-Standorte online-Freunde"), 3
+        // weitere Drops sind anonyme Stranger für Fülle.
+        let liveMocks: [LiveMock] = [
+            // ── 3 Freund-Drops ─────────────────────────────────────────────
+            .init(userID: "mock_max",   hostName: "Max",    hostAge: 34, hostGender: "männlich", avatarPath: "random-person.jpeg",
+                  emoji: "☕️", activity: "Kaffee", location: "Café Katz & Maus",
+                  lat: 48.1446, lng: 11.5641, currentParticipants: 3, maxParticipants: 6),
+            .init(userID: "mock_lea",   hostName: "Lea",    hostAge: 28, hostGender: "weiblich", avatarPath: "random-person-2.jpeg",
+                  emoji: "🧘", activity: "Yoga", location: "Luitpoldpark",
+                  lat: 48.1878, lng: 11.5681, currentParticipants: 4, maxParticipants: 8),
+            .init(userID: "mock_lisa",  hostName: "Lisa",   hostAge: 24, hostGender: "weiblich", avatarPath: "random-person-10.jpeg",
+                  emoji: "🍻", activity: "Afterwork", location: "Augustiner Keller",
+                  lat: 48.1430, lng: 11.5540, currentParticipants: 4, maxParticipants: 10),
+            // ── 3 Stranger-Drops ────────────────────────────────────────────
+            .init(userID: "demo_live_jana",  hostName: "Jana",   hostAge: 26, hostGender: "weiblich", avatarPath: "random-person-9.jpeg",
+                  emoji: "🥐", activity: "Brunch", location: "Rotkehlchen",
+                  lat: 48.1659, lng: 11.5820, currentParticipants: 5, maxParticipants: 8),
+            .init(userID: "demo_live_finn",  hostName: "Finn",   hostAge: 25, hostGender: "männlich", avatarPath: "random-person-7.jpeg",
+                  emoji: "🏃", activity: "Lauftreff", location: "Englischer Garten",
+                  lat: 48.1631, lng: 11.6050, currentParticipants: 6, maxParticipants: 12),
+            .init(userID: "demo_live_tim",   hostName: "Tim",    hostAge: 30, hostGender: "männlich", avatarPath: "random-person-4.jpeg",
+                  emoji: "🎾", activity: "Padel", location: "MTTC Iphitos",
+                  lat: 48.1529, lng: 11.5420, currentParticipants: 2, maxParticipants: 4),
+        ]
+
+        let db = Database.database().reference()
+        let group = DispatchGroup()
+        var urls: [String: String] = [:]   // userID → avatarURL
+
+        // Monogramm-Avatare (keine KI-Portraits mehr) – dieselbe Logik wie
+        // in seedDemoData, aber unter demoavatars/mono_<userID>.png.
+        for m in liveMocks {
+            group.enter()
+            MonogramAvatar.generateAndUpload(mockID: m.userID, name: m.hostName) { url in
+                if let s = url { urls[m.userID] = s }
+                group.leave()
+            }
+        }
+
+        group.notify(queue: .main) {
+            let now = Date()
+            let expires = now.addingTimeInterval(4 * 3600)
+            for (idx, m) in liveMocks.enumerated() {
+                let dropID = "demolive_\(idx)_\(Int(now.timeIntervalSince1970))"
+                // isDemo bewusst FALSE — isDemo-Pins werden matter/kleiner
+                // gerendert ("Ghost-Look"). Für Marketing-Screenshots sollen
+                // die Pins voll als Live-Runden erscheinen.
+                // hostProfileImageURL bewusst NICHT setzen — dann rendert der
+                // Pin das Activity-Icon (Kaffee-Tasse etc.) statt des Host-
+                // Avatars → sieht wie das dazu-Logo aus, nicht wie Instagram.
+                let payload: [String: Any] = [
+                    "userID":                  m.userID,
+                    "displayName":             m.hostName,
+                    "emoji":                   m.emoji,
+                    "activityName":            m.activity,
+                    "locationTitle":           m.location,
+                    "lat":                     m.lat,
+                    "lng":                     m.lng,
+                    "radius":                  500,
+                    "timestamp":               now.timeIntervalSince1970 * 1000,
+                    "createdAt":               now.timeIntervalSince1970 * 1000,
+                    "expiresAt":               expires.timeIntervalSince1970,
+                    "scheduledTime":           "Jetzt",
+                    "startAt":                 now.timeIntervalSince1970,
+                    "maxParticipants":         m.maxParticipants,
+                    "currentParticipants":     m.currentParticipants,
+                    "active":                  true,
+                    "isDemoLive":              true,   // Marker für eigenen Purge
+                    "hostGender":              m.hostGender,
+                    "hostAge":                 m.hostAge,
+                    "hostReliabilityPoints":   Int.random(in: 240...480)
+                ]
+                db.child("drops").child(dropID).setValue(payload) { err, _ in
+                    if let err = err { print("[seedLive] ✗ \(m.activity): \(err.localizedDescription)") }
+                    else { print("[seedLive] ✓ \(m.activity) @ \(m.location)") }
+                }
+            }
+            debugResetToast = "6 Live-Runden auf Karte (Avatars: \(urls.count)/6)"
+        }
+    }
+
+    /// Scheduled eine lokale Notification mit 5s Delay — iOS behandelt die
+    /// wie einen echten Push (Banner, Lock-Screen, Dynamic Island), vorausgesetzt
+    /// die App ist nicht im Vordergrund. Jeder Aufruf wählt zufällig einen
+    /// Push-Typ aus den echten App-Events, damit du Styling + Dynamic-Island-
+    /// Verhalten für jeden Fall siehst. Tipp: direkt nach Tap App zuklappen
+    /// oder Side-Button drücken.
+    private func sendTestPush() {
+        let variants: [(type: String, title: String, body: String)] = [
+            ("friend_request",      "Neue Freundschaftsanfrage", "Lisa möchte mit dir befreundet sein."),
+            ("drop_nearby",         "Neu in deiner Nähe",        "Kaffee am Marienplatz — 5 Min zu Fuß."),
+            ("drop_ended",          "Runde beendet",             "Deine Brunch-Runde ist zu Ende. 3 waren dabei."),
+            ("drop_start_reminder", "In 15 Min geht's los",       "Dein Spaziergang startet gleich am Isar-Ufer."),
+            ("community_push",      "Clero · Neue Runde",         "Max hostet eine Laufrunde im Englischen Garten."),
+        ]
+        let v = variants.randomElement()!
+        let content = UNMutableNotificationContent()
+        content.title = v.title
+        content.body  = v.body
+        content.sound = .default
+        content.userInfo = ["type": v.type]
+        let request = UNNotificationRequest(
+            identifier: "testPush_\(UUID().uuidString)",
+            content: content,
+            trigger: UNTimeIntervalNotificationTrigger(timeInterval: 5, repeats: false)
+        )
+        UNUserNotificationCenter.current().add(request) { err in
+            DispatchQueue.main.async {
+                if let err = err {
+                    debugResetToast = "Push-Fehler: \(err.localizedDescription)"
+                } else {
+                    debugResetToast = "Push kommt in 5s — App zuklappen"
+                }
+            }
+        }
+    }
+
 }
 
 
@@ -824,6 +1311,7 @@ private struct AdminUserDetailSheet: View {
     let onBan: () -> Void
     let onToggleAdmin: () -> Void
     let onDelete: () -> Void
+    let onWipePastDrops: () -> Void
 
     @Environment(\.dismiss) private var dismiss
 
@@ -832,6 +1320,15 @@ private struct AdminUserDetailSheet: View {
     /// Host gecancelte Drops sind weg (cancelDrop ruft removeValue).
     @State private var userDrops: [AdminUserDropEntry] = []
     @State private var loadingDrops = true
+
+    /// Lokale Toggle-States für Badges — damit die UI nach dem Firebase-
+    /// Write sofort flipped, auch ohne Refetch des User-Objekts.
+    @State private var localBeta: Bool = false
+    @State private var localTrusted: Bool = false
+    @State private var localFounder: Bool = false
+    @State private var localVerified: Bool = false
+    @State private var localHost: Bool = false
+    @State private var badgeStateInitialized = false
 
     private var initials: String { String(user.name.prefix(1)).uppercased() }
     private var avatarColor: Color {
@@ -903,6 +1400,9 @@ private struct AdminUserDetailSheet: View {
                     .liquidGlass(cornerRadius: 18)
                     .padding(.horizontal, 20)
 
+                    // Badge-Management (Admin-only)
+                    adminBadgesSection
+
                     // Drops dieses Users (aktiv + in DB verbliebene)
                     userDropsSection
 
@@ -926,6 +1426,11 @@ private struct AdminUserDetailSheet: View {
                             icon: user.isBanned ? "lock.open.fill" : "xmark.shield.fill",
                             label: user.isBanned ? "Sperre aufheben" : "Nutzer sperren",
                             color: user.isBanned ? .green : .red, action: onBan
+                        )
+                        DetailActionButton(
+                            icon: "trash.circle.fill",
+                            label: "Vergangene Runden löschen",
+                            color: .red, action: onWipePastDrops
                         )
                         if user.id != Auth.auth().currentUser?.uid {
                             DetailActionButton(
@@ -951,7 +1456,7 @@ private struct AdminUserDetailSheet: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button { dismiss() } label: {
-                        Image(systemName: "xmark.circle.fill")
+                        DazuIcon("xmark.circle.fill")
                             .font(.system(size: 20))
                             .foregroundStyle(.tertiary)
                     }
@@ -969,6 +1474,80 @@ private struct AdminUserDetailSheet: View {
         }
     }
 
+    /// Section „Badges" — Admin kann BETA, Trust und Community-Creator
+    /// manuell setzen/entziehen. Schreibt in Firestore unter
+    /// `users/{uid}/badges`. Live-aktive Flags werden aus dem User-Doc
+    /// nachgezogen und per Toggle sofort gesynct.
+    @ViewBuilder
+    private var adminBadgesSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                DazuIcon("rosette")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.brandViolet)
+                    .frame(width: 18)
+                Text("Badges")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.textTertiary)
+                    .kerning(0.4)
+                    .textCase(.uppercase)
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+
+            VStack(spacing: 8) {
+                badgeToggleRow(label: tr("badge.founder"), icon: "crown.fill",
+                               field: "founder", binding: $localFounder)
+                badgeToggleRow(label: tr("badge.verified"), icon: "checkmark.shield.fill",
+                               field: "verified", binding: $localVerified)
+                badgeToggleRow(label: tr("badge.trusted"), icon: "checkmark.seal.fill",
+                               field: "trusted", binding: $localTrusted)
+                badgeToggleRow(label: tr("badge.host"), icon: "star.fill",
+                               field: "host", binding: $localHost)
+                badgeToggleRow(label: tr("badge.beta"), icon: "sparkle",
+                               field: "beta", binding: $localBeta)
+            }
+            .padding(.horizontal, 20)
+            .onAppear {
+                if !badgeStateInitialized {
+                    localBeta     = user.hasBetaBadge
+                    localTrusted  = user.hasTrustedBadge
+                    localFounder  = user.hasFounderBadge
+                    localVerified = user.hasVerifiedBadge
+                    localHost     = user.hasHostBadge
+                    badgeStateInitialized = true
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func badgeToggleRow(label: String, icon: String, field: String,
+                                 binding: Binding<Bool>) -> some View {
+        HStack(spacing: 12) {
+            DazuIcon(icon)
+                .font(.system(size: 14, weight: .bold))
+                .foregroundColor(.brandViolet)
+                .frame(width: 32, height: 32)
+                .background(Circle().fill(Color.brandLavender))
+            Text(label)
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .foregroundColor(.textPrimary)
+            Spacer()
+            Toggle("", isOn: binding)
+                .labelsHidden()
+                .tint(.brandOrange)
+                .onChange(of: binding.wrappedValue) { _, newValue in
+                    RealtimeDBManager.shared.adminSetBadge(uid: user.id,
+                                                           field: field,
+                                                           value: newValue,
+                                                           completion: nil)
+                }
+        }
+        .padding(.horizontal, 14).padding(.vertical, 10)
+        .liquidGlass(cornerRadius: 16)
+    }
+
     /// Section „Erstellte Drops" — listet alle Drops die noch in `drops/`
     /// liegen (live, abgelaufen, vom Admin beendet). Cancelled Drops
     /// (Host hat „Drop beenden" gedrückt) sind via removeValue gelöscht
@@ -977,11 +1556,11 @@ private struct AdminUserDetailSheet: View {
     private var userDropsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                Image(systemName: "list.bullet.rectangle.portrait")
+                DazuIcon("list.bullet.rectangle.portrait")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(.accentOrange)
                     .frame(width: 18)
-                Text("Erstellte Pläne")
+                Text("Erstellte Runden")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(.textTertiary)
                     .kerning(0.4)
@@ -1000,7 +1579,7 @@ private struct AdminUserDetailSheet: View {
             VStack(spacing: 0) {
                 if loadingDrops {
                     HStack {
-                        ProgressView().tint(.brand)
+                        DazuLoader().tint(.brand)
                         Text("Lade Pläne…")
                             .font(.system(size: 13))
                             .foregroundColor(.textSecondary)
@@ -1009,7 +1588,7 @@ private struct AdminUserDetailSheet: View {
                     .frame(maxWidth: .infinity)
                 } else if userDrops.isEmpty {
                     HStack(spacing: 10) {
-                        Image(systemName: "tray")
+                        DazuIcon("tray")
                             .font(.system(size: 16))
                             .foregroundColor(.textTertiary)
                         VStack(alignment: .leading, spacing: 2) {
@@ -1046,7 +1625,7 @@ private struct AdminUserDetailSheet: View {
     @ViewBuilder
     private func userDropRow(_ drop: AdminUserDropEntry) -> some View {
         HStack(spacing: 12) {
-            Text(drop.emoji.isEmpty ? "📍" : drop.emoji)
+            DazuActivityIcon(drop.emoji.isEmpty ? "📍" : drop.emoji)
                 .font(.system(size: 22))
                 .frame(width: 40, height: 40)
                 .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: Radius.md))
@@ -1089,7 +1668,7 @@ private struct AdminUserDetailSheet: View {
             }
         }()
         HStack(spacing: 3) {
-            Image(systemName: icon).font(.system(size: 8, weight: .semibold))
+            DazuIcon(icon).font(.system(size: 8, weight: .semibold))
             Text(label).font(.system(size: 10, weight: .bold))
         }
         .foregroundColor(color)
@@ -1100,7 +1679,7 @@ private struct AdminUserDetailSheet: View {
     @ViewBuilder
     private func infoRow(icon: String, label: String, value: String) -> some View {
         HStack(spacing: 12) {
-            Image(systemName: icon)
+            DazuIcon(icon)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(.brand)
                 .frame(width: 20)
@@ -1128,12 +1707,12 @@ private struct DetailActionButton: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
-                Image(systemName: icon)
+                DazuIcon(icon)
                     .font(.system(size: 15, weight: .semibold))
                 Text(label)
                     .font(.system(size: 15, weight: .semibold))
                 Spacer()
-                Image(systemName: "chevron.right")
+                DazuIcon("chevron.right")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(.textTertiary)
             }
@@ -1163,7 +1742,7 @@ private struct AdminStatCard: View {
                     RoundedRectangle(cornerRadius: Radius.md)
                         .fill(isActive ? color.opacity(0.25) : color.opacity(0.13))
                         .frame(width: 40, height: 40)
-                    Image(systemName: icon)
+                    DazuIcon(icon)
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundColor(color)
                 }
@@ -1215,7 +1794,7 @@ private struct AdminUserCard: View {
                             .font(.system(size: 15, weight: .semibold))
                             .foregroundColor(.textPrimary)
                         if user.isAdmin {
-                            Image(systemName: "star.fill")
+                            DazuIcon("star.fill")
                                 .font(.system(size: 11))
                                 .foregroundColor(.orange)
                         }
@@ -1231,7 +1810,7 @@ private struct AdminUserCard: View {
                     // Hinweis statt komplett verstecken, damit der Admin
                     // sieht "fehlt" statt "wo ist das Feld?".
                     HStack(spacing: 4) {
-                        Image(systemName: "mappin.circle.fill")
+                        DazuIcon("mappin.circle.fill", accent: false)
                             .font(.system(size: 10))
                             .foregroundColor(user.cityName == nil ? .textTertiary : .blue)
                         Text(user.cityName ?? "Ohne Stadt")
@@ -1248,7 +1827,7 @@ private struct AdminUserCard: View {
                     } else if user.hasActiveDrop {
                         AdminBadge(text: "Aktiv", icon: "dot.radiowaves.left.and.right", color: .green)
                     }
-                    Image(systemName: "chevron.right")
+                    DazuIcon("chevron.right")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(.textTertiary)
                 }
@@ -1270,7 +1849,7 @@ private struct AdminBadge: View {
 
     var body: some View {
         HStack(spacing: 3) {
-            Image(systemName: icon).font(.system(size: 9, weight: .semibold))
+            DazuIcon(icon).font(.system(size: 9, weight: .semibold))
             Text(text).font(.system(size: 10, weight: .semibold))
         }
         .foregroundColor(color)
@@ -1313,12 +1892,12 @@ struct AdminReportsSheet: View {
 
                 if isLoading {
                     Spacer()
-                    ProgressView().tint(.brand)
+                    DazuLoader().tint(.brand)
                     Spacer()
                 } else if filtered.isEmpty {
                     Spacer()
                     VStack(spacing: 10) {
-                        Image(systemName: "flag.slash")
+                        DazuIcon("flag.slash")
                             .font(.system(size: 36))
                             .foregroundColor(.textTertiary)
                         Text(filter == .open ? "Keine offenen Meldungen" : "Keine Meldungen")
@@ -1389,7 +1968,7 @@ struct AdminReportsSheet: View {
                         isLoading = true
                         loadReports()
                     } label: {
-                        Image(systemName: "arrow.clockwise")
+                        DazuIcon("arrow.clockwise")
                     }
                 }
             }
@@ -1441,7 +2020,7 @@ private struct AdminReportCard: View {
             }
 
             HStack(spacing: 6) {
-                Image(systemName: "clock").font(.system(size: 10))
+                DazuIcon("clock").font(.system(size: 10))
                 Text(Self.df.string(from: report.createdAt)).font(.system(size: 11))
                 Spacer()
                 if !report.reportedUID.isEmpty {
@@ -1457,7 +2036,7 @@ private struct AdminReportCard: View {
                     Button {
                         onSetStatus("resolved")
                     } label: {
-                        Label("Erledigt", systemImage: "checkmark")
+                        Label { Text("Erledigt") } icon: { DazuIcon("checkmark") }
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundColor(.brand)
                             .padding(.horizontal, 10).padding(.vertical, 6)
@@ -1468,7 +2047,7 @@ private struct AdminReportCard: View {
                     Button {
                         onSetStatus("dismissed")
                     } label: {
-                        Label("Abweisen", systemImage: "xmark")
+                        Label { Text("Abweisen") } icon: { DazuIcon("xmark") }
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundColor(.textSecondary)
                             .padding(.horizontal, 10).padding(.vertical, 6)
@@ -1482,7 +2061,7 @@ private struct AdminReportCard: View {
                         Button {
                             showBanConfirm = true
                         } label: {
-                            Label("Bannen", systemImage: "hand.raised.fill")
+                            Label { Text("Bannen") } icon: { DazuIcon("hand.raised.fill", accent: false) }
                                 .font(.system(size: 12, weight: .semibold))
                                 .foregroundColor(.accentRed)
                                 .padding(.horizontal, 10).padding(.vertical, 6)
@@ -1516,7 +2095,7 @@ private struct AdminReportCard: View {
 
     private func label(text: String, color: Color, icon: String) -> some View {
         HStack(spacing: 4) {
-            Image(systemName: icon).font(.system(size: 9, weight: .semibold))
+            DazuIcon(icon).font(.system(size: 9, weight: .semibold))
             Text(text).font(.system(size: 10, weight: .semibold))
         }
         .foregroundColor(color)
@@ -1570,12 +2149,12 @@ struct AdminDropsMonitorSheet: View {
 
                 if isLoading {
                     Spacer()
-                    ProgressView().tint(.brand)
+                    DazuLoader().tint(.brand)
                     Spacer()
                 } else if filtered.isEmpty {
                     Spacer()
                     VStack(spacing: 10) {
-                        Image(systemName: "dot.radiowaves.left.and.right")
+                        DazuIcon("dot.radiowaves.left.and.right", accent: false)
                             .font(.system(size: 36))
                             .foregroundColor(.textTertiary)
                         Text(cityFilter == "Alle"
@@ -1609,7 +2188,7 @@ struct AdminDropsMonitorSheet: View {
                         isLoading = true
                         loadDrops()
                     } label: {
-                        Image(systemName: "arrow.clockwise")
+                        DazuIcon("arrow.clockwise")
                     }
                 }
             }
@@ -1693,7 +2272,7 @@ private struct AdminEndDropReasonSheet: View {
                 VStack(alignment: .leading, spacing: 18) {
                     // Drop-Vorschau
                     HStack(spacing: 10) {
-                        Text(drop.emoji).font(.system(size: 28))
+                        DazuActivityIcon(drop.emoji).font(.system(size: 28))
                         VStack(alignment: .leading, spacing: 2) {
                             Text(drop.activityName)
                                 .font(.system(size: 15, weight: .bold))
@@ -1724,7 +2303,7 @@ private struct AdminEndDropReasonSheet: View {
                                 }
                             } label: {
                                 HStack(spacing: 12) {
-                                    Image(systemName: reason.icon)
+                                    DazuIcon(reason.icon)
                                         .font(.system(size: 14, weight: .semibold))
                                         .foregroundColor(reason.color)
                                         .frame(width: 28)
@@ -1734,11 +2313,11 @@ private struct AdminEndDropReasonSheet: View {
                                         .multilineTextAlignment(.leading)
                                     Spacer()
                                     if selectedIndex == idx {
-                                        Image(systemName: "checkmark.circle.fill")
+                                        DazuIcon("checkmark.circle.fill")
                                             .font(.system(size: 17))
                                             .foregroundColor(reason.color)
                                     } else {
-                                        Image(systemName: "circle")
+                                        DazuIcon("circle")
                                             .font(.system(size: 17))
                                             .foregroundColor(.textTertiary.opacity(0.6))
                                     }
@@ -1794,7 +2373,7 @@ private struct AdminEndDropReasonSheet: View {
                     onConfirm(resolvedReason)
                 } label: {
                     HStack(spacing: 8) {
-                        Image(systemName: "trash.fill")
+                        DazuIcon("trash.fill")
                         Text("Entfernen & Host benachrichtigen")
                     }
                     .font(.system(size: 15, weight: .bold))
@@ -1826,7 +2405,7 @@ private struct AdminDropCard: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Text(drop.emoji).font(.system(size: 28))
+            DazuActivityIcon(drop.emoji).font(.system(size: 28))
                 .frame(width: 44, height: 44)
                 .background(Color.brand.opacity(0.12), in: RoundedRectangle(cornerRadius: Radius.md))
 
@@ -1844,12 +2423,12 @@ private struct AdminDropCard: View {
                         .font(.system(size: 12))
                         .foregroundColor(.textSecondary)
                     Text("·").foregroundColor(.textTertiary)
-                    Label("\(drop.participants)", systemImage: "person.2.fill")
+                    Label { Text("\(drop.participants)") } icon: { DazuIcon("person.2.fill", accent: false) }
                         .font(.system(size: 11))
                         .foregroundColor(.textTertiary)
                 }
                 HStack(spacing: 8) {
-                    Image(systemName: "clock").font(.system(size: 10))
+                    DazuIcon("clock").font(.system(size: 10))
                     Text("erstellt \(Self.df.string(from: drop.createdAt))")
                         .font(.system(size: 11))
                     Text("→ läuft bis \(Self.df.string(from: drop.expiresAt))")
@@ -1861,7 +2440,7 @@ private struct AdminDropCard: View {
             Spacer()
 
             Button(action: onDelete) {
-                Image(systemName: "trash")
+                DazuIcon("trash")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(.accentRed)
                     .frame(width: 36, height: 36)
@@ -1871,5 +2450,102 @@ private struct AdminDropCard: View {
         }
         .padding(14)
         .liquidGlass(cornerRadius: 14)
+    }
+}
+
+// MARK: - Monogramm-Avatar-Generator (für Demo-Daten)
+
+/// Erzeugt kreisförmige Monogramm-PNGs für Demo-Avatare und lädt sie
+/// nach Firebase Storage `demoavatars/mono_<mockID>.png`.
+fileprivate enum MonogramAvatar {
+
+    /// Deterministische Farbe pro Mock-ID (Hex ohne #). Palette strikt
+    /// aus dazu-Spektrum: Violet → Pink → Coral → Orange (Analog-Harmonie
+    /// um brandViolet #5B3DF5 und accentOrange).
+    private static let paletteByID: [String: String] = [
+        "mock_max":    "5B3DF5",  // brand violet (deep)
+        "mock_lea":    "FF7A4A",  // warm coral
+        "mock_jana":   "E85D9E",  // rose pink
+        "mock_mia":    "C84FD4",  // orchid
+        "mock_leo":    "7C5CFF",  // violet light
+        "mock_sophie": "FF8E6D",  // soft coral
+        "mock_finn":   "9B5BF0",  // purple
+        "mock_tim":    "D14AB8",  // magenta
+        "mock_jonas":  "4A2EC2",  // deep indigo-violet
+        "mock_lisa":   "FF6B8A",  // pink
+        "mock_felix":  "FF9A3D",  // orange
+        "demo_live_jana": "E85D9E",
+        "demo_live_finn": "9B5BF0",
+        "demo_live_tim":  "D14AB8"
+    ]
+
+    /// 400×400 PNG mit solidem BG + weißem SF-Rounded-Monogramm.
+    static func renderPNG(initial: String, colorHex: String, size: CGFloat = 400) -> Data? {
+        let bg = hexColor(colorHex)
+        let letter = String(initial.prefix(1)).uppercased()
+        let fmt = UIGraphicsImageRendererFormat()
+        fmt.scale = 1
+        fmt.opaque = true
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: size, height: size), format: fmt)
+        let image = renderer.image { ctx in
+            bg.setFill()
+            ctx.cgContext.fill(CGRect(x: 0, y: 0, width: size, height: size))
+            let fontSize = size * 0.46
+            let base = UIFont.systemFont(ofSize: fontSize, weight: .semibold)
+            let font: UIFont = {
+                if let d = base.fontDescriptor.withDesign(.rounded) {
+                    return UIFont(descriptor: d, size: fontSize)
+                }
+                return base
+            }()
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: font,
+                .foregroundColor: UIColor.white
+            ]
+            let str = NSAttributedString(string: letter, attributes: attrs)
+            let s = str.size()
+            let x = (size - s.width) / 2
+            let y = (size - s.height) / 2 - size * 0.015
+            str.draw(at: CGPoint(x: x, y: y))
+        }
+        return image.pngData()
+    }
+
+    /// Lädt (bzw. überschreibt) `demoavatars/mono_<mockID>.png`.
+    static func generateAndUpload(mockID: String, name: String, completion: @escaping (String?) -> Void) {
+        guard
+            let hex = paletteByID[mockID],
+            let initial = name.first.map(String.init),
+            let data = renderPNG(initial: initial, colorHex: hex)
+        else {
+            completion(nil); return
+        }
+        let ref = Storage.storage().reference().child("demoavatars/mono_\(mockID).png")
+        let meta = StorageMetadata()
+        meta.contentType = "image/png"
+        ref.putData(data, metadata: meta) { _, err in
+            if let err = err {
+                print("[mono] upload ✗ \(mockID): \(err.localizedDescription)")
+                completion(nil); return
+            }
+            ref.downloadURL { url, err in
+                if let s = url?.absoluteString {
+                    print("[mono] ✓ \(mockID) → \(s)")
+                    completion(s)
+                } else {
+                    print("[mono] downloadURL ✗ \(mockID): \(err?.localizedDescription ?? "?")")
+                    completion(nil)
+                }
+            }
+        }
+    }
+
+    private static func hexColor(_ hex: String) -> UIColor {
+        var v: UInt64 = 0
+        Scanner(string: hex).scanHexInt64(&v)
+        let r = CGFloat((v >> 16) & 0xFF) / 255
+        let g = CGFloat((v >>  8) & 0xFF) / 255
+        let b = CGFloat( v        & 0xFF) / 255
+        return UIColor(red: r, green: g, blue: b, alpha: 1)
     }
 }
