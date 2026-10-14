@@ -132,6 +132,20 @@
     @media (prefers-color-scheme: dark) {
       .btn-secondary { background: rgba(255,255,255,0.06); }
     }
+    /* Aktivitäts-Icon (eigenes dazu-Icon statt Emoji) auf heller Scheibe */
+    .akt {
+      width: 104px; height: 104px; margin: 0 auto 14px;
+      border-radius: 50%; background: #FFFDF9;
+      display: grid; place-items: center;
+      box-shadow: 0 12px 34px rgba(91,61,245,0.22), 0 4px 12px rgba(0,0,0,0.06);
+    }
+    .akt img { width: 60px; height: 60px; display: block; }
+    .host-ico { width: 16px; height: 16px; display: block; }
+    .live { background: rgba(91,61,245,0.12); color: #5B3DF5; }
+    @media (prefers-color-scheme: dark) {
+      .live { background: rgba(133,112,255,0.20); color: #C9BDFE; }
+      #dpHost { background: rgba(255,255,255,0.08) !important; }
+    }
     .footer {
       margin-top: 32px;
       font-size: 12px;
@@ -151,16 +165,16 @@
          UND die Cloud Function getDropSummary erfolgreich antwortet.
          Default: hidden — fallback zur generischen Smart-Banner-View. -->
     <div id="dropPreview" style="display:none; margin-bottom: 24px;">
-      <div style="font-size: 72px; line-height: 1; margin-bottom: 12px;" id="dpEmoji"></div>
+      <div class="akt"><img id="dpIcon" src="/assets/akt/funkeln.svg" alt=""></div>
       <div style="font-size: 24px; font-weight: 800; color: var(--text); letter-spacing: -0.5px;" id="dpActivity">Plan</div>
       <div style="font-size: 14px; color: var(--text-2); margin-top: 6px;" id="dpLocation"></div>
       <div style="display:flex; gap:12px; justify-content:center; margin-top: 16px; font-size: 13px;">
         <span id="dpHost" style="display:inline-flex; align-items:center; gap:6px; padding:6px 12px; background: rgba(0,0,0,0.05); border-radius:999px;">
-          <span id="dpHostEmoji"></span>
+          <img class="host-ico" src="/assets/akt/person.svg" alt="">
           <span id="dpHostName">Jemand</span>
         </span>
-        <span id="dpStatus" style="display:inline-flex; align-items:center; gap:6px; padding:6px 12px; background: rgba(63,184,82,0.15); color:#2A9940; border-radius:999px; font-weight:600;">
-          <span style="width:8px;height:8px;background:#3FB852;border-radius:50%;display:inline-block;"></span>
+        <span id="dpStatus" class="live" style="display:inline-flex; align-items:center; gap:6px; padding:6px 12px; border-radius:999px; font-weight:600;">
+          <span style="width:8px;height:8px;background:#FFA02E;border-radius:50%;display:inline-block;"></span>
           live
         </span>
       </div>
@@ -185,7 +199,7 @@
     </a>
 
     <div class="footer">
-      <a href="/">dazuapp.com</a>
+      <a href="/">dazuapp.com</a> · <a href="https://instagram.com/dazu.app" target="_blank" rel="noopener">@dazu.app</a>
     </div>
   </div>
 
@@ -246,6 +260,18 @@
     // Liest Drop-ID aus URL-Pfad, ruft die Cloud Function getDropSummary auf,
     // rendert Drop-Details vor Install. Bei Fehler: silent fallback zur
     // Default-Smart-Banner-View — User sieht keinen Error.
+    // Aktivität → eigenes Icon. Die App speichert je Aktivität weiterhin ein
+    // Emoji als Kennung; angezeigt wird überall das dazu-Icon (wie in der App).
+    const AKT = {"\ud83d\udccd":"pin","\u2615":"kaffee","\ud83c\udf75":"tee","\ud83e\uddcb":"tee","\ud83c\udf7a":"bier","\ud83c\udf7b":"bier","\ud83c\udf77":"glas","\ud83e\udd42":"glas","\ud83c\udf79":"cocktail","\ud83c\udf78":"cocktail","\ud83c\udf7d":"besteck","\ud83c\udf5c":"besteck","\ud83c\udf2e":"besteck","\ud83e\udd57":"besteck","\ud83c\udf5d":"besteck","\ud83e\udd59":"besteck","\ud83c\udf74":"besteck","\ud83e\udd50":"croissant","\ud83c\udf55":"pizza","\ud83c\udf54":"burger","\ud83c\udf63":"sushi","\ud83c\udf71":"sushi","\ud83c\udf66":"eis","\ud83c\udf82":"kuchen","\ud83c\udf70":"kuchen","\ud83e\uddc1":"kuchen","\ud83d\udc68\u200d\ud83c\udf73":"topf","\ud83e\uddd1\u200d\ud83c\udf73":"topf","\ud83d\udc69\u200d\ud83c\udf73":"topf","\ud83c\udf73":"topf","\ud83e\uddfa":"korb","\ud83d\udeb6":"zufuss","\ud83c\udf33":"baum","\ud83c\udf32":"baum","\ud83d\udc15":"pfote","\ud83d\udc36":"pfote","\ud83d\udc3e":"pfote","\ud83c\udfd6":"strand","\ud83c\udfdd":"strand","\ud83e\udd7e":"wandern","\u26f0":"wandern","\ud83c\udfd4":"wandern","\ud83c\udfc3":"laufen","\ud83d\udcaa":"hantel","\ud83c\udfcb":"hantel","\ud83e\uddd8":"yoga","\ud83d\udeb4":"fahrrad","\ud83d\udeb2":"fahrrad","\ud83c\udfca":"schwimmen","\ud83e\uddd7":"klettern","\ud83d\udc83":"tanz","\u26bd":"fussball","\ud83c\udfc0":"basketball","\ud83c\udfd0":"volleyball","\ud83c\udfbe":"tennis","\ud83c\udff8":"tennis","\ud83c\udfd3":"tennis","\u26f3":"golf","\u26f7":"ski","\ud83c\udfbf":"ski","\ud83c\udfc2":"ski","\ud83c\udfc4":"wellen","\ud83c\udf0a":"wellen","\ud83e\udd4b":"kampfsport","\ud83d\udef9":"skaten","\u26f8":"skaten","\ud83d\udefc":"skaten","\ud83c\udfae":"controller","\ud83d\udd79":"controller","\ud83d\udc7e":"controller","\ud83c\udfb2":"wuerfel","\u265f":"wuerfel","\ud83c\udccf":"wuerfel","\ud83c\udfac":"klappe","\ud83c\udf7f":"klappe","\ud83c\udfa5":"klappe","\ud83c\udfb5":"note","\ud83c\udfb6":"note","\ud83c\udfb8":"note","\ud83c\udfa4":"note","\ud83c\udf89":"party","\ud83e\udd73":"party","\ud83e\udea9":"party","\ud83c\udfdb":"gebaeude","\ud83c\udfa8":"palette","\ud83d\udd8c":"palette","\ud83d\udcf8":"kamera","\ud83d\udcf7":"kamera","\ud83d\udecd":"tuete","\ud83d\uded2":"tuete","\ud83c\udfea":"markt","\ud83d\udcda":"buch","\ud83d\udcd6":"buch","\ud83d\udcbc":"koffer","\ud83d\udcbb":"koffer","\u2728":"funkeln","\u270f":"funkeln"};
+    function aktIcon(emoji) {
+      if (!emoji) return "funkeln";
+      // Variantenzeichen und Hauttöne entfernen
+      let key = emoji.replace(/\uFE0F/g, "").replace(/\uD83C[\uDFFB-\uDFFF]/g, "");
+      if (AKT[key]) return AKT[key];
+      key = key.split("\u200D")[0];       // z. B. Läuferin → Läufer
+      return AKT[key] || "funkeln";
+    }
+
     (async function loadDropPreview() {
       const match = window.location.pathname.match(/^\/drop\/([A-Z0-9-]{8,64})$/i);
       if (!match) return;
@@ -261,10 +287,9 @@
         if (d.error) return;
 
         // Drop-Preview-Karte befüllen + sichtbar machen.
-        document.getElementById("dpEmoji").textContent = d.activityEmoji || "";
+        document.getElementById("dpIcon").src = "/assets/akt/" + aktIcon(d.activityEmoji) + ".svg";
         document.getElementById("dpActivity").textContent = d.activityName || "Plan";
         document.getElementById("dpLocation").textContent = d.locationTitle || "";
-        document.getElementById("dpHostEmoji").textContent = d.hostEmoji || "";
         document.getElementById("dpHostName").textContent = d.hostName || "Jemand";
 
         // Live-Status: läuft / startet gleich / abgelaufen
@@ -285,7 +310,7 @@
           const remainingLabel = remainingMin >= 60
             ? `noch ${Math.floor(remainingMin/60)}h ${remainingMin%60}m`
             : `noch ${remainingMin} Min`;
-          status.innerHTML = `<span style="width:8px;height:8px;background:#3FB852;border-radius:50%;display:inline-block;"></span> live · ${remainingLabel}`;
+          status.innerHTML = `<span style="width:8px;height:8px;background:#FFA02E;border-radius:50%;display:inline-block;"></span> live · ${remainingLabel}`;
         }
 
         // Teilnehmer

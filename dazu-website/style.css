@@ -306,3 +306,22 @@ footer a:hover { color: var(--violett); }
 }
 
 .mapbg .pt { font: 700 17px var(--font-h); fill: var(--nacht); }
+
+/* ── dazu-Icons (eigene Icons wie in der App) ─────────────────────────────
+   Linien in der Textfarbe, der Punkt (.dzp) in Orange. */
+svg.dz { fill: none; stroke: none; }
+.dzp { fill: var(--orange); }
+.tile-f .ico svg.dz { width: 30px; height: 30px; stroke-width: initial; }
+.tile-f.w6 .ico svg.dz { width: 36px; height: 36px; }
+.tile-f.o .ico { background: #fff; color: var(--violett); }
+
+/* Aktivitäten-Leiste unter den drei Schritten */
+.acts { margin-top: 44px; }
+.acts h3 { font-size: 21px; letter-spacing: -.01em; }
+.acts ul { list-style: none; margin-top: 18px; display: flex; flex-wrap: wrap; gap: 10px; }
+.acts li { display: inline-flex; align-items: center; gap: 9px; padding: 9px 16px 9px 11px; border-radius: 999px;
+  background: var(--surface); border: .5px solid var(--border); box-shadow: var(--shadow);
+  font: 600 15px/1.2 var(--font-h); color: var(--text); }
+.acts li svg.dz { width: 26px; height: 26px; color: var(--violett); flex: none; }
+.acts li:last-child { background: var(--lavendel); border-color: transparent; box-shadow: none; }
+@media (max-width: 880px) { .acts { margin-top: 34px; } .acts li { font-size: 14px; padding: 8px 14px 8px 10px; } .acts li svg.dz { width: 23px; height: 23px; } }
