@@ -23,7 +23,7 @@
   <div class="page-header">
     
     <h1 class="page-title">Rechtliches</h1>
-    <p class="page-subtitle">Datenschutzerklärung &amp; Nutzungsbedingungen · Zuletzt aktualisiert: April 2026</p>
+    <p class="page-subtitle">Datenschutzerklärung &amp; Nutzungsbedingungen · Zuletzt aktualisiert: Oktober 2026</p>
   </div>
 
   <!-- TABS -->
@@ -52,13 +52,15 @@ Bei Fragen zum Datenschutz kannst du uns jederzeit per E-Mail kontaktieren.</div
       <div class="section-title">2. Welche Daten wir erheben</div>
       <div class="section-text">Je nach Nutzung verarbeiten wir folgende Daten:
 
-<strong style="color:var(--text)">Konto &amp; Authentifizierung</strong>
+<strong style="color:var(--text)">Konto &amp; Authentifizierung (eine Methode genügt)</strong>
 • Sign in with Apple – Apple User ID, Nonce (SHA256-Hash), optional E-Mail, Authorization Code (zur späteren Token-Widerrufung bei Kontolöschung)
-• Handynummer (Pflichtangabe bei der Registrierung – damit dich deine Kontakte finden können)
+• Sign in with Google – Google-ID-Token (via Firebase Authentication verifiziert), E-Mail-Adresse, ggf. anzeigename
+• Telefon-Login (Firebase Phone Auth) – deine Mobilnummer, SMS-Verifizierungscode, reCAPTCHA-Token
+• Handynummer kann optional nachträglich im Profil hinterlegt werden, damit dich Kontakte finden können (keine Pflichtangabe mehr)
 
 <strong style="color:var(--text)">Profil</strong>
 • Name (frei wählbar)
-• Geburtsdatum (Selbstangabe, zur Altersprüfung ≥ 16)
+• Geburtsdatum (Selbstangabe, zur Altersprüfung ≥ 18)
 • Geschlecht (optional)
 • E-Mail (nur bei Sign in with Apple, falls freigegeben)
 • Profilbild (optional, auf Firebase Storage)
@@ -221,6 +223,11 @@ Google LLC ist unter dem EU-US Data Privacy Framework zertifiziert. Eine Auftrag
 
 Details: apple.com/legal/privacy
 
+<strong style="color:var(--text)">Google Sign-In (optional)</strong>
+Wenn du dich mit „Mit Google anmelden" registrierst, verifiziert Firebase das von Google ausgestellte ID-Token. Keine zusätzlichen Daten werden an Google übertragen, die über den normalen OAuth-Login hinausgehen.
+
+Details: policies.google.com/privacy
+
 <strong style="color:var(--text)">Keine weiteren Drittanbieter.</strong> dazu nutzt keine Werbe-SDKs, keine externen Analyse-Tools (z.&nbsp;B. Google Analytics, Firebase Analytics, Mixpanel, Facebook SDK) und kein Tracking für Marketingzwecke. In der iOS-Privacy-Erklärung ist <em>Tracking: false</em> deklariert.</div>
     </div>
 
@@ -266,7 +273,7 @@ Zuständige Aufsichtsbehörde: Bayerisches Landesamt für Datenschutzaufsicht (B
 
     <div class="section-block">
       <div class="section-title">15. Minderjährige</div>
-      <div class="section-text">dazu ist nicht für Personen unter 18 Jahren bestimmt. Bei der Registrierung wird das Geburtsdatum abgefragt und Accounts unter 18 werden blockiert. Falls du Kenntnis davon hast, dass eine minderjährige Person dazu nutzt, wende dich bitte an privacy@dazuapp.com.</div>
+      <div class="section-text">dazu ist nicht für Personen unter 18 Jahren bestimmt. Bei der Registrierung wird das Geburtsdatum abgefragt; Accounts unter 18 werden blockiert und automatisch gelöscht. Falls du Kenntnis davon hast, dass eine minderjährige Person dazu nutzt, wende dich bitte an privacy@dazuapp.com.</div>
     </div>
 
     <div class="section-block">
@@ -287,9 +294,9 @@ Zuständige Aufsichtsbehörde: Bayerisches Landesamt für Datenschutzaufsicht (B
     <div class="section-block">
       <div class="section-title">2. Nutzungsvoraussetzungen</div>
       <div class="section-text">• Du musst mindestens 18 Jahre alt sein
-• Du benötigst eine Apple-ID für „Sign in with Apple"
-• Du musst eine gültige Handynummer hinterlegen, damit dich deine Kontakte finden können
-• Du benötigst ein Gerät mit iOS 16.0 oder neuer
+• Für die Registrierung ist eine der folgenden Methoden erforderlich: Sign in with Apple, Google Sign-In oder Telefon-Login (Firebase)
+• Eine Handynummer kannst du optional in deinem Profil hinterlegen, damit dich Kontakte finden – sie ist keine Pflichtangabe
+• Du benötigst ein Gerät mit iOS 18.0 oder neuer
 • Eine aktive Internetverbindung ist für die meisten Funktionen erforderlich
 • Du bist verantwortlich für alle Aktivitäten unter deinem Account</div>
     </div>
@@ -314,7 +321,7 @@ Zuständige Aufsichtsbehörde: Bayerisches Landesamt für Datenschutzaufsicht (B
 
     <div class="section-block">
       <div class="section-title">5. Pläne erstellen</div>
-      <div class="section-text">Öffentliche Pläne sind für alle Nutzer in deiner Nähe sichtbar. Du bist verantwortlich für den Inhalt deiner Pläne. Pläne, die gegen diese Bedingungen verstoßen, können ohne Vorankündigung gelöscht werden. Pläne werden automatisch beendet, wenn du sie deaktivierst oder die App schließt.</div>
+      <div class="section-text">Öffentliche Pläne sind für alle Nutzer in deiner Nähe sichtbar. Du bist verantwortlich für den Inhalt deiner Pläne. Pläne, die gegen diese Bedingungen verstoßen, können ohne Vorankündigung gelöscht werden. Pläne enden mit Ablauf der von dir gesetzten Dauer oder wenn du sie manuell beendest.</div>
     </div>
 
     <div class="section-block">
@@ -380,7 +387,7 @@ Es besteht kein eingetragenes Gewerbe und keine Umsatzsteuer-Identifikationsnumm
     </div>
 
     <div class="section-block">
-      <div class="section-title">Verantwortlich für den Inhalt (§ 55 Abs. 2 RStV)</div>
+      <div class="section-title">Verantwortlich für den Inhalt (§ 18 Abs. 2 MStV)</div>
       <div class="section-text">Dennis Gundermann (Anschrift wie oben)</div>
     </div>
 
