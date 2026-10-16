@@ -1,4 +1,8 @@
 import SwiftUI
+import CoreLocation
+import MapKit
+import FirebaseDatabase
+import FirebaseAuth
 
 // MARK: - Feed Status
 
@@ -39,13 +43,25 @@ struct FeedView: View {
     // Mini-Profil State
     @State private var profileParticipant: DropParticipant? = nil
     @State private var profileCanBlock = false
-    @State private var profileSubtitle = "Drops-Nutzer"
+    @State private var profileSubtitle = ""
     @State private var profileAccent: Color = Color.auroraViolet
     @State private var auroraAnimate = false
     @State private var selectedCommunityFromFeed: Community? = nil
     /// Persistiert: hat User die First-Time-Hint-Card schon dismisst?
     /// Nach erstem Tap wird das auf true gesetzt → erscheint nicht wieder.
     @AppStorage("ud_feedFirstTimeHintDismissed") private var feedHintDismissed = false
+    /// Globaler Tageszähler „heute passiert" aus /stats/dropsToday/{YYYY-MM-DD}.
+    /// Wird on-appear subscribed; Cloud-Function `onDropEndedCount` incrementiert
+    /// bei abgeschlossenen Runden die Spam-Gate (≥10 Min + ≥1 Joiner) bestehen.
+    @State private var globalTodayCount: Int = 0
+    @State private var globalTodayHandle: DatabaseHandle? = nil
+    /// Scroll-adaptiv: true, sobald die Hero-Headline aus dem sichtbaren
+    /// Bereich gescrollt ist. Treibt den kompakten dazu-Chip oben.
+    @State private var feedIsScrolled = false
+    @AppStorage("ud_profileHeroTemplate") private var profileHeroTemplateRaw = ProfileHeroTemplate.aurora.rawValue
+    private var profileHeroTemplate: ProfileHeroTemplate {
+        ProfileHeroTemplate(rawValue: profileHeroTemplateRaw) ?? .aurora
+    }
 
     /// Sichtbar nur für echte Erstnutzer: noch keinen Drop erstellt UND
     /// keinen aktiven Drop laufen. Solange Filter-Treffer vorhanden sind
@@ -73,7 +89,7 @@ struct FeedView: View {
                         )
                     )
                     .frame(width: 36, height: 36)
-                Image(systemName: "hand.wave.fill")
+                DazuIcon("hand.wave.fill", accent: false)
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(.white)
             }
@@ -96,18 +112,18 @@ struct FeedView: View {
                     feedHintDismissed = true
                 }
             } label: {
-                Image(systemName: "xmark")
+                DazuIcon("xmark")
                     .font(.system(size: 11, weight: .bold))
                     .foregroundColor(.textTertiary)
                     .frame(width: 22, height: 22)
                     .background(Circle().fill(Color.primary.opacity(0.06)))
             }
-            .buttonStyle(.plain)
+            .dropsPressable()
         }
         .padding(.horizontal, 14).padding(.vertical, 12)
         .background(
             RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
-                .fill(.ultraThinMaterial)
+                .fill(Color.white.opacity(0.75))
                 .overlay(
                     RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
                         .stroke(Color.auroraOrange.opacity(0.25), lineWidth: 1)
@@ -119,7 +135,9 @@ struct FeedView: View {
         let creator = item.participants.first ?? DropParticipant(name: item.name, emoji: item.emoji)
         profileParticipant = creator
         profileCanBlock = true
-        profileSubtitle = tr("feed.user")
+        // Statischer "Dazu-Nutzer"-Subtitle entfernt — Sheet zeigt stattdessen
+        // den dynamischen Online-Status (oder nichts, wenn unbekannt).
+        profileSubtitle = ""
         profileAccent = Color.auroraViolet
     }
 
@@ -158,7 +176,7 @@ struct FeedView: View {
     // „Nur weiblich"-Filter blendet alle Nicht-weiblich-Hosts aus (nur für weibliche Userinnen).
     // Aktivitäts-Filter blendet Drops raus deren Kategorie nicht gewählt ist.
     private var strangerAnnotations: [MapAnnotationItem] {
-        var base = store.allMapAnnotations.filter { $0.isStranger }
+            var base = store.allMapAnnotations.filter { $0.isStranger && !$0.isGhost }
         let userCoord = store.currentUser.coordinate
         // Drop dem der User aktuell beigetreten ist NIEMALS rausfiltern —
         // egal welche Distance/Gender/Activity-Filter aktiv sind. Sonst
@@ -168,17 +186,10 @@ struct FeedView: View {
         let isJoinedDrop: (MapAnnotationItem) -> Bool = { drop in
             joinedDropID != nil && drop.id.uuidString == joinedDropID
         }
-        switch store.feedDistanceFilter {
-        case .nearby, .quarter:
-            let radius = store.feedDistanceFilter.meters
-            base = base.filter { isJoinedDrop($0) || $0.distance(from: userCoord) <= radius }
-        case .city:
-            if let myCity = ServiceCities.city(for: userCoord) {
-                base = base.filter { isJoinedDrop($0) || myCity.contains($0.coordinate) }
-            } else if let myCityNear = ServiceCities.cityNear(userCoord) {
-                // User im Vorort (40km-Buffer) → zeig Drops aus der nächstgelegenen Stadt
-                base = base.filter { isJoinedDrop($0) || myCityNear.contains($0.coordinate) }
-            }
+        if let myCity = ServiceCities.city(for: userCoord) {
+            base = base.filter { isJoinedDrop($0) || myCity.contains($0.coordinate) }
+        } else if let myCityNear = ServiceCities.cityNear(userCoord) {
+            base = base.filter { isJoinedDrop($0) || myCityNear.contains($0.coordinate) }
         }
         if store.genderFilterEnabled && store.userGender == "weiblich" {
             base = base.filter { isJoinedDrop($0) || ($0.hostGender?.lowercased() ?? "") == "weiblich" }
@@ -195,9 +206,20 @@ struct FeedView: View {
         }
     }
 
-    /// Chip-Leiste → shared ActivityFilterChipsView (auch auf der Map).
-    private var activityFilterChips: some View {
-        ActivityFilterChipsView()
+    /// Vergangene Drops — selbe Distanz- und Aktivitäts-Filter wie strangerAnnotations.
+    private var ghostAnnotations: [MapAnnotationItem] {
+        let userCoord = store.currentUser.coordinate
+        var base = store.allMapAnnotations.filter { $0.isGhost && $0.isStranger }
+        if let myCity = ServiceCities.city(for: userCoord) {
+            base = base.filter { myCity.contains($0.coordinate) }
+        } else if let myCityNear = ServiceCities.cityNear(userCoord) {
+            base = base.filter { myCityNear.contains($0.coordinate) }
+        }
+        base = base.filter { matchesActivityFilter($0) }
+        return base
+            .sorted { ($0.endedAt ?? .distantPast) > ($1.endedAt ?? .distantPast) }
+            .prefix(6)
+            .map { $0 }
     }
 
     /// Horizontaler Strip mit allen Communities in der Nähe — fixiert auf
@@ -205,11 +227,11 @@ struct FeedView: View {
     private var communitiesNearbyStrip: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
-                Image(systemName: "person.3.fill")
+                DazuIcon("person.3.fill", accent: false)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(.cleroGreen)
                 Text(tr("feed.communities_nearby"))
-                    .font(.system(size: 11, weight: .heavy, design: .rounded))
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
                     .tracking(0.6)
                     .foregroundColor(.textSecondary)
                 Spacer()
@@ -222,7 +244,7 @@ struct FeedView: View {
                         Button { selectedCommunityFromFeed = community } label: {
                             communityCard(community)
                         }
-                        .buttonStyle(.plain)
+                        .dropsPressable()
                     }
                 }
                 .padding(.horizontal, 16)
@@ -248,7 +270,7 @@ struct FeedView: View {
                         startPoint: .topLeading, endPoint: .bottomTrailing
                     ))
                     .frame(width: 38, height: 38)
-                Image(systemName: c.icon)
+                DazuIcon(c.icon, accent: false)
                     .font(.system(size: 16, weight: .bold))
                     .foregroundColor(.white)
             }
@@ -259,7 +281,7 @@ struct FeedView: View {
                         .foregroundColor(.textPrimary)
                         .lineLimit(1)
                     if isMember {
-                        Image(systemName: "checkmark.circle.fill")
+                        DazuIcon("checkmark.circle.fill")
                             .font(.system(size: 10))
                             .foregroundColor(.cleroGreen)
                     }
@@ -271,11 +293,7 @@ struct FeedView: View {
             }
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color(UIColor.systemBackground))
-                .shadow(color: Color.black.opacity(0.05), radius: 6, y: 2)
-        )
+        .liquidGlass(cornerRadius: 14)
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(Color.cleroGreen.opacity(0.25), lineWidth: 1)
@@ -287,7 +305,7 @@ struct FeedView: View {
     private var distanceTimeFilterBar: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 5) {
-                Image(systemName: "scope")
+                DazuIcon("scope")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundColor(.brand)
                 Text(tr("feed.drop_radius"))
@@ -325,7 +343,7 @@ struct FeedView: View {
         } label: {
             HStack(spacing: 5) {
                 if let icon = icon {
-                    Image(systemName: icon)
+                    DazuIcon(icon, accent: false)
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(selected ? .white : .brand)
                 }
@@ -339,15 +357,158 @@ struct FeedView: View {
                 Capsule().fill(
                     selected
                         ? Color.brand
-                        : Color(UIColor.secondarySystemGroupedBackground)
+                        : Color.bgCard
                 )
             )
             .shadow(color: selected ? Color.brand.opacity(0.28) : .clear, radius: 8, y: 3)
         }
-        .buttonStyle(.plain)
+        .dropsPressable()
     }
 
     /// „Nur weiblich"-Toggle im App-Stil.
+    // MARK: - Puls der Stadt
+
+    /// Kompakte Stat-Card mit zwei Zahlen: wie viele Runden gerade live sind
+    /// und wie viele heute insgesamt stattgefunden haben. Zeigt dem User
+    /// auch bei leerem Feed dass die App lebt.
+    @ViewBuilder
+    private var cityPulseCard: some View {
+        // Aktive Runden hier: öffentliche + eigene aktive
+        let liveCount = strangerAnnotations.count + store.activeDrops.count
+        // „Heute passiert" = globaler Tageszähler aus RTDB (Cloud-Function
+        // zählt nur Runden mit ≥10 Min Dauer UND ≥1 Joiner).
+        let todayCount = globalTodayCount
+
+        HStack(spacing: 10) {
+            pulseStat(
+                big: "\(liveCount)",
+                small: liveCount == 1 ? tr("feed.rounds_live_singular") : tr("feed.rounds_live_plural"),
+                icon: "runde",
+                tint: .brandViolet
+            )
+            pulseStat(
+                big: "\(todayCount)",
+                small: tr("feed.happened_today"),
+                icon: "sparkles",
+                tint: .brandViolet
+            )
+        }
+        .onAppear { subscribeGlobalTodayCount() }
+        .onDisappear { unsubscribeGlobalTodayCount() }
+    }
+
+    private var todayDayKey: String {
+        let fmt = DateFormatter()
+        fmt.timeZone = TimeZone(identifier: "Europe/Berlin")
+        fmt.dateFormat = "yyyy-MM-dd"
+        return fmt.string(from: Date())
+    }
+
+    private func subscribeGlobalTodayCount() {
+        guard globalTodayHandle == nil else { return }
+        let ref = Database.database().reference()
+            .child("stats").child("dropsToday").child(todayDayKey)
+        globalTodayHandle = ref.observe(.value) { snap in
+            globalTodayCount = (snap.value as? Int) ?? 0
+        }
+    }
+
+    private func unsubscribeGlobalTodayCount() {
+        guard let h = globalTodayHandle else { return }
+        Database.database().reference()
+            .child("stats").child("dropsToday").child(todayDayKey)
+            .removeObserver(withHandle: h)
+        globalTodayHandle = nil
+    }
+
+    @ViewBuilder
+    private func pulseStat(big: String, small: String,
+                           icon: String, tint: Color) -> some View {
+        HStack(spacing: 10) {
+            DazuIcon(icon)
+                .font(.system(size: 18, weight: .heavy))
+                .foregroundColor(tint)
+                .frame(width: 36, height: 36)
+                .background(Circle().fill(Color.brandLavender))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(big)
+                    .font(.system(size: 20, weight: .heavy, design: .rounded))
+                    .foregroundColor(.brandNight)
+                Text(small)
+                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .foregroundColor(.brandNight.opacity(0.6))
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14).padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .liquidGlass(cornerRadius: 16)
+    }
+
+    // MARK: - Freunde in Reichweite
+
+    /// Horizontale Avatar-Row aller Freunde mit Online-Dot und Status-Label
+    /// darunter. Tap öffnet das MiniProfileSheet via `showFriendProfile`.
+    @ViewBuilder
+    private var friendsInRangeStrip: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(tr("feed.your_friends"))
+                    .font(.system(size: 14, weight: .heavy, design: .rounded))
+                    .foregroundColor(.brandNight)
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 14) {
+                    ForEach(store.friends) { friend in
+                        Button {
+                            showFriendProfile(friend)
+                        } label: {
+                            VStack(spacing: 6) {
+                                ZStack(alignment: .bottomTrailing) {
+                                    Group {
+                                        if let url = friend.profileImageURL,
+                                           !url.isEmpty {
+                                            RemoteProfileImage(url: url,
+                                                               fallbackEmoji: friend.emoji,
+                                                               size: 56,
+                                                               strokeColor: .clear)
+                                        } else {
+                                            ZStack {
+                                                Circle().fill(Color.brandLavender)
+                                                    .frame(width: 56, height: 56)
+                                                DazuProfileIcon(size: 34)
+                                            }
+                                        }
+                                    }
+                                    .overlay(Circle().stroke(Color.brandLavender, lineWidth: 2))
+                                    // Online-/Offline-Dot — beide opak,
+                                    // sonst scheint das Profilbild durch.
+                                    Circle()
+                                        .fill(friend.isAvailable
+                                              ? Color.onlineGreen
+                                              : Color(red: 0.60, green: 0.60, blue: 0.65))
+                                        .frame(width: 14, height: 14)
+                                        .overlay(Circle().stroke(Color.brandCream, lineWidth: 2))
+                                }
+                                Text(friend.name)
+                                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                                    .foregroundColor(.brandNight)
+                                    .lineLimit(1)
+                                    .frame(width: 64)
+                            }
+                        }
+                        .dropsPressable()
+                    }
+                }
+                .padding(.horizontal, 20)
+            }
+        }
+    }
+
     private var femaleOnlyFilterBar: some View {
         Button {
             withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
@@ -356,7 +517,7 @@ struct FeedView: View {
             }
         } label: {
             HStack(spacing: 10) {
-                Image(systemName: "line.3.horizontal.decrease.circle.fill")
+                DazuIcon("line.3.horizontal.decrease.circle.fill")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(store.genderFilterEnabled ? .white : .brand)
                 Text(tr("feed.female_only"))
@@ -364,7 +525,7 @@ struct FeedView: View {
                     .foregroundColor(store.genderFilterEnabled ? .white : .textPrimary)
                 Spacer(minLength: 0)
                 if store.genderFilterEnabled {
-                    Image(systemName: "checkmark")
+                    DazuIcon("checkmark")
                         .font(.system(size: 12, weight: .bold))
                         .foregroundColor(.white)
                 }
@@ -376,12 +537,12 @@ struct FeedView: View {
                     .fill(
                         store.genderFilterEnabled
                             ? Color.brand
-                            : Color(UIColor.secondarySystemGroupedBackground)
+                            : Color.bgCard
                     )
             )
             .shadow(color: store.genderFilterEnabled ? Color.brand.opacity(0.28) : .clear, radius: 8, y: 3)
         }
-        .buttonStyle(.plain)
+        .dropsPressable()
     }
 
     // Freunde-Drops — nach Interessen-Match priorisiert
@@ -457,54 +618,59 @@ struct FeedView: View {
     var body: some View {
         NavigationStack {
             ZStack(alignment: .top) {
-                Color(UIColor.systemGroupedBackground).ignoresSafeArea()
-
-                // Aurora-Hintergrund oben — neue Icon-Sunset-Palette:
-                // Orange (warm-dominant), Rose (Sunset-Wärme), Lavender
-                // (kühler Counterpoint). Konsistent mit dem globalen
-                // AppAuroraBackground und dem App-Icon.
-                ZStack {
-                    Circle()
-                        .fill(Color.auroraOrange.opacity(0.32))
-                        .frame(width: 280, height: 280)
-                        .blur(radius: 65)
-                        .offset(x: auroraAnimate ? 30 : -40, y: auroraAnimate ? -50 : -15)
-                    Circle()
-                        .fill(Color.auroraPink.opacity(0.22))
-                        .frame(width: 220, height: 220)
-                        .blur(radius: 55)
-                        .offset(x: auroraAnimate ? -55 : 35, y: auroraAnimate ? -15 : -55)
-                    Circle()
-                        .fill(Color.auroraViolet.opacity(0.18))
-                        .frame(width: 180, height: 180)
-                        .blur(radius: 48)
-                        .offset(x: auroraAnimate ? 60 : -10, y: auroraAnimate ? 5 : -35)
-                }
-                .frame(maxWidth: .infinity, alignment: .top)
-                .ignoresSafeArea()
-                .allowsHitTesting(false)
-                .onAppear {
-                    withAnimation(.easeInOut(duration: 5).repeatForever(autoreverses: true)) {
-                        auroraAnimate = true
-                    }
-                }
+                AppAuroraBackground()
 
                 ScrollView(showsIndicators: false) {
                     LazyVStack(spacing: 0) {
 
-                        // ── Filter — scrollen mit (wie im Profil-Tab) ──
+                        // Rondesignlab-Style Top: Wortmarke inline + massive
+                        // Hero-Headline. Logo liegt oben in-line (NICHT
+                        // sticky) — beim Scrollen fliegt es weg und ein
+                        // kompakter dazu-Chip klebt via scrollAdaptive-
+                        // DazuHeader(isScrolled:) oben ein (iOS-Large→
+                        // Compact-Pattern).
+                        VStack(alignment: .leading, spacing: 20) {
+                            HStack {
+                                DazuWordmark(color: .brandNight, dotColor: .brandOrange)
+                                    .frame(height: 24)
+                                Spacer()
+                            }
+
+                            VStack(alignment: .leading, spacing: -4) {
+                                Text(tr("feed.what_running"))
+                                    .foregroundColor(.brandNight)
+                                (Text(tr("feed.with_you")).foregroundColor(.brandViolet)
+                                 + Text("?").foregroundColor(.brandOrange))
+                            }
+                            .font(.system(size: 42, weight: .bold, design: .rounded))
+                            .lineSpacing(-2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .padding(.horizontal, 24)
+                        .padding(.top, 16)
+                        .padding(.bottom, 16)
+
+                        // ── Puls der Stadt ──────────────────────────────────
+                        // Lebenszeichen auch wenn gerade nichts live ist:
+                        // Nutzer-Count im Umkreis + Runden heute.
+                        cityPulseCard
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 10)
+
+                        // ── Freunde in Reichweite ──────────────────────────
+                        // Avatar-Row mit Online-Dot, Tap öffnet Mini-Profil.
+                        if !store.friends.isEmpty {
+                            friendsInRangeStrip
+                                .padding(.bottom, 10)
+                        }
+
+                        // ── Filter (nur Frauen-Toggle) ────────────────────
                         if store.userGender == "weiblich" {
                             femaleOnlyFilterBar
                                 .padding(.horizontal, 16)
                                 .padding(.top, 8)
-                                .padding(.bottom, 4)
+                                .padding(.bottom, 8)
                         }
-                        distanceTimeFilterBar
-                            .padding(.top, store.userGender == "weiblich" ? 4 : 8)
-                            .padding(.bottom, 4)
-                        activityFilterChips
-                            .padding(.top, 2)
-                            .padding(.bottom, 8)
 
                         // ── Communities in der Nähe ──────────────────────
                         // Horizontale Liste aller genehmigten Communities.
@@ -515,23 +681,8 @@ struct FeedView: View {
                                 .padding(.bottom, 8)
                         }
 
-                        // ── Power-Hour Countdown-Pille (≤60 Min vor Start
-                        //    oder vor Ende eines aktiven Slots) ──
-                        // Bewusst UNTER den Filtern: visuelle Hierarchie ist
-                        // erst Filter (User-Aktion), dann Power-Hour-Hint
-                        // (passiver Hinweis). Auto-update jede Minute via
-                        // TimelineView; gleiche Komponente wie in der Map-
-                        // View, damit beide Tabs konsistent bleiben.
-                        TimelineView(.periodic(from: .now, by: 60)) { ctx in
-                            if let cd = AppStore.powerHourCountdown(at: ctx.date) {
-                                PowerHourCountdownPill(countdown: cd)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.horizontal, 16)
-                                    .padding(.top, 4)
-                                    .padding(.bottom, 8)
-                                    .transition(.move(edge: .top).combined(with: .opacity))
-                            }
-                        }
+                        // Power-Hour-Pille entfernt (Feature deaktiviert).
+                        EmptyView()
 
                         // ── Push-Permission-Banner ──
                         // Zeigt sich nur wenn Push deaktiviert + nicht
@@ -555,6 +706,17 @@ struct FeedView: View {
                                 .transition(.opacity.combined(with: .move(edge: .top)))
                         }
 
+                        // ── Eigener aktiver Drop ──
+                        if let myDrop = store.activeDrops.first {
+                            MyDropFeedCard(drop: myDrop, onCardTap: {
+                                store.focusedDropCoordinate = myDrop.location.coordinate
+                                withAnimation { store.selectedTab = .map }
+                            })
+                            .padding(.horizontal, 14)
+                            .padding(.top, 8)
+                            .padding(.bottom, 4)
+                        }
+
                         // ── Freunde in der Nähe (prominent) ──
                         if !sortedFriendDrops.isEmpty {
                             friendsSectionHeader(count: sortedFriendDrops.count)
@@ -566,6 +728,8 @@ struct FeedView: View {
                                     extraEmojis: extraParticipantEmojis(for: i),
                                     concreteStatus: concreteStatus(for: item, index: i),
                                     isFeatured: i == 0,
+                                    profileImageURL: store.friends.first(where: { $0.name == item.name })?.profileImageURL,
+                                    coordinate: store.friends.first(where: { $0.name == item.name })?.coordinate,
                                     onAvatarTap: {
                                         if let friend = store.friends.first(where: { $0.name == item.name }) {
                                             showFriendProfile(friend)
@@ -599,18 +763,35 @@ struct FeedView: View {
                             }
                         }
 
+                        // ── Vergangene Drops in der Nähe ──
+                        if !ghostAnnotations.isEmpty {
+                            let noActive = sortedFriendDrops.isEmpty && strangerAnnotations.isEmpty
+                            ghostSectionHeader(count: ghostAnnotations.count, noActive: noActive)
+                            ForEach(ghostAnnotations) { item in
+                                GhostDropFeedCard(item: item, onCardTap: {
+                                    store.focusedDropCoordinate = item.coordinate
+                                    withAnimation { store.selectedTab = .map }
+                                })
+                                .id(item.id)
+                                .padding(.bottom, 8)
+                            }
+                        }
+
                         // ── Leer-State ──
                         // Boost-Bonus wird direkt im EmptyState als kleine
                         // Capsule angezeigt (statt früher separater
                         // BoostBanner-Sektion). So gibt es eine einzige,
                         // konsistente Botschaft: "Sei der erste — und du
                         // bekommst +15 Bonus dafür".
-                        if sortedFriendDrops.isEmpty && strangerAnnotations.isEmpty {
+                        // Empty-State nicht zeigen wenn eine eigene Runde läuft —
+                        // der Nutzer sieht seine Runde oben im Feed, zusätzlich
+                        // "Hier ist noch nichts los" ist widersprüchlich.
+                        if sortedFriendDrops.isEmpty && strangerAnnotations.isEmpty
+                            && ghostAnnotations.isEmpty && store.activeDrops.isEmpty {
                             DropsEmptyState(
                                 onCreateTap: { store.selectedTab = .create },
                                 boostActive: store.isBoostPhaseActive,
-                                boostBonus: store.currentBoostBonus,
-                                isPowerHour: store.isPowerHourActive
+                                boostBonus: store.currentBoostBonus
                             )
                                 .padding(.top, 48)
                         }
@@ -623,8 +804,21 @@ struct FeedView: View {
                     }
                     .padding(.top, 8)
                 }
+                .onScrollGeometryChange(for: Bool.self) { geo in
+                    // Chip faded ein, sobald das Inline-Logo weggescrollt
+                    // ist (Logo-Höhe + top-Padding). Das iOS-Standard-
+                    // Pattern bei UINavigationBar.scrollEdgeAppearance —
+                    // kurzer Overlap mit der noch halb sichtbaren Hero
+                    // ist OK, der Compact-Chip ist dezent genug.
+                    geo.contentOffset.y > 50
+                } action: { _, newValue in
+                    feedIsScrolled = newValue
+                }
+                .scrollAdaptiveDazuHeader(isScrolled: feedIsScrolled)
             }
-            .navigationTitle(tr("feed.title"))
+            .navigationTitle("")
+            .navigationBarHidden(true)
+            .toolbarBackground(.hidden, for: .navigationBar)
             .sheet(item: $profileParticipant) { p in
                 if #available(iOS 16.4, *) {
                     MiniProfileSheet(
@@ -643,12 +837,12 @@ struct FeedView: View {
                         // sonst blieben subtitle/accent/canBlock vom vorherigen
                         // Sheet-User stehen wenn der nächste geöffnet wird.
                         profileParticipant = nil
-                        profileSubtitle    = tr("feed.user_label")
+                        profileSubtitle    = ""
                         profileAccent      = Color.auroraViolet
                         profileCanBlock    = false
                     }
                         .environmentObject(store)
-                        .presentationDetents([.medium])
+                        .presentationDetents([.fraction(0.5)])
                         .presentationDragIndicator(.hidden)
                         .modifier(AvailabilityPresentationBackground())
                 }
@@ -660,52 +854,90 @@ struct FeedView: View {
 
     @ViewBuilder
     private func friendsSectionHeader(count: Int) -> some View {
-        HStack(spacing: 10) {
-            HStack(spacing: 7) {
-                Image(systemName: "person.2.fill")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(.brand)
-                Text(tr("feed.friends_nearby"))
-                    .font(.system(size: 17, weight: .bold))
-                    .foregroundColor(.textPrimary)
+        VStack(alignment: .leading, spacing: 8) {
+            Text("\(tr("feed.friends_header_caps")) · \(count)")
+                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .tracking(1.4)
+                .foregroundColor(.brandViolet.opacity(0.65))
+            HStack(alignment: .center) {
+                Text(tr("feed.nearby"))
+                    .font(.system(size: 26, weight: .bold, design: .rounded))
+                    .foregroundColor(.brandNight)
+                Spacer()
+                Text("≤ \(Int(store.radiusFilter))m")
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundColor(.brandNight.opacity(0.5))
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .background(Capsule().fill(Color.brandLavender.opacity(0.6)))
             }
-            Text("\(count)")
-                .font(.system(size: 12, weight: .bold))
-                .foregroundColor(.brandInverse)
-                .padding(.horizontal, 8).padding(.vertical, 3)
-                .background(Color.brand)
-                .cornerRadius(8)
-            Spacer()
-            Text("≤ \(Int(store.radiusFilter))m")
-                .font(.system(size: 11))
-                .foregroundColor(.textTertiary)
         }
-        .padding(.horizontal, 16).padding(.top, 20).padding(.bottom, 10)
+        .padding(.horizontal, 24).padding(.top, 28).padding(.bottom, 12)
     }
 
     @ViewBuilder
     private func strangerSectionHeader(count: Int) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: "dot.radiowaves.left.and.right")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(.textTertiary)
-            Text(tr("feed.public_drops"))
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(.textTertiary)
-            Text("\(count)")
-                .font(.system(size: 10, weight: .bold))
-                .foregroundColor(.textTertiary)
-                .padding(.horizontal, 5).padding(.vertical, 1)
-                .background(Color(UIColor.systemGray5))
-                .cornerRadius(5)
-            Spacer()
+        VStack(alignment: .leading, spacing: 8) {
+            Text("\(tr("feed.public_header_caps")) · \(count)")
+                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .tracking(1.4)
+                .foregroundColor(.brandViolet.opacity(0.65))
+            Text(tr("feed.all_rounds"))
+                .font(.system(size: 26, weight: .bold, design: .rounded))
+                .foregroundColor(.brandNight)
         }
-        .padding(.horizontal, 16).padding(.top, 22).padding(.bottom, 6)
+        .padding(.horizontal, 24).padding(.top, 32).padding(.bottom, 12)
+    }
+
+    @ViewBuilder
+    private func ghostSectionHeader(count: Int, noActive: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if noActive {
+                // Info-Banner: keine aktiven Drops gerade
+                HStack(alignment: .top, spacing: 12) {
+                    DazuIcon("moon.fill")
+                        .font(.system(size: 22))
+                        .foregroundColor(.brandViolet)
+                        .padding(.top, 1)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(tr("feed.no_active_drops_title"))
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.textPrimary)
+                        Text(tr("feed.no_active_drops_subtitle"))
+                            .font(.system(size: 12))
+                            .foregroundColor(.textSecondary)
+                            .lineLimit(2)
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .liquidGlass(cornerRadius: 13)
+                .padding(.horizontal, 14)
+            }
+
+            // Section-Label: "VERGANGENE DROPS · n"
+            HStack(spacing: 5) {
+                Text(tr("feed.past_drops").uppercased())
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.textTertiary)
+                    .tracking(0.5)
+                Text("·")
+                    .font(.system(size: 11))
+                    .foregroundColor(.textTertiary)
+                Text("\(count)")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(.textTertiary)
+                Spacer()
+            }
+            .padding(.horizontal, 18)
+        }
+        .padding(.top, noActive ? 16 : 20)
+        .padding(.bottom, 6)
     }
 
     private var offlineFriendsHeader: some View {
         HStack(spacing: 6) {
-            Image(systemName: "moon.fill")
+            DazuIcon("moon.fill", accent: false)
                 .font(.system(size: 11))
                 .foregroundColor(.textTertiary)
             Text(tr("feed.unavailable"))
@@ -737,169 +969,128 @@ struct FriendDropCard: View {
     let extraEmojis: [String]
     let concreteStatus: String
     let isFeatured: Bool
+    /// Profilbild-URL des Hosts, wenn vorhanden. Wird im großen Avatar oben
+    /// rechts angezeigt; Fallback ist das dazu-Profil-Icon.
+    var profileImageURL: String? = nil
+    /// Koordinate des Freundes-Drops für das Mini-Karten-Tile. nil → kein
+    /// Snapshot (zeigt dann nur die bestehenden Meta-Chips).
+    var coordinate: CLLocationCoordinate2D? = nil
     var onAvatarTap: (() -> Void)? = nil
     var onCardTap: (() -> Void)? = nil
 
     @State private var joined = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-
-            // Featured-Badge (nur erste Card)
-            if isFeatured {
-                HStack(spacing: 5) {
-                    Image(systemName: "flame.fill")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(.accentOrange)
-                    Text(tr("feed.popular_nearby"))
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundColor(.accentOrange)
-                    Spacer()
-                }
-                .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 6)
-            }
-
-            HStack(alignment: .top, spacing: 12) {
-                // Avatar — tappbar für Mini-Profil
+        VStack(alignment: .leading, spacing: 14) {
+            // ── Hero-Kopf: großer Avatar links + Name/Status + Aktivität ──
+            HStack(alignment: .top, spacing: 14) {
                 Button { onAvatarTap?() } label: {
-                    AvatarBadge(emoji: item.emoji, size: 44, isAvailable: true)
-                }
-                .buttonStyle(.plain)
-                .padding(.top, isFeatured ? 0 : 10)
-
-                VStack(alignment: .leading, spacing: 0) {
-                    // Name + Status-Badge
-                    HStack(spacing: 7) {
-                        Text(item.name)
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundColor(.textPrimary)
-                        statusBadge
-                    }
-                    .padding(.top, isFeatured ? 0 : 10)
-
-                    // Ort – prominent
-                    HStack(spacing: 5) {
-                        Image(systemName: "location.fill")
-                            .font(.system(size: 10))
-                            .foregroundColor(.brand)
-                        Text(item.place)
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundColor(.textPrimary)
-                        Text("·")
-                            .foregroundColor(.textTertiary)
-                        Text(item.activity)
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(.brand)
-                    }
-                    .padding(.top, 4)
-
-                    // Social Proof + Distanz
-                    HStack(spacing: 10) {
-                        if participantCount > 0 || !extraEmojis.isEmpty {
-                            participantRow
-                        }
-                        Spacer()
-                        HStack(spacing: 4) {
-                            Image(systemName: "figure.walk")
-                                .font(.system(size: 10)).foregroundColor(.textTertiary)
-                            Text("\(item.eta) · \(item.dist)")
-                                .font(.system(size: 11)).foregroundColor(.textSecondary)
-                        }
-                    }
-                    .padding(.top, 6)
-
-                    // CTA Button
-                    Button(action: { withAnimation(.spring(response: 0.3)) { joined = true } }) {
-                        HStack(spacing: 6) {
-                            if joined {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .font(.system(size: 13, weight: .bold))
-                                Text(tr("feed.im_in"))
-                                    .font(.system(size: 13, weight: .bold))
+                    ZStack(alignment: .bottomTrailing) {
+                        Group {
+                            if let url = profileImageURL, !url.isEmpty {
+                                RemoteProfileImage(url: url, fallbackEmoji: item.emoji,
+                                                   size: 64, strokeColor: .clear)
                             } else {
-                                Image(systemName: "arrow.right.circle.fill")
-                                    .font(.system(size: 13, weight: .bold))
-                                Text(tr("feed.join_now"))
-                                    .font(.system(size: 13, weight: .bold))
+                                ZStack {
+                                    Circle().fill(Color.brandLavender)
+                                        .frame(width: 64, height: 64)
+                                    DazuProfileIcon(size: 38)
+                                }
                             }
                         }
-                        .foregroundColor(joined ? .onlineGreen : .brandInverse)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 9)
-                        .background(
-                            joined ? Color.onlineGreen.opacity(0.12) : Color.brand,
-                            in: RoundedRectangle(cornerRadius: Radius.card)
-                        )
-                        .overlay(
-                            joined ? RoundedRectangle(cornerRadius: Radius.card)
-                                .stroke(Color.onlineGreen.opacity(0.5), lineWidth: 1) : nil
-                        )
-                        .shadow(color: joined ? .clear : Color.brand.opacity(0.25), radius: 4, y: 2)
+                        .overlay(Circle().stroke(Color.brandLavender, lineWidth: 2))
+                        // Live-Puls als kleiner Dot unten rechts.
+                        Circle().fill(Color.brandOrange)
+                            .frame(width: 14, height: 14)
+                            .overlay(Circle().stroke(Color.brandCream, lineWidth: 2))
                     }
-                    .buttonStyle(.plain)
-                    .disabled(joined)
-                    .padding(.top, 8)
-                    .padding(.bottom, 10)
+                }
+                .dropsPressable()
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Text(item.name)
+                            .font(.system(size: 18, weight: .bold, design: .rounded))
+                            .foregroundColor(.brandNight)
+                            .lineLimit(1)
+                        if isFeatured {
+                            DazuIcon("flame.fill")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundColor(.brandOrange)
+                        }
+                    }
+                    // Aktivität als Hero-Headline — das ist, was den Nutzer
+                    // dazu bringt zu tappen.
+                    Text(item.activity)
+                        .font(.system(size: 24, weight: .heavy, design: .rounded))
+                        .foregroundColor(.brandViolet)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                if let coord = coordinate {
+                    MiniMapSnapshot(coordinate: coord,
+                                    size: CGSize(width: 68, height: 68),
+                                    cornerRadius: 14)
                 }
             }
-            .padding(.horizontal, 12)
+
+            // ── Meta-Row: Ort · ETA · Teilnehmer-Count ───────────────────
+            HStack(spacing: 10) {
+                metaChip(icon: "mappin.and.ellipse", text: item.place)
+                metaChip(icon: "figure.walk", text: "\(item.eta) · \(item.dist)")
+                if participantCount > 0 || !extraEmojis.isEmpty {
+                    let count = max(participantCount, extraEmojis.count)
+                    metaChip(icon: "person.2.fill",
+                             text: count == 1 ? "1 dabei" : "\(count) dabei")
+                }
+            }
+
+            // ── Großer flacher CTA ──────────────────────────────────────
+            Button(action: { withAnimation(.spring(response: 0.3)) { joined = true } }) {
+                HStack(spacing: 8) {
+                    if joined {
+                        DazuIcon("checkmark.circle.fill")
+                            .font(.system(size: 15, weight: .bold))
+                        Text(tr("feed.im_in"))
+                    } else {
+                        Text(tr("feed.come_join"))
+                        DazuIcon("arrow.right")
+                            .font(.system(size: 13, weight: .heavy))
+                    }
+                }
+                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .foregroundColor(joined ? .brandViolet : .white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 15)
+                .background(
+                    Capsule().fill(joined ? Color.brandLavender : Color.brandViolet)
+                )
+            }
+            .dropsPressable()
+            .disabled(joined)
         }
-        .liquidGlass(cornerRadius: 18)
-        .padding(.horizontal, 14).padding(.bottom, 8)
+        .padding(18)
+        .liquidGlass(cornerRadius: 24)
+        .padding(.horizontal, 14).padding(.bottom, 10)
         .contentShape(Rectangle())
         .onTapGesture { onCardTap?() }
     }
 
-    // MARK: - Status Badge
-
-    private var statusBadge: some View {
-        HStack(spacing: 4) {
-            Image(systemName: status.icon)
-                .font(.system(size: 8, weight: .bold))
-                .foregroundColor(status.color)
-            Text(status.label)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(status.color)
+    /// Kleiner Lavendel-Chip für Meta-Infos (Ort, ETA, Teilnehmer).
+    @ViewBuilder
+    private func metaChip(icon: String, text: String) -> some View {
+        HStack(spacing: 5) {
+            DazuIcon(icon)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(.brandViolet)
+            Text(text)
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .foregroundColor(.brandNight.opacity(0.75))
+                .lineLimit(1)
         }
-        .padding(.horizontal, 8).padding(.vertical, 3)
-        .background(status.color.opacity(0.12))
-        .cornerRadius(8)
-    }
-
-    // MARK: - Participant Row
-
-    private var participantRow: some View {
-        HStack(spacing: -6) {
-            // Host-Kreis
-            Circle()
-                .fill(Color.brand.opacity(0.18))
-                .frame(width: 22, height: 22)
-                .overlay(Text(item.emoji).font(.system(size: 11)))
-                .zIndex(Double(extraEmojis.count + 1))
-
-            // Extra-Teilnehmer
-            ForEach(Array(extraEmojis.prefix(2).enumerated()), id: \.offset) { j, emoji in
-                Circle()
-                    .fill(Color.brand.opacity(0.12))
-                    .frame(width: 22, height: 22)
-                    .overlay(Text(emoji).font(.system(size: 11)))
-                    .zIndex(Double(extraEmojis.count - j))
-            }
-
-            Text(participantCountLabel)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(.textSecondary)
-                .padding(.leading, 10)
-        }
-    }
-
-    private var participantCountLabel: String {
-        let total = participantCount
-        if total == 0 && extraEmojis.isEmpty { return "" }
-        let count = max(total, extraEmojis.count)
-        return count == 1
-            ? tr("feed.waiting_one")
-            : tr("feed.waiting_many").replacingOccurrences(of: "{count}", with: "\(count)")
+        .padding(.horizontal, 10).padding(.vertical, 6)
+        .background(Capsule().fill(Color.brandLavender.opacity(0.6)))
     }
 }
 
@@ -911,6 +1102,17 @@ struct StrangerDropFeedCard: View {
     @State private var joined = false
     @State private var showJoinConfirm = false
     @State private var showLeaveConfirm = false
+    /// Admin-Flag: Tap auf Demo-Live-Runde → sofort beigetreten
+    /// (ohne JoinConfirmSheet). Nur für App-Store-Screenshots.
+    @AppStorage("demoAutoJoin") private var demoAutoJoin: Bool = false
+    /// Live-Joiner (aus `dropins/{firebaseDropID}`) als kleine Avatar-Row
+    /// in der Card — damit User auch ohne Pin-Tap sieht wer schon dabei ist.
+    struct JoinerPreview: Identifiable {
+        let id: String
+        let name: String
+        let url: String?
+    }
+    @State private var joinerPreviews: [JoinerPreview] = []
     var onCreatorTap: (() -> Void)? = nil
     var onCardTap: (() -> Void)? = nil
 
@@ -930,102 +1132,142 @@ struct StrangerDropFeedCard: View {
     private var alreadyJoined: Bool { store.hasJoinedDrop(dropID: item.id) }
 
     var body: some View {
-        ZStack {
-            // ── Karten-Inhalt ───────────────────────────────────────
-            HStack(alignment: .center, spacing: 14) {
-                // Emoji Badge
+        // Gleiches Layout wie MyDropFeedCard: Mini-Map füllt den ganzen
+        // Hintergrund, ein Lavender-Gradient-Film links deckend blendet
+        // nach rechts aus, damit der Pin auf der Karte sichtbar bleibt
+        // und der Text trotzdem lesbar ist.
+        let isPending = store.pendingJoinDropID == item.id
+        let isJoined = (alreadyJoined || joined) && !isPending
+        let cooldown = store.joinCooldownRemaining(dropID: item.id)
+        let inCooldown = cooldown > 0 && !isJoined && !isPending
+        // Blocked wenn der User bereits in einem anderen aktiven Drop ist
+        // ODER eine andere pending-Anfrage offen hat — sonst könnte er
+        // parallel bei mehreren Runden sitzen während die Hosts noch
+        // bestätigen.
+        let hasPendingElsewhere = store.pendingJoinDropID != nil
+            && store.pendingJoinDropID != item.id
+        let blockedByOther = (store.isInActiveDrop || hasPendingElsewhere)
+            && !isJoined && !isPending
+        let isFull = item.isFull && !isJoined && !isPending
+        return ZStack {
+            MiniMapSnapshotFill(coordinate: item.coordinate, metersSpan: 500)
+            LinearGradient(
+                colors: [
+                    Color.brandLavender,
+                    Color.brandLavender.opacity(0.9),
+                    Color.brandLavender.opacity(0.15)
+                ],
+                startPoint: .leading, endPoint: .trailing
+            )
+            HStack(alignment: .center, spacing: 12) {
                 Button {
                     onCreatorTap?()
                 } label: {
                     ZStack {
                         Circle()
-                            .fill(accentColor.opacity(0.15))
+                            .fill(Color.brandCream.opacity(0.9))
                             .frame(width: 50, height: 50)
-                        Text(item.emoji.isEmpty ? "✨" : item.emoji)
+                        DazuActivityIcon(item.emoji.isEmpty ? "✨" : item.emoji, when: item.hasActivityEmoji)
                             .font(.system(size: 24))
                     }
                 }
-                .buttonStyle(.plain)
+                .dropsPressable()
 
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 5) {
                     HStack(spacing: 6) {
-                        Text(item.activity)
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundColor(.textPrimary)
-                        // Zeitfenster-Badge
+                        // Violett + Orange-Punkt — wie der Name im Profil.
+                        (Text(item.activity).foregroundColor(.brandViolet)
+                         + Text(".").foregroundColor(.brandOrange))
+                            .font(.system(size: 16, weight: .heavy, design: .rounded))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.85)
                         let timeLabel = item.scheduledTime ?? "Jetzt"
                         let timeLabelDisplay = trScheduledTime(timeLabel)
+                        let isNow = timeLabel == "Jetzt"
+                        // "Jetzt"-Badge in Orange (dazu-Signalfarbe für Live),
+                        // alle anderen Zeiten in Violett.
+                        let badgeFg: Color = isNow ? .accentOrange : .brandViolet
+                        let badgeBg: Color = isNow ? Color.accentOrange.opacity(0.14) : Color.brandCream.opacity(0.75)
                         HStack(spacing: 3) {
-                            Image(systemName: timeLabel == "Jetzt" ? "circle.fill" : "clock.fill")
+                            DazuIcon(isNow ? "circle.fill" : "clock.fill")
                                 .font(.system(size: 7, weight: .bold))
                             Text(timeLabelDisplay)
                                 .font(.system(size: 10, weight: .semibold))
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
                         }
-                        .foregroundColor(accentColor)
+                        .foregroundColor(badgeFg)
                         .padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(accentColor.opacity(0.12))
+                        .background(badgeBg)
                         .cornerRadius(5)
+                        .fixedSize()
                     }
                     Button {
                         onCreatorTap?()
                     } label: {
-                        HStack(spacing: 5) {
-                            Text(item.name)
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundColor(.textSecondary)
+                        HStack(spacing: 6) {
+                            // Namen-Stil wie das Profil: Violett + oranger Punkt.
+                            (Text(item.name).foregroundColor(.brandViolet)
+                             + Text(".").foregroundColor(.brandOrange))
+                                .font(.system(size: 13, weight: .bold, design: .rounded))
                             if let age = item.creatorAge {
                                 Text("\(age)")
-                                    .font(.system(size: 11, weight: .semibold))
-                                    .foregroundColor(.textTertiary)
-                                    .padding(.horizontal, 5).padding(.vertical, 1)
-                                    .background(Color.primary.opacity(0.07), in: Capsule())
+                                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                                    .foregroundColor(.brandNight.opacity(0.55))
                             }
-                            // Community-Creator Badge — wenn der Host eine Community hat
                             if FeatureFlags.communitiesEnabled,
                                let uid = item.hostUID,
                                store.communityForCreator(uid: uid) != nil {
                                 CommunityCreatorBadge(community: nil, compact: true)
                             }
-                            Image(systemName: "chevron.right")
+                            DazuIcon("chevron.right")
                                 .font(.system(size: 9))
-                                .foregroundColor(.textTertiary)
+                                .foregroundColor(.brandNight.opacity(0.4))
                         }
                     }
-                    .buttonStyle(.plain)
+                    .dropsPressable()
                     HStack(spacing: 5) {
-                        Image(systemName: "figure.walk")
-                            .font(.system(size: 11)).foregroundColor(.textSecondary)
-                        Text("\(store.etaString(to: item.coordinate)) · \(store.distanceString(to: item.coordinate))")
-                            .font(.system(size: 12)).foregroundColor(.textSecondary)
-                        Text("·").foregroundColor(.textTertiary).font(.system(size: 12))
-                        Image(systemName: "person.2.fill")
-                            .font(.system(size: 10)).foregroundColor(.textSecondary)
-                        Text("\(item.participants.count) / \(item.maxParticipants)")
+                        DazuIcon("figure.walk")
+                            .font(.system(size: 10)).foregroundColor(.brandNight.opacity(0.7))
+                        Text(store.etaString(to: item.coordinate))
+                            .font(.system(size: 12)).foregroundColor(.brandNight.opacity(0.75))
+                        Text("·").foregroundColor(.brandNight.opacity(0.4)).font(.system(size: 12))
+                        // Mini-Avatar-Stack der bereits beigetretenen Joiner
+                        // (aus `dropins/{firebaseDropID}`) — statt dem
+                        // generischen Personen-Icon.
+                        if !joinerPreviews.isEmpty {
+                            HStack(spacing: -6) {
+                                ForEach(joinerPreviews.prefix(3)) { j in
+                                    Group {
+                                        if let u = j.url, !u.isEmpty {
+                                            RemoteProfileImage(url: u, fallbackEmoji: "",
+                                                               size: 20, strokeColor: Color.brandLavender)
+                                        } else {
+                                            // Fallback: Initialen-Monogramm wenn URL fehlt.
+                                            let letter = String(j.name.prefix(1)).uppercased()
+                                            ZStack {
+                                                Circle().fill(Color.brandViolet.opacity(0.85))
+                                                    .frame(width: 20, height: 20)
+                                                Text(letter)
+                                                    .font(.system(size: 10, weight: .heavy, design: .rounded))
+                                                    .foregroundColor(.white)
+                                            }
+                                        }
+                                    }
+                                    .overlay(Circle().stroke(Color.brandLavender, lineWidth: 1.5))
+                                }
+                            }
+                        } else {
+                            DazuIcon("person.2.fill")
+                                .font(.system(size: 10)).foregroundColor(.brandNight.opacity(0.7))
+                        }
+                        Text("\(item.effectiveParticipantCount) / \(item.maxParticipants)")
                             .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(item.isFull ? .accentRed : .textSecondary)
+                            .foregroundColor(item.isFull ? .accentRed : .brandNight.opacity(0.75))
                     }
                 }
 
-                Spacer()
-
-                // Pending: Anfrage rausgegangen, Host hat noch nicht reagiert.
-                // Wichtig: vor `isJoined` prüfen, weil hasJoinedDrop auch
-                // pending als "joined" zählt — ohne diese Trennung würde der
-                // Joiner sofort "Bin dabei!" sehen, bevor der Host bestätigt.
-                let isPending = store.pendingJoinDropID == item.id
-                let isJoined = (alreadyJoined || joined) && !isPending
-                let cooldown = store.joinCooldownRemaining(dropID: item.id)
-                let inCooldown = cooldown > 0 && !isJoined && !isPending
-                // Blocked: User ist in EINEM ANDEREN Drop drin und kann
-                // diesem nicht beitreten. Vorher: Button war aktiv, Tap
-                // führte zu silent-fail im Store (sendJoinRequest blockt).
-                // User dachte „der Button geht nicht".
-                let blockedByOther = store.isInActiveDrop && !isJoined && !isPending
-                // Voll: Drop hat sein Teilnehmer-Limit erreicht. Auf der
-                // Karte wird der Pin in dem Fall ausgeblendet, hier im
-                // Umgebungstab bleibt er sichtbar — aber der Button
-                // wird zu „Voll" und ist deaktiviert.
-                let isFull = item.isFull && !isJoined && !isPending
+                Spacer(minLength: 6)
 
                 Button(action: {
                         // Statt silent-fail bei deaktiviertem Button:
@@ -1060,6 +1302,67 @@ struct StrangerDropFeedCard: View {
                         } else if isJoined {
                             // Bereits dabei → Verlassen bestätigen
                             showLeaveConfirm = true
+                        } else if demoAutoJoin,
+                                  let fbid = item.firebaseDropID,
+                                  fbid.hasPrefix("demolive_") {
+                            // Demo-Autojoin für App-Store-Screenshots: Compose-
+                            // Sheet + Pending-State komplett überspringen.
+                            // Schreibt direkt den dropin in Firebase, setzt den
+                            // visuellen Status auf „bereits dabei".
+                            let myUID = Auth.auth().currentUser?.uid ?? "demo_self"
+                            let payload: [String: Any] = [
+                                "name": store.currentUser.name,
+                                "emoji": store.currentUser.emoji,
+                                "lat": store.currentUser.coordinate.latitude,
+                                "lng": store.currentUser.coordinate.longitude,
+                                "locTime": Date().timeIntervalSince1970 * 1000,
+                                "timestamp": Date().timeIntervalSince1970 * 1000,
+                                "profileImageURL": store.profileImageURL ?? ""
+                            ]
+                            let ref = Database.database().reference()
+                                .child("dropins").child(fbid)
+                            ref.child(myUID).setValue(payload)
+
+                            // Für Demo-Screenshots garantiert ein paar Mock-
+                            // Joiner mitschreiben falls die seedLive-Dropins
+                            // fehlen. Idempotent — überschreibt pro Mock-ID.
+                            let mockFallback: [(id: String, name: String, age: Int)] = [
+                                ("mock_sophie", "Sophie", 27),
+                                ("mock_leo",    "Leo",    28),
+                                ("mock_jana",   "Jana",   26)
+                            ]
+                            let baseLat = item.coordinate.latitude
+                            let baseLng = item.coordinate.longitude
+                            for (idx, m) in mockFallback.enumerated() {
+                                let p: [String: Any] = [
+                                    "name":  m.name,
+                                    "emoji": "🙂",
+                                    "age":   m.age,
+                                    "lat":   baseLat + Double.random(in: -0.002...0.002),
+                                    "lng":   baseLng + Double.random(in: -0.002...0.002),
+                                    "timestamp": Date().timeIntervalSince1970 * 1000 - Double(idx * 90_000),
+                                    "profileImageURL": "",
+                                    "reliabilityPoints": Int.random(in: 200...400)
+                                ]
+                                ref.child(m.id).setValue(p)
+                            }
+
+                            store.activeJoinedDropID = item.id
+                            // Für die Live-Ansicht: Mock-Joiners direkt in
+                            // item.participants reinschreiben (statt zu
+                            // hoffen dass Firebase-Observe sie liefert).
+                            // Plus Dauer-Override auf 2 Std.
+                            var liveItem = item
+                            liveItem.durationMinutes = 120
+                            liveItem.createdAt = Date()
+                            liveItem.participants = [
+                                DropParticipant(name: "Sophie", emoji: "", reliabilityScore: 320, reliabilityCommits: 0),
+                                DropParticipant(name: "Leo",    emoji: "", reliabilityScore: 265, reliabilityCommits: 0),
+                                DropParticipant(name: "Jana",   emoji: "", reliabilityScore: 410, reliabilityCommits: 0)
+                            ]
+                            store.activeDropAnnotation = liveItem
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) { joined = true }
+                            store.selectedTab = .create
                         } else {
                             // ÖFFNET das Compose-Sheet — schickt NICHT direkt.
                             showJoinConfirm = true
@@ -1081,13 +1384,15 @@ struct StrangerDropFeedCard: View {
                             isFull: isFull
                         )
                         .foregroundColor(colors.fg)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
                         .padding(.horizontal, 12).padding(.vertical, 8)
                         .background(colors.bg)
                         .cornerRadius(Radius.md)
                         .overlay(RoundedRectangle(cornerRadius: Radius.md)
                             .stroke(colors.stroke, lineWidth: 0.8))
                     }
-                    .buttonStyle(.plain)
+                    .dropsPressable()
                     // Kein `.disabled(...)` mehr — wir wollen den Tap
                     // bewusst durchlassen, um im Action-Closure einen
                     // erklärenden Toast zu zeigen (Cooldown / Voll /
@@ -1125,12 +1430,35 @@ struct StrangerDropFeedCard: View {
                         .sheetBackground()
                     }
             }
-            .padding(.horizontal, 14).padding(.vertical, 14)
-            .liquidGlass(cornerRadius: Radius.lg)
+            .padding(.horizontal, 14).padding(.vertical, 12)
         }
+        .frame(minHeight: 92)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color.brand.opacity(0.22), lineWidth: 1)
+        )
         .padding(.horizontal, 14).padding(.bottom, 10)
         .contentShape(Rectangle())
         .onTapGesture { onCardTap?() }
+        .onAppear {
+            // Live-Joiner (Name + optional URL) aus `dropins/{fbid}`.
+            // Avatar fällt auf Initialen-Monogramm zurück wenn URL fehlt.
+            guard joinerPreviews.isEmpty,
+                  let fbid = item.firebaseDropID else { return }
+            Database.database().reference()
+                .child("dropins").child(fbid)
+                .observeSingleEvent(of: .value) { snap in
+                    var list: [JoinerPreview] = []
+                    for case let child as DataSnapshot in snap.children {
+                        guard let dict = child.value as? [String: Any] else { continue }
+                        let name = dict["name"] as? String ?? "?"
+                        let url  = dict["profileImageURL"] as? String
+                        list.append(JoinerPreview(id: child.key, name: name, url: url))
+                    }
+                    DispatchQueue.main.async { self.joinerPreviews = list }
+                }
+        }
         // Beitritts-Compose + Bestätigung
         .sheet(isPresented: $showJoinConfirm) {
             JoinConfirmSheet(item: item) {
@@ -1152,24 +1480,25 @@ struct StrangerDropFeedCard: View {
         blockedByOther: Bool, inCooldown: Bool,
         isPending: Bool, isJoined: Bool, isFull: Bool
     ) -> (fg: Color, bg: Color, stroke: Color) {
+        // Vorher: alle Buttons mit opacity(0.10) als BG — auf dem neuen
+        // Lavender-Film-Kartenlayout kaum lesbar. Jetzt solide Buttons mit
+        // weißem/dunklem Text für klaren Kontrast.
         if isFull {
-            // Rot — signalisiert „nicht beitretbar weil voll" (klar
-            // unterscheidbar von neutral-grau wie blocked/cooldown).
-            return (.accentRed, Color.accentRed.opacity(0.10), Color.accentRed.opacity(0.25))
+            return (.white, Color.accentRed, Color.clear)
         }
         if blockedByOther {
-            return (.textTertiary, Color.primary.opacity(0.05), Color.primary.opacity(0.10))
+            return (.brandNight.opacity(0.6), Color.brandCream.opacity(0.9), Color.brandNight.opacity(0.12))
         }
         if inCooldown {
-            return (.textTertiary, Color.primary.opacity(0.05), Color.primary.opacity(0.10))
+            return (.brandNight.opacity(0.6), Color.brandCream.opacity(0.9), Color.brandNight.opacity(0.12))
         }
         if isPending {
-            return (.accentOrange, Color.accentOrange.opacity(0.10), Color.accentOrange.opacity(0.30))
+            return (.white, Color.accentOrange, Color.clear)
         }
         if isJoined {
-            return (.onlineGreen, Color.onlineGreen.opacity(0.10), Color.onlineGreen.opacity(0.30))
+            return (.white, Color.onlineGreen, Color.clear)
         }
-        return (accentColor, accentColor.opacity(0.10), accentColor.opacity(0.20))
+        return (Color.brandCream, Color.brandViolet, Color.clear)
     }
 
     /// Label für den Join-Button — extrahiert damit der SwiftUI-Compiler
@@ -1183,28 +1512,225 @@ struct StrangerDropFeedCard: View {
                                      isFull: Bool) -> some View {
         HStack(spacing: 4) {
             if isFull {
-                Image(systemName: "person.fill.xmark").font(.system(size: 10, weight: .medium))
+                DazuIcon("person.fill.xmark", accent: false).font(.system(size: 10, weight: .medium))
                 Text(tr("feed.full"))
                     .font(.system(size: 12, weight: .semibold))
             } else if blockedByOther {
-                Image(systemName: "lock.fill").font(.system(size: 10))
+                DazuIcon("lock.fill", accent: false).font(.system(size: 10))
                 Text(tr("feed.in_drop"))
                     .font(.system(size: 12, weight: .semibold))
             } else if inCooldown {
-                Image(systemName: "clock").font(.system(size: 10, weight: .medium))
+                DazuIcon("clock").font(.system(size: 10, weight: .medium))
                 Text("\(cooldownMin) \(tr("map.min_short"))")
                     .font(.system(size: 12, weight: .semibold))
             } else if isPending {
-                Image(systemName: "hourglass").font(.system(size: 10, weight: .medium))
+                DazuIcon("hourglass").font(.system(size: 10, weight: .medium))
                 Text(tr("feed.pending"))
                     .font(.system(size: 12, weight: .semibold))
             } else if isJoined {
-                Image(systemName: "checkmark").font(.system(size: 10, weight: .bold))
+                DazuIcon("checkmark").font(.system(size: 10, weight: .bold))
                 Text(tr("feed.im_in"))
                     .font(.system(size: 12, weight: .semibold))
             } else {
                 Text(tr("feed.im_coming"))
                     .font(.system(size: 12, weight: .semibold))
+            }
+        }
+    }
+}
+
+// MARK: - My Drop Feed Card
+
+struct MyDropFeedCard: View {
+    let drop: DropEvent
+    var onCardTap: (() -> Void)? = nil
+
+    private var timeRemainingText: String {
+        let remaining = drop.expiresAt.timeIntervalSinceNow
+        guard remaining > 0 else { return tr("feed.mydrop_ended") }
+        let mins = Int(remaining / 60)
+        if mins < 60 { return "\(mins) min" }
+        return "\(mins / 60)h \(mins % 60)m"
+    }
+
+    private var joinedCount: Int { drop.participants.count }
+
+    var body: some View {
+        Button { onCardTap?() } label: {
+            // Map-Hintergrund füllt die ganze Card; Content liegt mit
+            // Lavendel-Gradient-Film drüber damit alles lesbar bleibt.
+            ZStack {
+                MiniMapSnapshotFill(coordinate: drop.location.coordinate,
+                                    metersSpan: 500)
+                // Links-nach-rechts Lavendel-Film: links deckend für den
+                // Text, rechts fast transparent damit die Karte sichtbar
+                // bleibt und der Pin durchkommt.
+                LinearGradient(
+                    colors: [
+                        Color.brandLavender,
+                        Color.brandLavender.opacity(0.85),
+                        Color.brandLavender.opacity(0.05)
+                    ],
+                    startPoint: .leading, endPoint: .trailing
+                )
+                HStack(alignment: .center, spacing: 14) {
+                    ZStack {
+                        Circle()
+                            .fill(Color.brandCream.opacity(0.9))
+                            .frame(width: 50, height: 50)
+                        DazuActivityIcon(drop.activity.emoji)
+                            .font(.system(size: 24))
+                    }
+
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack(spacing: 6) {
+                            // Violett + Orange-Punkt — Profil-Namensstil.
+                            (Text(drop.activity.name).foregroundColor(.brandViolet)
+                             + Text(".").foregroundColor(.brandOrange))
+                                .font(.system(size: 16, weight: .heavy, design: .rounded))
+                                .lineLimit(1)
+                            Text(tr("feed.mydrop_badge"))
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundColor(.brandViolet)
+                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(Color.brandCream.opacity(0.75))
+                                .cornerRadius(5)
+                        }
+                        HStack(spacing: 5) {
+                            DazuIcon("person.2.fill")
+                                .font(.system(size: 10)).foregroundColor(.brandNight.opacity(0.7))
+                            Text("\(joinedCount) / \(drop.maxParticipants)")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(.brandNight.opacity(0.75))
+                            Text("·").foregroundColor(.brandNight.opacity(0.4)).font(.system(size: 12))
+                            DazuIcon("clock.fill")
+                                .font(.system(size: 10)).foregroundColor(.brandNight.opacity(0.7))
+                            Text(timeRemainingText)
+                                .font(.system(size: 12)).foregroundColor(.brandNight.opacity(0.75))
+                        }
+                    }
+
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 16).padding(.vertical, 14)
+            }
+            .frame(height: 86)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(Color.brand.opacity(0.25), lineWidth: 1)
+            )
+        }
+        .dropsPressable()
+    }
+}
+
+// MARK: - Ghost Drop Feed Card
+
+struct GhostDropFeedCard: View {
+    let item: MapAnnotationItem
+    @EnvironmentObject var store: AppStore
+    var onCardTap: (() -> Void)? = nil
+
+    @State private var resolvedAddress: String? = nil
+
+    private var endedAgoText: String {
+        guard let ended = item.endedAt else { return "" }
+        let minutes = Int(-ended.timeIntervalSinceNow / 60)
+        if minutes < 60 { return "\(minutes)m" }
+        let hours = minutes / 60
+        if hours < 24 { return "\(hours)h" }
+        return "\(hours / 24)d"
+    }
+
+    var body: some View {
+        Button { onCardTap?() } label: {
+            HStack(alignment: .center, spacing: 14) {
+                // Emoji-Kreis — Lavendel statt Grau, matcht Dazu-Palette
+                ZStack {
+                    Circle()
+                        .fill(Color.brandLavender.opacity(0.6))
+                        .frame(width: 54, height: 54)
+                    DazuActivityIcon(item.emoji.isEmpty ? "👻" : item.emoji, when: item.hasActivityEmoji)
+                        .font(.system(size: 26))
+                        .opacity(0.85)
+                }
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(item.activity)
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .foregroundColor(.brandNight)
+
+                    // Host-Name + Alter (immer sichtbar)
+                    HStack(spacing: 4) {
+                        Text(item.name)
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .foregroundColor(.brandNight.opacity(0.6))
+                            .lineLimit(1)
+                        if let age = item.creatorAge {
+                            Text("·")
+                                .font(.system(size: 12))
+                                .foregroundColor(.brandNight.opacity(0.4))
+                            Text("\(age)")
+                                .font(.system(size: 13, weight: .medium, design: .rounded))
+                                .foregroundColor(.brandNight.opacity(0.5))
+                        }
+                    }
+
+                    // Venue oder Adresse + Distanz
+                    HStack(spacing: 4) {
+                        if !item.locationTitle.isEmpty {
+                            DazuIcon("mappin", accent: false)
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundColor(.textTertiary)
+                            Text(item.locationTitle)
+                                .font(.system(size: 12))
+                                .foregroundColor(.textTertiary)
+                                .lineLimit(1)
+                        } else if let addr = resolvedAddress {
+                            Text(addr)
+                                .font(.system(size: 12))
+                                .foregroundColor(.textTertiary)
+                                .lineLimit(1)
+                        }
+                        if !item.locationTitle.isEmpty || resolvedAddress != nil {
+                            Text("·")
+                                .font(.system(size: 12))
+                                .foregroundColor(.textTertiary)
+                        }
+                        Text(store.distanceString(to: item.coordinate))
+                            .font(.system(size: 12))
+                            .foregroundColor(.textTertiary)
+                    }
+                }
+
+                Spacer()
+
+                // Zeitstempel rechts
+                if !endedAgoText.isEmpty {
+                    VStack(spacing: 2) {
+                        DazuIcon("clock")
+                            .font(.system(size: 11))
+                            .foregroundColor(.textTertiary)
+                        Text(endedAgoText)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.textTertiary)
+                    }
+                }
+            }
+            .padding(.horizontal, 14).padding(.vertical, 11)
+            .liquidGlass(cornerRadius: 14)
+            .padding(.horizontal, 14)
+        }
+        .dropsPressable()
+        .task(id: item.id) {
+            let loc = CLLocation(latitude: item.coordinate.latitude, longitude: item.coordinate.longitude)
+            CLGeocoder().reverseGeocodeLocation(loc) { placemarks, _ in
+                guard let p = placemarks?.first else { return }
+                let street = [p.thoroughfare, p.subThoroughfare]
+                    .compactMap { $0 }.joined(separator: " ")
+                guard !street.isEmpty else { return }
+                DispatchQueue.main.async { resolvedAddress = street }
             }
         }
     }
@@ -1241,7 +1767,7 @@ struct JoinConfirmSheet: View {
         if activity.contains("bier") || activity.contains("drink")
             || activity.contains("bar") || activity.contains("cocktail")
             || activity.contains("party") {
-            return ["Bin in 10 Min da 🍻",
+            return ["Bin in 10 Min da",
                     "Erste Runde geht auf mich!",
                     "Hab Bock auf den Abend",
                     "Freu mich!"]
@@ -1335,7 +1861,7 @@ struct JoinConfirmSheet: View {
                 Circle()
                     .fill(Color.auroraViolet.opacity(0.12))
                     .frame(width: 64, height: 64)
-                Text(item.emoji)
+                DazuActivityIcon(item.emoji, when: item.hasActivityEmoji)
                     .font(.system(size: 30))
             }
 
@@ -1375,7 +1901,7 @@ struct JoinConfirmSheet: View {
                                     )
                                     .cornerRadius(20)
                             }
-                            .buttonStyle(.plain)
+                            .dropsPressable()
                         }
                     }
                     .padding(.horizontal, 20)
@@ -1391,7 +1917,7 @@ struct JoinConfirmSheet: View {
                 // dead-end ist.
                 VStack(spacing: 12) {
                     HStack(spacing: 10) {
-                        ProgressView().tint(.brand).scaleEffect(0.9)
+                        DazuLoader().tint(.brand).scaleEffect(0.9)
                             .tint(Color.auroraViolet)
                             .scaleEffect(0.9)
                         Text(tr("feed.notified").replacingOccurrences(of: "{name}", with: item.name))
@@ -1404,7 +1930,7 @@ struct JoinConfirmSheet: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(
                         RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
-                            .fill(.ultraThinMaterial)
+                            .fill(Color.white.opacity(0.75))
                     )
                     Text(tr("feed.close_window_msg").replacingOccurrences(of: "{name}", with: item.name))
                         .font(.system(size: 11))
@@ -1428,14 +1954,14 @@ struct JoinConfirmSheet: View {
                             .padding(.vertical, 13)
                             .background(Capsule().fill(Color.primary.opacity(0.06)))
                     }
-                    .buttonStyle(.plain)
+                    .dropsPressable()
 
                     Button { sendRequest() } label: {
                         HStack(spacing: 6) {
                             if sending {
-                                ProgressView().tint(.white)
+                                DazuLoader().tint(.white)
                             } else {
-                                Image(systemName: "paperplane.fill")
+                                DazuIcon("paperplane.fill")
                                     .font(.system(size: 13, weight: .bold))
                             }
                             Text(sending ? tr("feed.sending") : tr("feed.send"))
@@ -1450,7 +1976,7 @@ struct JoinConfirmSheet: View {
                                         radius: 10, y: 3)
                         )
                     }
-                    .buttonStyle(.plain)
+                    .dropsPressable()
                     .disabled(sending)
                 } else {
                     // Sheet bleibt offen bis User selber schließt — sonst
@@ -1464,7 +1990,7 @@ struct JoinConfirmSheet: View {
                             .padding(.vertical, 13)
                             .background(Capsule().fill(Color.primary.opacity(0.06)))
                     }
-                    .buttonStyle(.plain)
+                    .dropsPressable()
                 }
             }
             .padding(.horizontal, 20).padding(.bottom, 18)
@@ -1508,7 +2034,7 @@ struct BoostBanner: View {
                     )
                     .frame(width: 38, height: 38)
                     .shadow(color: Color.accentOrange.opacity(pulse ? 0.55 : 0.25), radius: pulse ? 14 : 6)
-                Image(systemName: "bolt.fill")
+                DazuIcon("bolt.fill")
                     .font(.system(size: 18, weight: .bold))
                     .foregroundColor(.white)
             }
@@ -1548,6 +2074,131 @@ struct BoostBanner: View {
                 pulse = true
             }
         }
+    }
+}
+
+// MARK: - Mini-Map-Snapshot
+
+/// Kleines Karten-Tile für Feed-Rows: zeigt via `MKMapSnapshotter` einen
+/// Satellit-/Standard-Ausschnitt um die Drop-Koordinate, mit orangenem Pin
+/// in der Mitte. Snapshotter rendert einmal, Ergebnis wird in `MiniMapCache`
+/// gecacht — kein lebendes `MKMapView` pro Row (teuer, Battery).
+struct MiniMapSnapshot: View {
+    let coordinate: CLLocationCoordinate2D
+    var size: CGSize = CGSize(width: 62, height: 62)
+    var cornerRadius: CGFloat = 14
+    /// Zoom-Breite in Metern (quadratisch). 400m ≈ gut lesbarer Nahbereich.
+    var metersSpan: CLLocationDistance = 500
+
+    @State private var image: UIImage? = nil
+    /// Wenn `false`, wird kein Pin über den Snapshot gelegt (für Card-Fills,
+    /// wo ein großer Pin die Karte überdeckt).
+    var showsPin: Bool = true
+
+    private var cacheKey: String {
+        // Grid auf ~11m (4 Nachkommastellen) damit minimale GPS-Jitter
+        // nicht zu Dauer-Rerenders führen.
+        let lat = (coordinate.latitude  * 10_000).rounded() / 10_000
+        let lng = (coordinate.longitude * 10_000).rounded() / 10_000
+        return "\(lat)_\(lng)_\(Int(size.width))_\(Int(metersSpan))"
+    }
+
+    /// Pin-Durchmesser: klein auf großen Flächen (sonst wird aus 26% ein
+    /// 80pt-Blob der die halbe Karte verdeckt). Max 18pt, min 10pt.
+    private var pinDiameter: CGFloat {
+        min(max(size.width * 0.22, 10), 18)
+    }
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .fill(Color.brandLavender)
+            if let img = image {
+                Image(uiImage: img)
+                    .resizable()
+                    .scaledToFill()
+            }
+            if showsPin {
+                ZStack {
+                    Circle()
+                        .fill(Color.brandOrange)
+                        .frame(width: pinDiameter, height: pinDiameter)
+                    Circle()
+                        .stroke(Color.white, lineWidth: 2)
+                        .frame(width: pinDiameter, height: pinDiameter)
+                }
+            }
+        }
+        .frame(width: size.width, height: size.height)
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .stroke(Color.brandNight.opacity(0.08), lineWidth: 1)
+        )
+        .task(id: cacheKey) { await generate() }
+    }
+
+    private func generate() async {
+        if let cached = MiniMapCache.shared.image(forKey: cacheKey) {
+            self.image = cached
+            return
+        }
+        let options = MKMapSnapshotter.Options()
+        options.region = MKCoordinateRegion(center: coordinate,
+                                            latitudinalMeters: metersSpan,
+                                            longitudinalMeters: metersSpan)
+        options.size = size
+        options.scale = UIScreen.main.scale
+        options.showsBuildings = false
+        if #available(iOS 16.0, *) {
+            options.preferredConfiguration = MKStandardMapConfiguration(
+                elevationStyle: .flat, emphasisStyle: .muted)
+        }
+        let snapshotter = MKMapSnapshotter(options: options)
+        do {
+            let snap = try await snapshotter.start()
+            await MainActor.run {
+                MiniMapCache.shared.set(snap.image, forKey: cacheKey)
+                self.image = snap.image
+            }
+        } catch {
+            // Snapshotter kann z.B. offline fehlschlagen — Lavendel-Fallback
+            // bleibt sichtbar.
+        }
+    }
+}
+
+/// Füllt die ganze Elternfläche mit einem Karten-Snapshot — für Card-
+/// Hintergründe. Nutzt denselben Cache und Snapshot-Mechanismus wie
+/// `MiniMapSnapshot`. Pin ist dezenter (nicht overlay-dominant) weil der
+/// darüberliegende Content eh das Hauptsujet ist.
+struct MiniMapSnapshotFill: View {
+    let coordinate: CLLocationCoordinate2D
+    var metersSpan: CLLocationDistance = 500
+
+    var body: some View {
+        GeometryReader { geo in
+            MiniMapSnapshot(coordinate: coordinate,
+                            size: CGSize(width: max(geo.size.width, 1),
+                                         height: max(geo.size.height, 1)),
+                            cornerRadius: 0,
+                            metersSpan: metersSpan,
+                            showsPin: false)
+        }
+    }
+}
+
+/// Prozess-weiter In-Memory-Cache für die Mini-Map-Snapshots. NSCache räumt
+/// unter Memory-Druck selbst auf.
+private final class MiniMapCache {
+    static let shared = MiniMapCache()
+    private let cache = NSCache<NSString, UIImage>()
+    init() { cache.countLimit = 128 }
+    func image(forKey key: String) -> UIImage? {
+        cache.object(forKey: key as NSString)
+    }
+    func set(_ img: UIImage, forKey key: String) {
+        cache.setObject(img, forKey: key as NSString)
     }
 }
 

@@ -2,6 +2,7 @@ import SwiftUI
 import MapKit
 import FirebaseAuth
 import FirebaseFirestore
+import FirebaseDatabase
 
 // MARK: - Map Style Helper
 
@@ -106,9 +107,9 @@ struct LiveMapView: View {
     @AppStorage("appLanguage") private var appLanguage = "de"
     /// Einmaliger Power-Hour-Hinweis nach Update. Wird auf true gesetzt
     /// sobald der User den Hinweis-Sheet einmal gesehen hat.
-    @AppStorage("hasSeenPowerHourIntro") private var hasSeenPowerHourIntro = false
+    // hasSeenPowerHourIntro entfernt — Power-Hour wurde eingestampft.
     @AppStorage("ud_presenceShareEnabled") private var presenceSharing = false
-    @State private var showPowerHourIntro = false
+    // showPowerHourIntro entfernt — Power-Hour wurde eingestampft.
     @StateObject private var locationManager = LocationManager()
     /// MKMapView-Region: ersetzt das vorherige SwiftUI MapCameraPosition.
     /// MKMapView wrapped in MapKitMapView — Drop-Pins werden nativ verwaltet,
@@ -277,19 +278,9 @@ struct LiveMapView: View {
             }
         }
 
-        // Suggested Spots aus Drop-History (non-interactive)
-        for spot in store.suggestedSpots {
-            var ann = MapAnnotationItem(
-                id: AppStore.stableUUID(from: "spot_\(spot.id)"),
-                name: spot.activityName,
-                emoji: spot.activityEmoji,
-                activity: spot.activityName,
-                coordinate: spot.coordinate,
-                type: .suggested
-            )
-            ann.suggestedSpot = spot
-            items.append(ann)
-        }
+        // Suggested-Spots aus pastDrops-Historie bewusst DEAKTIVIERT —
+        // die kleinen Icons verwirrten User ("warum sehe ich hier Ghost-
+        // Runden?"). Falls später wieder gewünscht: Loop wiederherstellen.
 
         // Community Pins
         for community in (FeatureFlags.communitiesEnabled ? store.nearbyCommunities : []) {
@@ -317,6 +308,14 @@ struct LiveMapView: View {
     }
 
     var body: some View {
+        // In NavigationStack wrappen — gleiche Safe-Area-Insets wie bei den
+        // anderen Tabs (Umgebung/Profil/Settings). Logo sitzt dadurch auf
+        // identischer Höhe.
+        NavigationStack { mapBody }
+    }
+
+    @ViewBuilder
+    private var mapBody: some View {
         ZStack {
             // Phase 1: MKMapView-Wrapper ersetzt SwiftUI Map.
             // — Drop-Pins (active + ghost) rendern als MKAnnotation, nativ verwaltet.
@@ -415,7 +414,10 @@ struct LiveMapView: View {
             // ── Eigenes Profilbild als Standort-Marker ────────────────────
             // Ersetzt den blauen UserLocation-Punkt wenn Presence-Sharing
             // aktiv ist. Rendert an echter Position (nicht gefuzzt).
-            if presenceSharing {
+            // Während einer aktiven Runde wird der Self-Marker ausgeblendet,
+            // weil der Drop-Pin bereits den Standort markiert — sonst
+            // überdeckt der Avatar die eigene Runde.
+            if presenceSharing && !store.isInActiveDrop {
                 SelfCharacterOverlay(
                     profileImageURL: store.profileImageURL,
                     fallbackEmoji: store.currentUser.emoji,
@@ -433,6 +435,13 @@ struct LiveMapView: View {
                 .onAppear  { mapViewBox.mapView?.showsUserLocation = false }
                 .onDisappear { mapViewBox.mapView?.showsUserLocation = true  }
             }
+            // Blauer System-UserLocation-Punkt zusätzlich auch während einer
+            // aktiven Runde ausblenden — der Drop-Pin markiert die Position.
+            Color.clear
+                .frame(width: 0, height: 0)
+                .onChange(of: store.isInActiveDrop) { _, inDrop in
+                    if inDrop { mapViewBox.mapView?.showsUserLocation = false }
+                }
 
             // ── Presence-Overlay (Delayed Location Sharing) ──────────────
             // Freunde als Emoji/Bild-Avatar, Fremde als anonyme graue Punkte.
@@ -469,19 +478,22 @@ struct LiveMapView: View {
             .allowsHitTesting(false)  // Map-Pinch/Pan muss durchkommen
 
             VStack {
-                // Dazu Floating Branding (links oben)
+                // Dazu-Floating-Branding (links oben). Nur die Karte hat
+                // keine Hero-Headline, deshalb hebt sich hier eine
+                // kräftige brand-lila Capsule mit cream-Wortmarke ab —
+                // klar lesbar auf jedem Map-Tile-Hintergrund.
                 HStack {
-                    DazuWordmark(color: .brandNight, dotColor: .brandOrange)
-                        .frame(height: 22)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 9)
-                        .background(Capsule().fill(Color.white.opacity(0.75)))
-                        .overlay(Capsule().stroke(Color.brandViolet.opacity(0.18), lineWidth: 0.8))
-                        .shadow(color: Color.brandViolet.opacity(0.15), radius: 6, y: 2)
+                    DazuWordmark(color: .brandCream, dotColor: .brandOrange)
+                        .frame(height: 24)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(Capsule().fill(Color.brandViolet))
+                        .overlay(Capsule().stroke(Color.white.opacity(0.25), lineWidth: 0.8))
+                        .shadow(color: Color.brandViolet.opacity(0.35), radius: 10, y: 3)
                     Spacer()
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 6)
+                .padding(.horizontal, 24)
+                .padding(.top, 16)
 
                 // ── Activity-Indikator (links oben) ──────────────────────
                 // Zeigt wie viele Drops in der gefilterten Sicht sichtbar
@@ -522,14 +534,8 @@ struct LiveMapView: View {
                 //   – ≤60 Min vor Start → "Power-Hour in 47 Min"
                 //   – ≤60 Min vor Ende eines aktiven Slots → "endet in 23 Min"
                 // Sonst nil → keine Pille.
-                TimelineView(.periodic(from: .now, by: 60)) { ctx in
-                    if let cd = AppStore.powerHourCountdown(at: ctx.date) {
-                        PowerHourCountdownPill(countdown: cd)
-                            .padding(.horizontal, 16)
-                            .padding(.top, 4)
-                            .transition(.move(edge: .top).combined(with: .opacity))
-                    }
-                }
+                // Power-Hour-Pill entfernt (Feature deaktiviert).
+                EmptyView()
 
                 Spacer()
 
@@ -543,36 +549,9 @@ struct LiveMapView: View {
                 // dem Recenter-Button (`maxWidth: .infinity` im HStack
                 // teilt sich den verfügbaren Platz gegen den Recenter).
                 HStack(alignment: .center, spacing: 10) {
-                    // Banner zeigt sich NUR während aktiver Power-Hour-Slots
-                    // (nicht dauerhaft bei Boost-Phase).
-                    if store.isPowerHourActive {
-                        Button {
-                            store.selectedTab = .create
-                        } label: {
-                            // Schmaler Single-Line-Pill — selbe Höhe wie der
-                            // Recenter-Button daneben (16pt Icon + 13pt
-                            // Padding = 42pt). Vorher: zwei-zeilige Wide-Pill
-                            // mit 32pt-Bolt-Kreis, wirkte deutlich gewichtiger
-                            // als der schlanke Glass-Circle daneben.
-                            HStack(spacing: 7) {
-                                Image(systemName: "bolt.fill")
-                                    .font(.system(size: 13, weight: .bold))
-                                Text(store.isPowerHourActive
-                                     ? tr("map.power_hour_pts").replacingOccurrences(of: "{pts}", with: "\(store.currentBoostBonus)")
-                                     : tr("map.boost_active_pts").replacingOccurrences(of: "{pts}", with: "\(store.currentBoostBonus)"))
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.85)
-                            }
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 12)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Capsule().fill(Color.brandOrange))
-                        }
-                        .dropsPressable()
-                        .accessibilityLabel(tr("map.boost_active_create"))
-                    }
+                    // Power-Hour-Banner auf der Karte entfernt (Feature deaktiviert).
+                    // Spacer drückt den Recenter-Button rechts an die Kante.
+                    Spacer(minLength: 0)
 
                     Button(action: {
                         let loc = locationManager.userLocation
@@ -582,7 +561,7 @@ struct LiveMapView: View {
                             span: MKCoordinateSpan(latitudeDelta: 0.012, longitudeDelta: 0.012)
                         )
                     }) {
-                        Image(systemName: "location.fill")
+                        DazuIcon("location.fill")
                             .font(.system(size: 16))
                             .foregroundColor(.brand)
                             .padding(13)
@@ -693,30 +672,7 @@ struct LiveMapView: View {
         .sheet(isPresented: $showSafety) {
             SafetySheetView().environmentObject(store)
         }
-        // Power-Hour Onboarding-Hinweis: einmalig nach Update.
-        // Verzögerter Trigger im onAppear, damit er nicht direkt mit dem
-        // Map-Camera-Setup konkurriert.
-        .sheet(isPresented: $showPowerHourIntro) {
-            PowerHourIntroSheet {
-                hasSeenPowerHourIntro = true
-                showPowerHourIntro = false
-            }
-            .presentationDetents([.fraction(0.55)])
-            .presentationDragIndicator(.visible)
-            .sheetBackground()
-        }
-        .onAppear {
-            // hasSeenWelcome guard: PowerHourIntroSheet nicht zeigen während
-            // WelcomeSheet noch offen ist — Presentation-Konflikt würde
-            // WelcomeSheet vorzeitig dismissen und requestAllPermissions()
-            // vor dem Walkthrough triggern.
-            if !hasSeenPowerHourIntro,
-               UserDefaults.standard.bool(forKey: "hasSeenWelcome") {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                    showPowerHourIntro = true
-                }
-            }
-        }
+        // Power-Hour-Onboarding-Sheet komplett entfernt (Feature eingestampft).
     }
 
 }
@@ -786,145 +742,152 @@ struct DropMapPin: View {
             onTap()
         }) {
             if item.isFuzzy {
-                // ── Fuzzy-Pin: Aktivität sichtbar, Standort bewusst ungenau ──
-                // Konzept: User soll neugierig werden (emoji + activity) aber
-                // klar sehen: "Ort noch unbekannt — erst joinen".
-                // WICHTIG: kein .glassEffect() / liquidGlassCapsule() hier —
-                // iOS-26-Glas ist rein transparent und sieht auf der Karte grau aus.
-                // Stattdessen: thinMaterial + pinColor-Tint → Farbe bleibt sichtbar.
-                ZStack(alignment: .center) {
-
-                    // Pulsierender Fog-Halo — groß genug um auf der Karte aufzufallen
-                    Circle()
-                        .fill(
-                            RadialGradient(
-                                colors: [pinColor.opacity(fogPulse ? 0.22 : 0.12),
-                                         pinColor.opacity(0.0)],
-                                center: .center,
-                                startRadius: 8,
-                                endRadius: 44
+                // ── Fremde / fuzzy-Standort-Pin ─────────────────────────
+                // Gleiche Grundform wie der Freundes-Pin (OpenRing + Icon-
+                // Puck + Activity-Capsule darunter), damit sie sich auf der
+                // Karte als eine Sprache lesen. Unterschiede, die "fremd,
+                // Ort ungefähr" signalisieren:
+                //  • Ring gestrichelt statt solid (dashed = unsicher)
+                //  • Immer das Activity-Icon im Puck (nie Avatar) → anonym
+                //  • Puck in Lavender statt dem Avatar-Hintergrund
+                //  • Leicht pulsierender Fog-Halo bleibt — "Zone, kein Punkt"
+                VStack(spacing: 4) {
+                    ZStack {
+                        // Weicher Fog-Halo (pulsiert) — "ungefähre Zone"
+                        Circle()
+                            .fill(
+                                RadialGradient(
+                                    colors: [pinColor.opacity(fogPulse ? 0.22 : 0.12),
+                                             pinColor.opacity(0.0)],
+                                    center: .center,
+                                    startRadius: 6,
+                                    endRadius: 36
+                                )
                             )
-                        )
-                        .frame(width: 88, height: 88)
-                        .scaleEffect(fogPulse ? 1.06 : 1.0)
+                            .frame(width: 72, height: 72)
+                            .scaleEffect(fogPulse ? 1.06 : 1.0)
 
-                    // Gestrichelter Rand — "ungefähre Zone"
-                    Circle()
-                        .stroke(
-                            pinColor.opacity(fogPulse ? 0.60 : 0.35),
-                            style: StrokeStyle(lineWidth: 1.8, dash: [6, 4])
-                        )
-                        .frame(width: 72, height: 72)
-                        .scaleEffect(fogPulse ? 1.06 : 1.0)
+                        // Gestrichelter OpenRing — gleicher Shape wie Freundes-
+                        // Pin, aber dashed statt gefüllt. "Form bekannt, Rand
+                        // offen" = fremd + ungefähr.
+                        OpenRingShape()
+                            .stroke(pinColor,
+                                    style: StrokeStyle(lineWidth: 3,
+                                                       dash: [5, 3]))
+                            .frame(width: 48, height: 48)
+                            .shadow(color: pinColor.opacity(0.35),
+                                    radius: 5, y: 2)
 
-                    // Der eigentliche Pin — gefärbte Material-Kapsel
-                    HStack(spacing: 6) {
+                        // Activity-Icon im Puck (statt Avatar). Lavender-
+                        // Hintergrund — identisch zum eigenen Drop-Pin, aber
+                        // ohne violetten Ring außen → bleibt klar fremd.
                         ZStack {
-                            Circle()
-                                .fill(pinColor.opacity(0.25))
-                                .frame(width: 28, height: 28)
-                            Circle()
-                                .stroke(pinColor.opacity(0.60), lineWidth: 1.5)
-                                .frame(width: 28, height: 28)
-                            Text(item.emoji)
-                                .font(.system(size: 15))
-
-                            // Kleines Standort-Badge — "Ort unbekannt"
-                            Image(systemName: "location.slash.fill")
-                                .font(.system(size: 6, weight: .bold))
-                                .foregroundColor(.white)
-                                .padding(2.5)
-                                .background(pinColor, in: Circle())
-                                .offset(x: 10, y: 10)
+                            Circle().fill(Color.brandLavender)
+                                .frame(width: 32, height: 32)
+                            DazuActivityIcon(item.emoji, when: item.hasActivityEmoji)
+                                .font(.system(size: 18))
                         }
-                        .frame(width: 28, height: 28)
-
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(item.activity)
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundColor(.textPrimary)
-                                .lineLimit(1)
-                            Text(tr("map.nearby"))
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundColor(pinColor)
-                        }
+                        .frame(width: 32, height: 32)
+                        .clipShape(Circle())
                     }
-                    .padding(.vertical, 7).padding(.horizontal, 10)
-                    // Tinted material: sieht auf Karte eingefärbt aus (kein reines Grau)
-                    .background {
-                        ZStack {
-                            Capsule().fill(Color.white.opacity(0.75))
-                            Capsule().fill(pinColor.opacity(0.18))
-                        }
-                    }
-                    .overlay(Capsule().stroke(pinColor.opacity(0.55), lineWidth: 1.2))
-                    .shadow(color: pinColor.opacity(0.45), radius: 12, y: 2)
-                    .shadow(color: pinColor.opacity(0.20), radius: 24, y: 0)
+
+                    Text(item.activity)
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .foregroundColor(.brandNight)
+                        .lineLimit(1)
+                        .padding(.horizontal, 7).padding(.vertical, 2)
+                        .background(Capsule().fill(Color.brandCream.opacity(0.9)))
+                        .overlay(Capsule().stroke(pinColor.opacity(0.35),
+                                                  lineWidth: 0.5))
                 }
                 .scaleEffect(pressed ? 1.06 : 1.0)
             } else {
-                // Exakter Pin (normaler Nutzer oder verifizierter Nutzer)
-                HStack(spacing: 6) {
+                // Exakter Pin: Offener violetter Ring (dazu-Logo-Metapher).
+                // Im Ring das Profilbild des Hosts (falls hinterlegt), sonst
+                // der Emoji des Drops. Darunter der Aktivitäts-Text.
+                let hostParticipant = item.participants.first
+                // Für Stranger / Ghost-Drops ist `participants` leer — in dem
+                // Fall nutzen wir das beim publishDrop eingefrorene URL (im
+                // Annotation-Item), damit der Pin trotzdem das Avatar zeigt.
+                let hostImageURL = hostParticipant?.profileImageURL ?? item.hostProfileImageURL
+                let hostSelfie = hostParticipant?.selfie
+                VStack(spacing: 4) {
                     ZStack {
-                        // Frische-Pulse: Drop < 5 Min → pulsierender Ring
-                        // außen rum. scaleEffect + opacity statt frame-
-                        // Animation: am Loop-Snap ist opacity = 0, also
-                        // kein sichtbarer Sprung zurück auf den Start-
-                        // Zustand.
                         if isFresh {
                             Circle()
                                 .stroke(pinColor.opacity(0.55), lineWidth: 1.8)
-                                .frame(width: emojiCircleSize, height: emojiCircleSize)
+                                .frame(width: 48, height: 48)
                                 .scaleEffect(freshPulse ? 1.7 : 0.9)
                                 .opacity(freshPulse ? 0.0 : 0.8)
                         }
 
-                        Circle()
-                            .fill(pinColor.opacity(0.18))
-                            .frame(width: emojiCircleSize, height: emojiCircleSize)
-                        Circle()
-                            .stroke(pinColor.opacity(0.5), lineWidth: 1.5)
-                            .frame(width: emojiCircleSize, height: emojiCircleSize)
-                        Text(item.emoji).font(.system(size: emojiFontSize))
+                        // Offener Ring (dazu-Logo-Mark)
+                        OpenRingShape()
+                            .fill(Color.brandViolet)
+                            .frame(width: 48, height: 48)
+                            .shadow(color: Color.brandViolet.opacity(0.4), radius: 6, y: 2)
+
+                        // Profilbild im Ring (wenn vorhanden), sonst der
+                        // zwei-ton dazu-Profil-Icon-Fallback (statt des
+                        // Activity-Emojis — der Pin ist ein Personen-Avatar,
+                        // kein Activity-Marker).
+                        // Ausnahme: der EIGENE Drop zeigt das Activity-Icon,
+                        // nicht das eigene Profilbild — der User weiß ja dass
+                        // es seine Runde ist, braucht sich nicht selbst zu sehen.
+                        Group {
+                            if item.type == .myDrop {
+                                ZStack {
+                                    Circle().fill(Color.brandLavender)
+                                        .frame(width: 32, height: 32)
+                                    DazuActivityIcon(item.emoji)
+                                        .font(.system(size: 18))
+                                }
+                            } else if let img = hostSelfie {
+                                Image(uiImage: img).resizable().scaledToFill()
+                                    .frame(width: 32, height: 32)
+                                    .clipShape(Circle())
+                            } else if let url = hostImageURL, !url.isEmpty {
+                                RemoteProfileImage(url: url,
+                                                   fallbackEmoji: item.emoji,
+                                                   size: 32,
+                                                   strokeColor: .clear)
+                            } else {
+                                // Kein Profilbild → Activity-Icon im Puck
+                                // (statt generischem DazuProfileIcon). Das
+                                // passt deutlich besser zur dazu-Markenlogik
+                                // und zeigt sofort worum's bei der Runde geht.
+                                ZStack {
+                                    Circle().fill(Color.brandLavender)
+                                        .frame(width: 32, height: 32)
+                                    DazuActivityIcon(item.emoji.isEmpty ? "✨" : item.emoji,
+                                                     when: item.hasActivityEmoji)
+                                        .font(.system(size: 18))
+                                }
+                            }
+                        }
+                        .frame(width: 32, height: 32)
+                        .clipShape(Circle())
+
+                        // Dot in der Ring-Lücke bei confirmed participants
                         if confirmedParticipants.count >= 2 {
                             Text("\(confirmedParticipants.count)")
-                                .font(.system(size: 8, weight: .bold))
+                                .font(.system(size: 9, weight: .heavy))
                                 .foregroundColor(.white)
-                                .padding(3)
-                                .background(pinColor, in: Circle())
-                                .offset(x: emojiCircleSize * 0.3, y: emojiCircleSize * 0.3)
+                                .frame(width: 18, height: 18)
+                                .background(Circle().fill(Color.brandOrange))
+                                .offset(x: 14, y: -14)
                         }
                     }
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(item.type == .myDrop ? item.activity : (item.isStranger ? item.activity : item.name))
-                            .font(.system(size: labelFontSize, weight: .semibold))
-                            .foregroundColor(.textPrimary).lineLimit(1)
-                        // Alter bei Stranger-Drops
-                        if item.isStranger, let age = item.creatorAge {
-                            Text(tr("map.years_abbrev").replacingOccurrences(of: "{age}", with: "\(age)"))
-                                .font(.system(size: 9, weight: .medium))
-                                .foregroundColor(pinColor.opacity(0.85))
-                        }
-                    }
-                    if item.type == .myDrop {
-                        Text("· \(tr("map.you"))").font(.system(size: 10)).foregroundColor(.textSecondary)
-                    } else if item.type == .joiner {
-                        // Unterwegs-Indikator
-                        Image(systemName: "figure.walk")
-                            .font(.system(size: 10))
-                            .foregroundColor(.onlineGreen)
-                    } else if item.isStranger {
-                        Circle().fill(pinColor.opacity(0.7)).frame(width: 5, height: 5)
-                    } else {
-                        Circle().fill(Color.onlineGreen).frame(width: 5, height: 5)
-                    }
+
+                    Text(item.type == .myDrop ? item.activity : (item.isStranger ? item.activity : item.name))
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .foregroundColor(.brandNight)
+                        .lineLimit(1)
+                        .padding(.horizontal, 7).padding(.vertical, 2)
+                        .background(Capsule().fill(Color.brandCream.opacity(0.9)))
+                        .overlay(Capsule().stroke(Color.brandViolet.opacity(0.2), lineWidth: 0.5))
                 }
-                .padding(.vertical, 7).padding(.horizontal, 11)
-                .liquidGlassCapsule()
-                .overlay(Capsule().stroke(pinColor.opacity(0.45), lineWidth: 1))
                 .scaleEffect(pressed ? 1.08 : 1.0)
-                .shadow(color: pinColor.opacity(0.55), radius: 14, y: 0)
-                .shadow(color: pinColor.opacity(0.25), radius: 28, y: 0)
             }
         }
         .dropsPressable()
@@ -973,7 +936,7 @@ struct SuggestedSpotPin: View {
                 .overlay(
                     Circle().strokeBorder(Color.brand.opacity(0.4), lineWidth: 1.2)
                 )
-            Text(spot.activityEmoji)
+            DazuActivityIcon(spot.activityEmoji, tint: .brandVioletFixed, dotColor: .brandOrangeFixed)
                 .font(.system(size: 13))
         }
         .opacity(0.7)
@@ -1004,28 +967,27 @@ struct DropClusterPin: View {
     var body: some View {
         Button(action: onTap) {
             ZStack {
-                // Äußerer Glow-Ring
+                // Weicher Schein
                 Circle()
-                    .fill(LinearGradient.aurora.opacity(0.25))
+                    .fill(Color.brandVioletFixed.opacity(0.16))
                     .frame(width: 58, height: 58)
 
-                // Haupt-Kreis mit Aurora-Gradient
+                // Geschlossener Ring: mehrere Runden an einem Ort
                 Circle()
-                    .fill(LinearGradient.aurora)
+                    .fill(Color.brandCreamFixed)
                     .frame(width: 46, height: 46)
-                    .shadow(color: Color.auroraOrange.opacity(0.45), radius: 8, x: 0, y: 3)
-
-                // Weißer Innen-Rand
+                    .shadow(color: Color.brandVioletFixed.opacity(0.35), radius: 8, x: 0, y: 3)
                 Circle()
-                    .stroke(Color.white.opacity(0.35), lineWidth: 1.5)
+                    .strokeBorder(Color.brandVioletFixed, lineWidth: 6)
                     .frame(width: 46, height: 46)
 
                 VStack(spacing: 1) {
                     // Emoji-Stack (max 2 übereinander, sonst Zahl)
                     if previewEmojis.count <= 2 {
                         HStack(spacing: -4) {
-                            ForEach(Array(previewEmojis.enumerated()), id: \.offset) { _, emoji in
-                                Text(emoji)
+                            ForEach(Array(group.prefix(3).enumerated()), id: \.offset) { _, member in
+                                DazuActivityIcon(member.emoji, when: member.hasActivityEmoji,
+                                                 tint: .brandVioletFixed, dotColor: .brandOrangeFixed)
                                     .font(.system(size: 14))
                             }
                         }
@@ -1034,8 +996,15 @@ struct DropClusterPin: View {
                     Text("\(group.count)")
                         .font(.system(size: previewEmojis.count <= 2 ? 11 : 17,
                                       weight: .bold, design: .rounded))
-                        .foregroundColor(.white)
+                        .foregroundColor(.brandNightFixed)
                 }
+
+                // Der Punkt aus dem Logo, oben rechts auf dem Ring
+                Circle()
+                    .fill(Color.brandOrangeFixed)
+                    .frame(width: 13, height: 13)
+                    .overlay(Circle().stroke(Color.brandCreamFixed, lineWidth: 2))
+                    .offset(x: 16, y: -16)
             }
         }
         .dropsPressable()
@@ -1095,7 +1064,7 @@ struct IncomingJoinRequestSheet: View {
 
             // ── Header-Chip ───────────────────────────────────────
             HStack(spacing: 6) {
-                Image(systemName: "person.fill.badge.plus")
+                DazuIcon("person.fill.badge.plus")
                     .font(.system(size: 11, weight: .bold))
                 Text(store.activeDrops.first?.activity.name ?? tr("map.join_request"))
                     .font(.system(size: 12, weight: .heavy, design: .rounded))
@@ -1110,7 +1079,7 @@ struct IncomingJoinRequestSheet: View {
             let waitingCount = max(0, store.pendingJoinRequests.count - 1)
             if waitingCount > 0 {
                 HStack(spacing: 5) {
-                    Image(systemName: "person.2.fill")
+                    DazuIcon("person.2.fill")
                         .font(.system(size: 10, weight: .bold))
                     Text((waitingCount == 1 ? tr("map.more_requests_singular") : tr("map.more_requests_plural")).replacingOccurrences(of: "{count}", with: "\(waitingCount)"))
                         .font(.system(size: 11, weight: .bold, design: .rounded))
@@ -1140,8 +1109,8 @@ struct IncomingJoinRequestSheet: View {
                         RemoteProfileImage(url: urlStr, fallbackEmoji: request.joinerEmoji, size: 96)
                     } else {
                         ZStack {
-                            Circle().fill(Color(.systemGray6)).frame(width: 96, height: 96)
-                            Text(request.joinerEmoji).font(.system(size: 48))
+                            Circle().fill(Color.brandLavender).frame(width: 96, height: 96)
+                            DazuPersonIcon().font(.system(size: 48))
                         }
                     }
                 }
@@ -1158,7 +1127,7 @@ struct IncomingJoinRequestSheet: View {
                     }
                     if request.joinerIsPlus {
                         HStack(spacing: 3) {
-                            Image(systemName: "bolt.fill").font(.system(size: 9, weight: .bold))
+                            DazuIcon("bolt.fill").font(.system(size: 9, weight: .bold))
                             Text("PLUS").font(.system(size: 10, weight: .heavy))
                         }
                         .foregroundStyle(Color(hex: "7a4e05"))
@@ -1175,7 +1144,7 @@ struct IncomingJoinRequestSheet: View {
                 HStack(spacing: 8) {
                     if ReliabilityScore.isTrusted(forPoints: request.joinerReliabilityPoints) {
                         HStack(spacing: 4) {
-                            Image(systemName: "checkmark.seal.fill")
+                            DazuIcon("checkmark.seal.fill")
                                 .font(.system(size: 11, weight: .bold))
                             Text(tr("tier.trusted"))
                                 .font(.system(size: 12, weight: .bold, design: .rounded))
@@ -1187,7 +1156,7 @@ struct IncomingJoinRequestSheet: View {
 
                     if let meters = joinerDistanceMeters {
                         HStack(spacing: 4) {
-                            Image(systemName: "location.fill").font(.system(size: 10, weight: .bold))
+                            DazuIcon("location.fill").font(.system(size: 10, weight: .bold))
                             Text(formatDistance(meters))
                                 .font(.system(size: 12, weight: .bold, design: .rounded))
                         }
@@ -1202,7 +1171,7 @@ struct IncomingJoinRequestSheet: View {
             if let msg = request.joinerMessage,
                !msg.trimmingCharacters(in: .whitespaces).isEmpty {
                 HStack(alignment: .top, spacing: 12) {
-                    Image(systemName: "bubble.left.fill")
+                    DazuIcon("bubble.left.fill")
                         .font(.system(size: 14, weight: .bold))
                         .foregroundColor(.brandViolet)
                         .frame(width: 32, height: 32)
@@ -1254,7 +1223,7 @@ struct IncomingJoinRequestSheet: View {
                     dismiss()
                 } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: "xmark")
+                        DazuIcon("xmark")
                             .font(.system(size: 14, weight: .bold))
                         Text(tr("map.reject"))
                             .font(.system(size: 15, weight: .bold, design: .rounded))
@@ -1271,7 +1240,7 @@ struct IncomingJoinRequestSheet: View {
                     dismiss()
                 } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: "checkmark")
+                        DazuIcon("checkmark")
                             .font(.system(size: 14, weight: .bold))
                         Text(tr("map.confirm"))
                             .font(.system(size: 15, weight: .bold, design: .rounded))
@@ -1310,6 +1279,21 @@ struct DropJoinSheet: View {
     @State private var now = Date()
     @State private var showCancelAlert = false
     @State private var showCreatorProfile = false
+
+    /// Live-Joiner (aus `dropins/{dropID}`) — damit auch Nicht-Mitglieder
+    /// sehen wer schon dabei ist. Vorher: nur BLE-confirmed sichtbar
+    /// = leer für Fremd-Drops ohne eigene BLE-Verbindung.
+    struct LiveJoiner: Identifiable {
+        let id: String
+        let name: String
+        let age: Int?
+        let profileImageURL: String?
+    }
+    @State private var liveJoiners: [LiveJoiner] = []
+
+    /// Admin-Flag: Tap auf Demo-Live-Runde → sofort beigetreten
+    /// (ohne Pending). Nur für App-Store-Screenshots.
+    @AppStorage("demoAutoJoin") private var demoAutoJoin: Bool = false
 
     private let timer = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
 
@@ -1357,102 +1341,165 @@ struct DropJoinSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Share Button — System-DragIndicator übernimmt den Strich oben
-            HStack {
-                Spacer()
-                DropShareButton(item: item)
-                    .padding(.trailing, 16)
+            // ── Hero: 160pt hohe Mini-Map mit dickem Cream→Lavender-Fade
+            // nach unten. Darauf: LIVE-Pill oben links, Share oben rechts,
+            // und ein großer floating Icon-Puck mittig am unteren Rand,
+            // der die Grenze zum Content überlappt (gleicher Look wie
+            // Google-Maps-Place-Sheets).
+            ZStack(alignment: .top) {
+                MiniMapSnapshotFill(coordinate: item.effectiveCoordinate, metersSpan: 500)
+                // Starker Fade unten, damit der Content-Übergang weich wird
+                // und der Icon-Puck auf Lavender sitzt, nicht auf Karte.
+                LinearGradient(
+                    colors: [
+                        Color.brandLavender.opacity(0.0),
+                        Color.brandLavender.opacity(0.05),
+                        Color.brandLavender.opacity(0.9),
+                        Color.brandCream
+                    ],
+                    startPoint: .top, endPoint: .bottom
+                )
+                HStack(alignment: .top) {
+                    if !item.isGhost {
+                        HStack(spacing: 5) {
+                            Circle()
+                                .fill(Color.accentOrange)
+                                .frame(width: 6, height: 6)
+                            Text("LIVE")
+                                .font(.system(size: 10, weight: .heavy, design: .rounded))
+                                .tracking(1.0)
+                                .foregroundColor(.brandNight)
+                        }
+                        .padding(.horizontal, 10).padding(.vertical, 5)
+                        .background(Capsule().fill(Color.brandCream))
+                        .shadow(color: Color.brandNight.opacity(0.10), radius: 4, y: 2)
+                    }
+                    Spacer()
+                    DropShareButton(item: item)
+                }
+                .padding(.horizontal, 18).padding(.top, 14)
             }
-            .padding(.top, 10).padding(.bottom, 16)
+            .frame(height: 160)
+            .clipped()
 
-            // Header: Aktivitäts-Emoji + Info (Profilbild beim Teilnehmer-Row)
+            // Header: Icon-Puck + Content (Puck überlappt das Hero oben via
+            // negativem Top-Padding).
             HStack(spacing: 14) {
                 ZStack {
                     Circle()
-                        .fill(Color.brandLavender)
-                        .frame(width: 60, height: 60)
-                    // Fallback ✨ wenn beim Drop-Erstellen kein Emoji gewählt
-                    Text(item.emoji.isEmpty ? "✨" : item.emoji)
-                        .font(.system(size: 30))
+                        .fill(Color.brandCream)
+                        .frame(width: 72, height: 72)
+                        .overlay(Circle().stroke(Color.brandViolet, lineWidth: 3))
+                        .shadow(color: Color.brandViolet.opacity(0.28), radius: 10, y: 4)
+                    DazuActivityIcon(item.emoji.isEmpty ? "✨" : item.emoji, when: item.hasActivityEmoji)
+                        .font(.system(size: 34))
                 }
+                .padding(.top, -44)  // Puck 44pt über die Hero-Grenze schieben
 
                 VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
-                        // Aktivität als Haupttitel — bei Fremden und Freunden
-                        Text(item.type == .myDrop ? item.activity : (item.isStranger ? item.activity : item.name))
-                            .font(.system(size: 19, weight: .heavy, design: .rounded))
-                            .foregroundColor(.brandNight)
-                        if item.isStranger {
-                            Text(tr("drop.open_to_all"))
-                                .font(.system(size: 10, weight: .heavy, design: .rounded))
-                                .tracking(0.6)
-                                .textCase(.uppercase)
-                                .foregroundColor(.brandViolet)
-                                .padding(.horizontal, 7).padding(.vertical, 3)
-                                .background(Capsule().fill(Color.brandLavender))
-                        }
-                    }
-                    // Host-Name + Avatar — tappbar bei allen fremden Drops
-                    // (Stranger oder Friend), öffnet das Mini-Profil.
+                    // Aktivität als Haupttitel — bei Fremden und Freunden.
+                    // Violett + Orange-Punkt am Ende (wie der Name im Profil),
+                    // damit's zur dazu-Markensprache passt.
+                    let title = item.type == .myDrop ? item.activity : (item.isStranger ? item.activity : item.name)
+                    (Text(title).foregroundColor(.brandViolet)
+                     + Text(".").foregroundColor(.brandOrange))
+                        .font(.system(size: 19, weight: .heavy, design: .rounded))
+                    // Host + Alter + ETA + Distance alle in einer Zeile —
+                    // kompakter als die alte 2-Zeilen-Trennung. Host-Teil
+                    // bleibt tappbar (öffnet Mini-Profil).
                     if item.type != .myDrop {
-                        Button { showCreatorProfile = true } label: {
-                            HStack(spacing: 5) {
-                                // Host-Avatar — Profilbild mit Fallback
-                                if let creator = item.participants.first {
-                                    ZStack {
-                                        if let img = creator.selfie {
-                                            Image(uiImage: img)
-                                                .resizable().scaledToFill()
-                                                .frame(width: 18, height: 18)
-                                                .clipShape(Circle())
-                                        } else if creator.profileImageURL != nil {
-                                            RemoteProfileImage(
-                                                url: creator.profileImageURL,
-                                                fallbackEmoji: creator.emoji,
-                                                size: 18,
-                                                strokeColor: .clear
-                                            )
-                                        } else {
-                                            Circle()
-                                                .fill(accentColor.opacity(0.18))
-                                                .frame(width: 18, height: 18)
-                                                .overlay(Text(creator.emoji).font(.system(size: 10)))
-                                        }
+                        HStack(spacing: 8) {
+                            Button { showCreatorProfile = true } label: {
+                                HStack(spacing: 5) {
+                                    (Text(item.name).foregroundColor(.brandViolet)
+                                     + Text(".").foregroundColor(.brandOrange))
+                                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                                    if let age = item.creatorAge {
+                                        Text("\(age)")
+                                            .font(.system(size: 13, weight: .medium, design: .rounded))
+                                            .foregroundColor(.brandNight.opacity(0.55))
                                     }
                                 }
-                                Text(item.name)
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.textSecondary)
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 9))
-                                    .foregroundColor(.textTertiary)
                             }
-                        }
-                        .dropsPressable()
-                    } else {
-                        Label(tr("drop.my_drop"), systemImage: "star.fill")
-                            .font(.system(size: 12, weight: .bold, design: .rounded))
-                            .foregroundColor(.brandOrange)
-                    }
-                    // ETA + Distanz — immer auf echtem Standort (effectiveCoordinate).
-                    // Fuzzy-Drops: realCoordinate ist gesetzt → korrekte Walk-Time statt
-                    // verfälschtem Wert durch den Karten-Versatz (800-1000m).
-                    if item.type != .myDrop {
-                        HStack(spacing: 10) {
-                            Label(store.etaString(to: item.effectiveCoordinate) + " Weg",
-                                  systemImage: "figure.walk")
-                                .font(.system(size: 12, weight: .bold, design: .rounded))
-                                .foregroundColor(.brandViolet)
-                            Label(store.distanceString(to: item.effectiveCoordinate),
-                                  systemImage: "mappin.circle.fill")
-                                .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .dropsPressable()
+
+                            Text("·")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundColor(.brandNight.opacity(0.3))
+
+                            HStack(spacing: 4) {
+                                DazuIcon("figure.walk")
+                                    .font(.system(size: 11, weight: .bold))
+                                Text(store.etaString(to: item.effectiveCoordinate))
+                                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                            }
+                            .foregroundColor(.brandViolet)
+
+                            Text("·")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundColor(.brandNight.opacity(0.3))
+
+                            Text(store.distanceString(to: item.effectiveCoordinate))
+                                .font(.system(size: 13, weight: .medium, design: .rounded))
                                 .foregroundColor(.brandNight.opacity(0.6))
                         }
+                    } else {
+                        Label { Text(tr("drop.my_drop")) } icon: { DazuIcon("star.fill") }
+                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                            .foregroundColor(.brandOrange)
                     }
                 }
                 Spacer()
             }
             .padding(.horizontal, 18)
+
+            // Live-Joiner (aus `dropins/{dropID}`) — sichtbar auch wenn ich
+            // noch nicht gejoined bin. Vorher: nur BLE-confirmed, also leer
+            // für Fremd-Drops. Zeigt kleine Avatar-Row + "X kommen" Zeile.
+            if confirmedParticipants.isEmpty && !liveJoiners.isEmpty {
+                HStack(spacing: 10) {
+                    HStack(spacing: -8) {
+                        ForEach(liveJoiners.prefix(4)) { j in
+                            Group {
+                                if let url = j.profileImageURL, !url.isEmpty {
+                                    RemoteProfileImage(url: url,
+                                                       fallbackEmoji: "",
+                                                       size: 32,
+                                                       strokeColor: Color.brandCream)
+                                } else {
+                                    Circle()
+                                        .fill(Color.brandLavender)
+                                        .frame(width: 32, height: 32)
+                                        .overlay(DazuPersonIcon().font(.system(size: 14)))
+                                }
+                            }
+                            .overlay(Circle().stroke(Color.brandCream, lineWidth: 2))
+                        }
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        if liveJoiners.count == 1, let p = liveJoiners.first {
+                            (Text(p.name).foregroundColor(.brandViolet)
+                             + Text(".").foregroundColor(.brandOrange))
+                                .font(.system(size: 13, weight: .bold, design: .rounded))
+                            Text(tr("drop.on_the_way"))
+                                .font(.system(size: 11))
+                                .foregroundColor(.textSecondary)
+                        } else {
+                            let names = liveJoiners.prefix(2).map { $0.name }.joined(separator: " & ")
+                            let extra = liveJoiners.count > 2 ? " +\(liveJoiners.count - 2)" : ""
+                            (Text(names + extra).foregroundColor(.brandViolet)
+                             + Text(".").foregroundColor(.brandOrange))
+                                .font(.system(size: 13, weight: .bold, design: .rounded))
+                            Text(tr("drop.on_the_way"))
+                                .font(.system(size: 11))
+                                .foregroundColor(.textSecondary)
+                        }
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 18)
+                .padding(.top, 12)
+            }
 
             // Teilnehmer-Avatare — nur BLE-bestätigte (physisch vor Ort)
             if !confirmedParticipants.isEmpty {
@@ -1474,7 +1521,7 @@ struct DropJoinSheet: View {
                             }
                             HStack(spacing: 5) {
                                 if ReliabilityScore.isTrusted(forPoints: p.reliabilityScore) {
-                                    Image(systemName: "checkmark.seal.fill")
+                                    DazuIcon("checkmark.seal.fill")
                                         .font(.system(size: 10, weight: .bold))
                                         .foregroundColor(.brandViolet)
                                     Circle()
@@ -1500,11 +1547,16 @@ struct DropJoinSheet: View {
                 .padding(.horizontal, 18)
                 .padding(.top, 12)
             }
-            // Unterwegs-Anzeige: Beitritt aber noch nicht per BLE bestätigt
-            let onTheWayCount = item.participants.count - confirmedParticipants.count
+            // Unterwegs-Anzeige: Beitritt aber noch nicht per BLE bestätigt.
+            // Beim eigenen Drop ist der Host selbst in `participants` enthalten
+            // und per Definition vor Ort — darf nicht als "unterwegs" zählen.
+            let hostIsSelf = (item.hostUID ?? "") == (store.currentUser.firebaseUID ?? "none")
+            let baseline = hostIsSelf ? max(item.participants.count - 1, 0)
+                                      : item.participants.count
+            let onTheWayCount = max(baseline - confirmedParticipants.count, 0)
             if onTheWayCount > 0 {
                 HStack(spacing: 6) {
-                    Image(systemName: "figure.walk")
+                    DazuIcon("figure.walk", accent: false)
                         .font(.system(size: 11))
                         .foregroundColor(.textTertiary)
                     Text(onTheWayCount == 1
@@ -1523,7 +1575,7 @@ struct DropJoinSheet: View {
                 // liefert eine falsche Adresse, die echte würde den Host verraten.
                 // Stattdessen: Hinweis dass der Drop näher ist als auf der Karte.
                 HStack(spacing: 8) {
-                    Image(systemName: "location.slash.fill")
+                    DazuIcon("location.slash.fill")
                         .font(.system(size: 12))
                         .foregroundColor(accentColor.opacity(0.75))
                     Text(tr("map.fuzzy_pos_info"))
@@ -1536,7 +1588,7 @@ struct DropJoinSheet: View {
                 .padding(.top, 10)
             } else if let address = resolvedAddress {
                 HStack(spacing: 8) {
-                    Image(systemName: "mappin.and.ellipse")
+                    DazuIcon("mappin.and.ellipse", accent: false)
                         .font(.system(size: 12))
                         .foregroundColor(.textTertiary)
                     Text(address)
@@ -1570,7 +1622,7 @@ struct DropJoinSheet: View {
                 VStack(spacing: 8) {
                     if showTimeTile, let time = item.scheduledTime {
                         HStack(spacing: 8) {
-                            Image(systemName: "clock.fill")
+                            DazuIcon("clock.fill")
                                 .font(.system(size: 12)).foregroundColor(.brand)
                             Text(trScheduledTime(time)).font(.system(size: 13, weight: .medium)).foregroundColor(.textPrimary)
                             Spacer()
@@ -1578,7 +1630,7 @@ struct DropJoinSheet: View {
                     }
                     if let desc = item.dropDescription, !desc.isEmpty {
                         HStack(alignment: .top, spacing: 8) {
-                            Image(systemName: "text.bubble.fill")
+                            DazuIcon("text.bubble.fill")
                                 .font(.system(size: 12)).foregroundColor(.textSecondary)
                             Text(desc).font(.system(size: 13)).foregroundColor(.textPrimary)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -1598,7 +1650,7 @@ struct DropJoinSheet: View {
             if item.type == .myDrop {
                 VStack(spacing: 10) {
                     HStack(spacing: 8) {
-                        Image(systemName: "clock.badge.checkmark.fill")
+                        DazuIcon("clock.badge.checkmark.fill")
                             .font(.system(size: 13, weight: .bold))
                             .foregroundColor(.brandOrange)
                         Text(tr("drop.waiting_for_joiners"))
@@ -1611,7 +1663,7 @@ struct DropJoinSheet: View {
                         showCancelAlert = true
                     } label: {
                         HStack(spacing: 8) {
-                            Image(systemName: "flag.checkered").font(.system(size: 14, weight: .bold))
+                            DazuIcon("flag.checkered").font(.system(size: 14, weight: .bold))
                             Text(tr("drop.end_drop"))
                                 .font(.system(size: 15, weight: .bold, design: .rounded))
                         }
@@ -1663,7 +1715,7 @@ struct DropJoinSheet: View {
                 // Bereits in einem anderen Drop aktiv
                 VStack(spacing: 6) {
                     HStack(spacing: 8) {
-                        Image(systemName: "lock.circle.fill")
+                        DazuIcon("lock.circle.fill", accent: false)
                             .font(.system(size: 15))
                             .foregroundColor(.textTertiary)
                         Text(tr("drop.already_active"))
@@ -1693,6 +1745,41 @@ struct DropJoinSheet: View {
                     let inCooldown = cooldown > 0 && !isJoined
                     Button {
                         guard !isJoined && !joining && !inCooldown else { return }
+                        // Demo-Autojoin: Pending überspringen, direkt dropin
+                        // schreiben + sheet schließen → sofortiger „bereits
+                        // dabei"-State für App-Store-Screenshots.
+                        if demoAutoJoin,
+                           let fbid = item.firebaseDropID,
+                           fbid.hasPrefix("demolive_") {
+                            let myUID = FirebaseAuth.Auth.auth().currentUser?.uid ?? "demo_self"
+                            let payload: [String: Any] = [
+                                "name": store.currentUser.name,
+                                "emoji": store.currentUser.emoji,
+                                "lat": store.currentUser.coordinate.latitude,
+                                "lng": store.currentUser.coordinate.longitude,
+                                "locTime": Date().timeIntervalSince1970 * 1000,
+                                "timestamp": Date().timeIntervalSince1970 * 1000,
+                                "profileImageURL": store.profileImageURL ?? ""
+                            ]
+                            Database.database().reference()
+                                .child("dropins").child(fbid).child(myUID)
+                                .setValue(payload)
+                            // Store-State setzen damit dazu-Tab in die Live-
+                            // Ansicht springt (nutzt activeJoinedDropID +
+                            // activeDropAnnotation für die Content-View).
+                            // 2h-Dauer + createdAt=jetzt überschreiben → Timer
+                            // sinnvoll statt 12h-Default.
+                            store.activeJoinedDropID = item.id
+                            var liveItem = item
+                            liveItem.durationMinutes = 120
+                            liveItem.createdAt = Date()
+                            store.activeDropAnnotation = liveItem
+                            dismiss()
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                store.selectedTab = .create
+                            }
+                            return
+                        }
                         joining = true
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
                             joining = false
@@ -1710,33 +1797,33 @@ struct DropJoinSheet: View {
                             if inCooldown {
                                 let mins = Int(cooldown / 60) + 1
                                 HStack(spacing: 8) {
-                                    Image(systemName: "clock.fill").font(.system(size: 15))
+                                    DazuIcon("clock.fill").font(.system(size: 15))
                                     Text(tr("map.cooldown_mins").replacingOccurrences(of: "{mins}", with: "\(mins)"))
                                         .font(.system(size: 15, weight: .semibold))
                                 }
                                 .foregroundColor(.white.opacity(0.9))
                             } else if joining || isPending {
                                 HStack(spacing: 8) {
-                                    ProgressView().tint(.white)
+                                    DazuLoader().tint(.white)
                                     Text(isPending ? tr("map.waiting_confirmation") : "")
                                         .font(.system(size: 14, weight: .medium))
                                         .foregroundColor(.white.opacity(0.85))
                                 }
                             } else if isDeclined {
                                 HStack(spacing: 8) {
-                                    Image(systemName: "xmark.circle.fill").font(.system(size: 17))
+                                    DazuIcon("xmark.circle.fill").font(.system(size: 17))
                                     Text(tr("map.not_confirmed")).font(.system(size: 16, weight: .bold))
                                 }
                                 .foregroundColor(.white)
                             } else if isJoined {
                                 HStack(spacing: 8) {
-                                    Image(systemName: "checkmark.circle.fill").font(.system(size: 17))
+                                    DazuIcon("checkmark.circle.fill").font(.system(size: 17))
                                     Text(tr("drop.im_in")).font(.system(size: 16, weight: .bold))
                                 }
                                 .foregroundColor(.white)
                             } else {
                                 HStack(spacing: 8) {
-                                    Image(systemName: "figure.walk.arrival").font(.system(size: 17))
+                                    DazuIcon("figure.walk.arrival", accent: false).font(.system(size: 17))
                                     Text(tr("drop.coming_by")).font(.system(size: 16, weight: .bold))
                                 }
                                 .foregroundColor(.white)
@@ -1771,6 +1858,7 @@ struct DropJoinSheet: View {
             geocodeAddress()
             // Drop-View für Drops+ „wer hat geschaut" erfassen
             store.viewDrop(item)
+            fetchLiveJoiners()
         }
         .sheet(isPresented: $showCreatorProfile) {
             // Fallback auf item-Felder wenn participants leer (Fuzzy/Stranger-Drops
@@ -1780,12 +1868,13 @@ struct DropJoinSheet: View {
             let profileEmoji = creator?.emoji          ?? item.emoji
             let profileUID   = creator?.firebaseUID    ?? item.hostUID
             let profileScore = creator?.reliabilityScore ?? item.hostReliabilityPoints ?? ReliabilityScore.startingPoints
+            let profileImgURL = creator?.profileImageURL ?? item.hostProfileImageURL
             if #available(iOS 16.4, *) {
                 MiniProfileSheet(
                     name: profileName,
                     emoji: profileEmoji,
                     selfie: creator?.selfie,
-                    profileImageURL: creator?.profileImageURL,
+                    profileImageURL: profileImgURL,
                     reliabilityScore: profileScore,
                     accentColor: accentColor,
                     userUID: profileUID,
@@ -1800,7 +1889,7 @@ struct DropJoinSheet: View {
                     name: profileName,
                     emoji: profileEmoji,
                     selfie: creator?.selfie,
-                    profileImageURL: creator?.profileImageURL,
+                    profileImageURL: profileImgURL,
                     reliabilityScore: profileScore,
                     accentColor: accentColor,
                     userUID: profileUID,
@@ -1843,6 +1932,29 @@ struct DropJoinSheet: View {
     }
 
     // MARK: - Reverse Geocoding
+
+    /// Lädt die aktuellen Dropins (= bereits beigetretene User) aus Firebase
+    /// und zeigt sie als Live-Joiner-Row. Vorher sahen Nicht-Mitglieder gar
+    /// nicht wer schon dabei ist — jetzt werden Avatare + Namen sichtbar.
+    private func fetchLiveJoiners() {
+        guard let firebaseID = item.firebaseDropID else { return }
+        Database.database().reference()
+            .child("dropins").child(firebaseID)
+            .observeSingleEvent(of: .value) { snap in
+                var list: [LiveJoiner] = []
+                for case let child as DataSnapshot in snap.children {
+                    guard let dict = child.value as? [String: Any],
+                          let name = dict["name"] as? String else { continue }
+                    list.append(LiveJoiner(
+                        id: child.key,
+                        name: name,
+                        age: dict["age"] as? Int,
+                        profileImageURL: dict["profileImageURL"] as? String
+                    ))
+                }
+                DispatchQueue.main.async { self.liveJoiners = list }
+            }
+    }
 
     private func geocodeAddress() {
         // Fuzzy-Drops: kein Geocoding.
@@ -1904,7 +2016,7 @@ struct InAppRouteSheet: View {
                 if isLoading {
                     Color.black.opacity(0.08)
                     VStack(spacing: 10) {
-                        ProgressView().tint(.brand)
+                        DazuLoader().tint(.brand)
                         Text(tr("map.calculating_route"))
                             .font(.system(size: 13)).foregroundColor(.textSecondary)
                     }
@@ -1949,7 +2061,7 @@ struct InAppRouteSheet: View {
 
                 // Ziel-Adresse
                 HStack(spacing: 6) {
-                    Image(systemName: "mappin.circle.fill")
+                    DazuIcon("mappin.circle.fill")
                         .foregroundColor(accentColor).font(.system(size: 14))
                     Text(destinationName)
                         .font(.system(size: 14, weight: .medium)).foregroundColor(.textPrimary)
@@ -1976,8 +2088,7 @@ struct InAppRouteSheet: View {
                         MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeWalking
                     ])
                 } label: {
-                    Label(tr("map.open_in_maps"),
-                          systemImage: "arrow.triangle.turn.up.right.circle")
+                    Label { Text(tr("map.open_in_maps")) } icon: { DazuIcon("arrow.triangle.turn.up.right.circle", accent: false) }
                         .font(.system(size: 12))
                         .foregroundColor(.textTertiary)
                 }
@@ -2113,6 +2224,14 @@ struct ActiveDropTabView: View {
     @State private var lastExtendCooldownSecs: Int = 0  // Hälfte der gewählten Verlängerung
     /// Sheet-State im Parent — überlebt Firebase-Updates ohne zu resetten.
     @State private var selectedProfileParticipant: DropParticipant? = nil
+    /// Host-Standort-Änderung — öffnet Pin-Picker, bestätigter Pin wird nach
+    /// Firebase geschrieben und triggert eine Benachrichtigung an alle Joiner.
+    @State private var showChangeLocationSheet = false
+    /// Dropins aus Firebase (für Demo-Live-Drops wo item.participants leer
+    /// ist aber dropins/{fbid} echte Mock-Joiner enthält). Als Pseudo-
+    /// DropParticipants gerendert damit die Live-Teilnehmer-Row voll ist.
+    @State private var demoJoiners: [DropParticipant] = []
+    @State private var pendingNewCoord: CLLocationCoordinate2D? = nil
 
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -2166,9 +2285,12 @@ struct ActiveDropTabView: View {
     ///   3. Mindestens eine BLE-Bestätigung mit einem anderen Teilnehmer
     /// Joiner: ebenfalls via GPS oder BLE.
     var isArrived: Bool {
-        let hostAutoArrived = isOwnDrop && item.dropLocationType == .current
-        return hostAutoArrived
-            || isNearDropByGPS
+        // Früher: `isOwnDrop && dropLocationType == .current` → der Host war
+        // automatisch "vor Ort" sobald die Runde lief, egal ob er sich
+        // seitdem wegbewegt hat. Jetzt: auch der Host muss GPS-nah oder
+        // BLE-bestätigt sein. Verhindert "falsch vor Ort angezeigt" wenn
+        // der Host zwischendrin weggegangen ist.
+        return isNearDropByGPS
             || !store.bluetoothMeetup.confirmedTokens.isEmpty
     }
 
@@ -2296,30 +2418,13 @@ struct ActiveDropTabView: View {
     }
 
     var body: some View {
-        ZStack {
-            // ── Vollflächiger Aurora-Hintergrund ──────────────────────
-            activeDropBackground
-                .ignoresSafeArea()
-
-            // ── Scrollbarer Inhalt ────────────────────────────────────
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 0) {
-                    // Top-Spacer für Safe Area
-                    Color.clear.frame(height: 16)
-
-                    // Host bekommt IMMER die arrivedContent-View — auch wenn
-                    // er physisch noch nicht am Drop ist (Drop wurde an einem
-                    // Pin-Ort statt am aktuellen Standort erstellt). Vorher
-                    // landete der Host in der Joiner-„Unterwegs"-View, die
-                    // dann „Dein Host" zeigte (unsinnig — er IST der Host)
-                    // und ihn weder bei Vor-Ort noch Unterwegs auflistete.
-                    // Die Banner-Zeile in arrivedContent zeigt dem Host
-                    // jetzt prominent „Du bist unterwegs zu deinem Drop".
-                    if isOwnDrop || isArrived {
-                        arrivedContent
-                    } else {
-                        onTheWayContent
-                    }
+        NavigationStack {
+            ZStack {
+                Color.brandCream.ignoresSafeArea()
+                ScrollView(showsIndicators: false) {
+                    v1LiveView
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 16)
                 }
             }
         }
@@ -2375,7 +2480,7 @@ struct ActiveDropTabView: View {
         // ── Abgelaufen-Banner (Drop unsichtbar für neue User, aber noch aktiv) ──
         if isOwnDrop && item.isTimeExpired {
             HStack(spacing: 10) {
-                Image(systemName: "clock.badge.xmark")
+                DazuIcon("clock.badge.xmark")
                     .font(.system(size: 14, weight: .bold))
                     .foregroundColor(.brandViolet)
                     .frame(width: 32, height: 32)
@@ -2408,7 +2513,7 @@ struct ActiveDropTabView: View {
                 Text(item.activity)
                     .font(.system(size: 38, weight: .heavy, design: .rounded))
                     .foregroundColor(.brandNight)
-                Text(item.emoji)
+                DazuActivityIcon(item.emoji, when: item.hasActivityEmoji)
                     .font(.system(size: 32))
                 Spacer(minLength: 0)
             }
@@ -2430,7 +2535,7 @@ struct ActiveDropTabView: View {
                     : max(1, confirmedHere.count + (isArrived ? 0 : 1))
                 let maxP = item.maxParticipants
                 HStack(spacing: 5) {
-                    Image(systemName: "person.2.fill").font(.system(size: 10, weight: .bold))
+                    DazuIcon("person.2.fill").font(.system(size: 10, weight: .bold))
                     Text(tr("map.participants")
                         .replacingOccurrences(of: "{joined}", with: "\(joined)")
                         .replacingOccurrences(of: "{max}", with: "\(maxP)"))
@@ -2475,7 +2580,7 @@ struct ActiveDropTabView: View {
         sectionCard {
             if isLoadingRoute {
                 HStack(spacing: 10) {
-                    ProgressView().tint(.brand).scaleEffect(0.9)
+                    DazuLoader().tint(.brand).scaleEffect(0.9)
                     Text(tr("map.calculating_route"))
                         .font(.system(size: 14)).foregroundColor(Color.textSecondary)
                 }
@@ -2498,7 +2603,7 @@ struct ActiveDropTabView: View {
                             .animation(.easeInOut(duration: 0.3), value: liveDistanceMeters)
                         if let addr = resolvedAddress {
                             HStack(spacing: 3) {
-                                Image(systemName: "mappin").font(.system(size: 9)).foregroundColor(Color.textTertiary)
+                                DazuIcon("mappin", accent: false).font(.system(size: 9)).foregroundColor(Color.textTertiary)
                                 Text(addr).font(.system(size: 11)).foregroundColor(Color.textTertiary).lineLimit(1)
                             }
                         }
@@ -2509,7 +2614,7 @@ struct ActiveDropTabView: View {
                         // .sheet(isPresented: $showRouteSheet) am body.
                         showRouteSheet = true
                     } label: {
-                        Label(tr("map.navigation"), systemImage: "arrow.triangle.turn.up.right.circle.fill")
+                        Label { Text(tr("map.navigation")) } icon: { DazuIcon("arrow.triangle.turn.up.right.circle.fill") }
                             .font(.system(size: 13, weight: .semibold)).foregroundColor(accentColor)
                             .padding(.horizontal, 14).padding(.vertical, 9)
                             .background(accentColor.opacity(0.12), in: Capsule())
@@ -2524,7 +2629,7 @@ struct ActiveDropTabView: View {
             HStack(spacing: 12) {
                 ZStack {
                     Circle().fill(Color.brand.opacity(0.14)).frame(width: 44, height: 44)
-                    Text(item.emoji).font(.system(size: 22))
+                    DazuActivityIcon(item.emoji, when: item.hasActivityEmoji).font(.system(size: 22))
                 }
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 4) {
@@ -2542,7 +2647,7 @@ struct ActiveDropTabView: View {
                         .foregroundColor(Color.textTertiary)
                 }
                 Spacer()
-                Image(systemName: "person.fill")
+                DazuIcon("person.fill")
                     .font(.system(size: 13))
                     .foregroundColor(Color.brand)
             }
@@ -2553,7 +2658,7 @@ struct ActiveDropTabView: View {
             HStack(spacing: 12) {
                 ZStack {
                     Circle().fill(Color.textTertiary.opacity(0.18)).frame(width: 40, height: 40)
-                    Image(systemName: "lock.fill")
+                    DazuIcon("lock.fill", accent: false)
                         .font(.system(size: 15)).foregroundColor(Color.textTertiary)
                 }
                 VStack(alignment: .leading, spacing: 3) {
@@ -2567,7 +2672,7 @@ struct ActiveDropTabView: View {
             if !confirmedHere.isEmpty || !onTheWay.isEmpty {
                 HStack(spacing: 16) {
                     if !confirmedHere.isEmpty {
-                        Label("\(confirmedHere.count) vor Ort", systemImage: "checkmark.circle.fill")
+                        Label { Text("\(confirmedHere.count) vor Ort") } icon: { DazuIcon("checkmark.circle.fill") }
                             .font(.system(size: 12, weight: .medium)).foregroundColor(.onlineGreen)
                     }
                     if !onTheWay.isEmpty {
@@ -2632,13 +2737,440 @@ struct ActiveDropTabView: View {
                     // In-App-Route statt Apple Maps öffnen
                     showRouteSheet = true
                 } label: {
-                    Image(systemName: "arrow.triangle.turn.up.right.circle.fill")
+                    DazuIcon("arrow.triangle.turn.up.right.circle.fill")
                         .font(.system(size: 22))
                         .foregroundColor(.accentOrange)
                 }
                 .dropsPressable()
             }
         }
+    }
+
+    // MARK: - V1 Live-View (neues dazu-Design)
+
+    @ViewBuilder
+    private var v1LiveView: some View {
+        VStack(spacing: 14) {
+            v1HeroCard
+            // Spacer schafft klare Trennung zwischen Hero/Chips (gehört zur
+            // Runde selbst) und der "Wer kommt"-Card (Teilnehmerliste). Sonst
+            // kleben die zwei Blöcke zu dicht aufeinander.
+            v1ParticipantsCard
+                .padding(.top, 6)
+            if isOwnDrop {
+                v1HostActions
+            } else {
+                v1JoinerActions
+            }
+        }
+        .sheet(isPresented: $showChangeLocationSheet) {
+            v1ChangeLocationSheet
+        }
+    }
+
+    // MARK: Hero-Card
+
+    @ViewBuilder private var v1HeroCard: some View {
+        VStack(spacing: 14) {
+            // Activity + Icon oben zentriert — dazu-Asset-Icon statt Emoji-
+            // Fallback (sonst taucht bei fehlendem Emoji ein Sparkle auf).
+            VStack(spacing: 8) {
+                DazuActivityIcon(item.emoji, when: item.hasActivityEmoji)
+                    .font(.system(size: 40))
+                    .frame(width: 56, height: 56)
+                Text(item.activity)
+                    .font(.system(size: 24, weight: .heavy, design: .rounded))
+                    .foregroundColor(.brandNight)
+                    .multilineTextAlignment(.center)
+                HStack(spacing: 4) {
+                    Image(systemName: "mappin.and.ellipse")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.brandViolet)
+                    Text(resolvedAddress ?? item.name)
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundColor(.brandNight.opacity(0.65))
+                        .lineLimit(1)
+                }
+            }
+            .padding(.top, 10)
+
+            // Mini-Karten-Band — zeigt wo der Drop stattfindet. 108pt Höhe
+            // = schlank, nimmt dem Progress-Ring nicht die Aufmerksamkeit.
+            // Rechteck mit cornerRadius 16, Fill-Variante füllt die Breite.
+            MiniMapSnapshotFill(coordinate: item.coordinate, metersSpan: 350)
+                .frame(height: 108)
+                .overlay(
+                    Circle()
+                        .fill(Color.brandOrange)
+                        .frame(width: 14, height: 14)
+                        .overlay(Circle().stroke(Color.white, lineWidth: 2))
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .padding(.horizontal, 20)
+
+            // Progress-Ring mit Rest-Zeit
+            v1ProgressRing
+                .padding(.vertical, 4)
+
+            // Meta-Chips (1/10, vor Ort, Entfernung …) — gehören zum
+            // Hero-Block, damit die "Wer kommt"-Card darunter als klar
+            // getrennter Teilnehmer-Bereich wirkt.
+            v1MetaChips
+                .padding(.bottom, 4)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 20)
+        .liquidGlass(cornerRadius: 24)
+    }
+
+    // MARK: Progress Ring (Rest-Zeit)
+
+    @ViewBuilder private var v1ProgressRing: some View {
+        let startRef = item.startsAt
+        let endRef = item.expiresAt
+        let total = max(endRef.timeIntervalSince(startRef), 60)
+        let elapsed = max(0, now.timeIntervalSince(startRef))
+        let progress = min(1.0, elapsed / total)
+        let remaining = max(0, endRef.timeIntervalSince(now))
+        let remainingLabel: String = {
+            if remaining <= 0 { return "zu Ende" }
+            let m = Int(remaining / 60)
+            if m < 60 { return "\(m) Min" }
+            let h = m / 60
+            let mm = m % 60
+            return mm == 0 ? "\(h) Std" : "\(h) Std \(mm) Min"
+        }()
+        ZStack {
+            Circle()
+                .stroke(Color.brandLavender, lineWidth: 10)
+                .frame(width: 140, height: 140)
+            Circle()
+                .trim(from: 0, to: 1.0 - progress)
+                .stroke(Color.brandOrangeFixed,
+                        style: StrokeStyle(lineWidth: 10, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .frame(width: 140, height: 140)
+                .animation(.linear(duration: 1), value: progress)
+            VStack(spacing: 2) {
+                Text(tr("live.still_remaining"))
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundColor(.brandNight.opacity(0.5))
+                Text(remainingLabel)
+                    .font(.system(size: 18, weight: .heavy, design: .rounded))
+                    .foregroundColor(.brandNight)
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+            }
+        }
+    }
+
+    // MARK: Meta Chips Row
+
+    @ViewBuilder private var v1MetaChips: some View {
+        HStack(spacing: 8) {
+            v1MetaChip(icon: "person.2.fill",
+                       text: "\(item.participants.count)/\(item.maxParticipants)")
+            if let dist = liveDistanceMeters, !isOwnDrop {
+                let kmLabel = dist >= 1000
+                    ? String(format: "%.1f km", dist / 1000)
+                    : "\(Int(dist)) m"
+                v1MetaChip(icon: "figure.walk", text: kmLabel)
+            }
+            if let eta = liveWalkMinutes, !isOwnDrop {
+                v1MetaChip(icon: "clock.fill", text: "~\(eta) Min")
+            }
+            if isArrived {
+                v1MetaChip(icon: "checkmark.circle.fill", text: "vor Ort", tint: .onlineGreen)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private func v1MetaChip(icon: String, text: String, tint: Color = .brandViolet) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: icon).font(.system(size: 10, weight: .bold))
+            Text(text).font(.system(size: 12, weight: .heavy, design: .rounded))
+        }
+        .foregroundColor(tint)
+        .padding(.horizontal, 10).padding(.vertical, 6)
+        .background(Capsule().fill(tint.opacity(0.15)))
+    }
+
+    // MARK: Teilnehmer-Card mit ETA
+
+    @ViewBuilder private var v1ParticipantsCard: some View {
+        // Für Demo-Live-Drops (fehlende item.participants) nutzen wir die
+        // live aus `dropins/{fbid}` geladenen Pseudo-Participants.
+        let all = item.participants.isEmpty ? demoJoiners : item.participants
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 6) {
+                Image(systemName: "person.2.wave.2.fill")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(.brandViolet)
+                Text(tr("live.who_coming"))
+                    .font(.system(size: 13, weight: .heavy, design: .rounded))
+                    .foregroundColor(.brandNight)
+                Spacer()
+            }
+            if all.isEmpty {
+                Text(tr("live.alone_waiting"))
+                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                    .foregroundColor(.brandNight.opacity(0.5))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 8)
+            } else {
+                VStack(spacing: 8) {
+                    ForEach(all, id: \.id) { p in
+                        v1ParticipantRow(p)
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity)
+        .liquidGlass(cornerRadius: 20)
+        .onAppear { fetchDemoJoinersIfNeeded() }
+    }
+
+    /// Lädt die Dropins für den aktuellen (Demo-)Drop und baut sie als
+    /// Pseudo-DropParticipants. Nur für Demo-Live-Drops. Nutzt observe(.value)
+    /// damit neue Mock-Joiner (asynchron von seedLiveDemoDrops geschrieben)
+    /// automatisch nachrutschen — vorher sah der User nur sich selbst.
+    private func fetchDemoJoinersIfNeeded() {
+        guard let fbid = item.firebaseDropID,
+              fbid.hasPrefix("demolive_") else { return }
+        Database.database().reference()
+            .child("dropins").child(fbid)
+            .observe(.value) { snap in
+                var list: [DropParticipant] = []
+                for case let child as DataSnapshot in snap.children {
+                    guard let dict = child.value as? [String: Any] else { continue }
+                    var p = DropParticipant(
+                        name: dict["name"] as? String ?? "?",
+                        emoji: dict["emoji"] as? String ?? "",
+                        reliabilityScore: dict["reliabilityPoints"] as? Int ?? 85,
+                        reliabilityCommits: 0
+                    )
+                    p.age = dict["age"] as? Int
+                    p.profileImageURL = dict["profileImageURL"] as? String
+                    list.append(p)
+                }
+                DispatchQueue.main.async { self.demoJoiners = list }
+            }
+    }
+
+    @ViewBuilder
+    private func v1ParticipantRow(_ p: DropParticipant) -> some View {
+        let isSelf = p.token == myToken
+        let isHere = confirmedHere.contains(where: { $0.token == p.token })
+        HStack(spacing: 12) {
+            // Avatar
+            Group {
+                if let url = p.profileImageURL, !url.isEmpty {
+                    RemoteProfileImage(url: url, fallbackEmoji: p.emoji,
+                                       size: 40, strokeColor: .clear)
+                } else {
+                    ZStack {
+                        Circle().fill(Color.brandLavender).frame(width: 40, height: 40)
+                        DazuProfileIcon(size: 24)
+                    }
+                }
+            }
+            .overlay(Circle().stroke(isHere ? Color.onlineGreen : Color.brandLavender, lineWidth: 2))
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 4) {
+                    Text(isSelf ? "Du" : (p.name.isEmpty ? "Teilnehmer" : p.name))
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundColor(.brandNight)
+                        .lineLimit(1)
+                    if p.token == "__host__" || (isSelf && isOwnDrop) {
+                        Text("· Host")
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .foregroundColor(.brandOrange)
+                    }
+                }
+                Text(isHere ? "vor Ort" : "unterwegs")
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundColor(isHere ? .onlineGreen : .brandNight.opacity(0.5))
+            }
+            Spacer()
+            // Status-Dot
+            Circle()
+                .fill(isHere ? Color.onlineGreen : Color.brandOrange)
+                .frame(width: 10, height: 10)
+        }
+    }
+
+    // MARK: Host Actions
+
+    @ViewBuilder private var v1HostActions: some View {
+        VStack(spacing: 10) {
+            Button {
+                showChangeLocationSheet = true
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "mappin.and.ellipse")
+                        .font(.system(size: 14, weight: .bold))
+                    Text(tr("live.change_location"))
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                }
+                .foregroundColor(.brandViolet)
+                .frame(maxWidth: .infinity).padding(.vertical, 14)
+                .background(Capsule().fill(Color.brandLavender))
+            }
+            .dropsPressable()
+
+            Button {
+                showExtendSheet = true
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "clock.badge.checkmark")
+                        .font(.system(size: 14, weight: .bold))
+                    Text(tr("live.extend"))
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                }
+                .foregroundColor(.brandViolet)
+                .frame(maxWidth: .infinity).padding(.vertical, 14)
+                .background(Capsule().fill(Color.brandLavender))
+            }
+            .dropsPressable()
+
+            Button {
+                showCancelAlert = true
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 14, weight: .bold))
+                    Text(tr("live.end_round"))
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                }
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity).padding(.vertical, 14)
+                .background(Capsule().fill(Color.accentRed))
+            }
+            .dropsPressable()
+        }
+    }
+
+    // MARK: Joiner Actions
+
+    @ViewBuilder private var v1JoinerActions: some View {
+        VStack(spacing: 10) {
+            Button {
+                showRouteSheet = true
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "map.fill")
+                        .font(.system(size: 14, weight: .bold))
+                    Text(tr("live.open_route"))
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                }
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity).padding(.vertical, 14)
+                .background(Capsule().fill(Color.brandVioletFixed))
+            }
+            .dropsPressable()
+
+            Button {
+                showLeaveConfirm = true
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.left.circle.fill")
+                        .font(.system(size: 14, weight: .bold))
+                    Text(tr("live.leave_round"))
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                }
+                .foregroundColor(.accentRed)
+                .frame(maxWidth: .infinity).padding(.vertical, 14)
+                .background(Capsule().fill(Color.accentRed.opacity(0.12)))
+            }
+            .dropsPressable()
+        }
+    }
+
+    // MARK: Change Location Sheet
+
+    @ViewBuilder private var v1ChangeLocationSheet: some View {
+        NavigationStack {
+            ZStack {
+                Color.brandCream.ignoresSafeArea()
+                VStack(spacing: 12) {
+                    Text(tr("live.new_meetup_pin"))
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .foregroundColor(.brandNight)
+                        .padding(.top, 14)
+                    Text(tr("live.long_press_hint"))
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .foregroundColor(.brandNight.opacity(0.6))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 24)
+
+                    // Interaktive Karte mit tap-to-pin.
+                    v1PinPickerMap
+                        .frame(height: 320)
+                        .cornerRadius(18)
+                        .padding(.horizontal, 16)
+
+                    if let coord = pendingNewCoord {
+                        Text(String(format: "Pin: %.4f, %.4f", coord.latitude, coord.longitude))
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .foregroundColor(.brandNight.opacity(0.6))
+                            .monospacedDigit()
+                    }
+
+                    Button {
+                        let coord = pendingNewCoord ?? locationManager.userLocation
+                        if let coord = coord { applyNewHostLocation(coord) }
+                    } label: {
+                        Text(pendingNewCoord == nil
+                             ? "Aktuelle Position verwenden"
+                             : "Hier treffen & alle informieren")
+                            .dropsPrimaryButton()
+                    }
+                    .dropsPressable()
+                    .padding(.horizontal, 20)
+                    .padding(.top, 4)
+
+                    Button {
+                        showChangeLocationSheet = false
+                        pendingNewCoord = nil
+                    } label: {
+                        Text(tr("common.cancel"))
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                            .foregroundColor(.brandNight.opacity(0.55))
+                            .padding(.vertical, 6)
+                    }
+                    .padding(.bottom, 18)
+                }
+            }
+            .presentationDetents([.large])
+        }
+    }
+
+    /// Interaktive MKMapView mit Long-Press-Pin-Picker. Setzt
+    /// `pendingNewCoord` beim Long-Press. Zeigt den aktuellen Drop-Pin
+    /// orange und den neuen Pin violett.
+    @ViewBuilder private var v1PinPickerMap: some View {
+        PinPickerMap(
+            initialCenter: item.coordinate,
+            existingPin: item.coordinate,
+            selectedCoord: $pendingNewCoord
+        )
+    }
+
+    /// Schreibt die neue Host-Koordinate nach Firebase und sendet Push an alle
+    /// Joiner. Lokaler Toast bestätigt die Änderung.
+    private func applyNewHostLocation(_ coord: CLLocationCoordinate2D) {
+        let dropID = item.id.uuidString
+        RealtimeDBManager.shared.updateDropLocation(dropID: dropID, coord: coord)
+        // Push an alle Joiner — nutzt die bestehende Push-API falls vorhanden,
+        // sonst nur lokaler Toast. Lokaler Toast immer.
+        store.showInfoToast("Neuer Treffpunkt gesetzt. Alle werden informiert.",
+                            icon: "mappin.and.ellipse")
+        showChangeLocationSheet = false
     }
 
     // MARK: - Vor-Ort-Ansicht (freigeschaltet)
@@ -2674,7 +3206,7 @@ struct ActiveDropTabView: View {
                     sectionCard {
                         VStack(alignment: .leading, spacing: 10) {
                             HStack {
-                                Label(tr("drop.arrived"), systemImage: "checkmark.circle.fill")
+                                Label { Text(tr("drop.arrived")) } icon: { DazuIcon("checkmark.circle.fill") }
                                     .font(.system(size: 12, weight: .bold)).foregroundColor(.onlineGreen)
                                 Spacer()
                                 Text("\(confirmedHere.count) Person\(confirmedHere.count == 1 ? "" : "en")")
@@ -2734,7 +3266,7 @@ struct ActiveDropTabView: View {
                     sectionCard {
                         VStack(alignment: .leading, spacing: 10) {
                             HStack {
-                                Label(tr("drop.arrived"), systemImage: "checkmark.circle.fill")
+                                Label { Text(tr("drop.arrived")) } icon: { DazuIcon("checkmark.circle.fill") }
                                     .font(.system(size: 12, weight: .bold)).foregroundColor(.onlineGreen)
                                 Spacer()
                                 Text("\(confirmedHere.count) Person\(confirmedHere.count == 1 ? "" : "en")")
@@ -2787,7 +3319,7 @@ struct ActiveDropTabView: View {
                 VStack(alignment: .leading, spacing: hasDesc && address != nil ? 10 : 0) {
                     if let addr = address {
                         HStack(spacing: 6) {
-                            Image(systemName: "mappin.circle.fill")
+                            DazuIcon("mappin.circle.fill")
                                 .font(.system(size: 14))
                                 .foregroundColor(accentColor)
                             Text(addr)
@@ -2822,7 +3354,7 @@ struct ActiveDropTabView: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     HStack(spacing: 4) {
-                        Image(systemName: "person.2.fill")
+                        DazuIcon("person.2.fill", accent: false)
                             .font(.system(size: 11)).foregroundColor(Color.textTertiary)
                         Text(tr("map.x_of_y_participants").replacingOccurrences(of: "{used}", with: "\(used)").replacingOccurrences(of: "{total}", with: "\(total)"))
                             .font(.system(size: 13, weight: .semibold)).foregroundColor(Color.textPrimary)
@@ -2862,7 +3394,7 @@ struct ActiveDropTabView: View {
             sectionCard {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack(spacing: 6) {
-                        Image(systemName: "eye.fill")
+                        DazuIcon("eye.fill")
                             .font(.system(size: 12, weight: .bold))
                             .foregroundColor(Color.auroraAmber)
                         Text("\(viewers.count) \(viewers.count == 1 ? "Person hat" : "Personen haben") geschaut")
@@ -2870,7 +3402,7 @@ struct ActiveDropTabView: View {
                             .foregroundColor(Color.textPrimary)
                         Spacer()
                         if !store.isDropsPlusActive {
-                            Image(systemName: "lock.fill")
+                            DazuIcon("lock.fill", accent: false)
                                 .font(.system(size: 10))
                                 .foregroundColor(Color.textTertiary)
                         }
@@ -2932,7 +3464,7 @@ struct ActiveDropTabView: View {
                             store.showDropsPlusPaywall = true
                         } label: {
                             HStack(spacing: 6) {
-                                Image(systemName: "bolt.fill")
+                                DazuIcon("bolt.fill")
                                     .font(.system(size: 11, weight: .bold))
                                 Text(tr("map.unlock_with_plus"))
                                     .font(.system(size: 13, weight: .semibold))
@@ -2969,12 +3501,12 @@ struct ActiveDropTabView: View {
         sectionCard {
             Button { showShareSheet = true } label: {
                 HStack(spacing: 10) {
-                    Image(systemName: "square.and.arrow.up")
+                    DazuIcon("square.and.arrow.up")
                         .font(.system(size: 15, weight: .semibold))
                     Text(tr("map.invite_friends"))
                         .font(.system(size: 15, weight: .semibold))
                     Spacer()
-                    Image(systemName: "chevron.right")
+                    DazuIcon("chevron.right")
                         .font(.system(size: 12)).opacity(0.4)
                 }
                 .foregroundColor(accentColor)
@@ -2989,7 +3521,7 @@ struct ActiveDropTabView: View {
             // registriert, also gleich autoritativ.
             let dropLink = URL(string: AppLinks.dropShareURL(dropID: item.id.uuidString))!
             let location = item.locationTitle.isEmpty ? "" : " · \(item.locationTitle)"
-            let subject = "\(item.emoji) \(item.activity)\(location) — komm vorbei. 📍"
+            let subject = "\(item.activity)\(location) — komm vorbei."
             ShareSheet(items: [dropLink], subject: subject)
         }
     }
@@ -3004,7 +3536,7 @@ struct ActiveDropTabView: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     HStack(spacing: 4) {
-                        Image(systemName: "clock")
+                        DazuIcon("clock")
                             .font(.system(size: 11)).foregroundColor(Color.textTertiary)
                         Text(tr("map.time_left"))
                             .font(.system(size: 13, weight: .semibold)).foregroundColor(Color.textPrimary)
@@ -3040,7 +3572,7 @@ struct ActiveDropTabView: View {
                 HStack(spacing: 12) {
                     ZStack {
                         Circle().fill(accentColor.opacity(0.18)).frame(width: 40, height: 40)
-                        Image(systemName: "person.wave.2.fill")
+                        DazuIcon("person.wave.2.fill")
                             .font(.system(size: 17)).foregroundColor(accentColor)
                     }
                     VStack(alignment: .leading, spacing: 2) {
@@ -3085,7 +3617,7 @@ struct ActiveDropTabView: View {
                 showExtendSheet = true
             } label: {
                 HStack(spacing: 7) {
-                    Image(systemName: onCooldown ? "clock" : "clock.arrow.circlepath")
+                    DazuIcon(onCooldown ? "clock" : "clock.arrow.circlepath")
                         .font(.system(size: 14, weight: .bold))
                     if let secs = extendCooldownRemaining {
                         Text(tr("map.extend_cooldown").replacingOccurrences(of: "{time}", with: formatCooldown(secs)))
@@ -3125,7 +3657,7 @@ struct ActiveDropTabView: View {
                 else { showLeaveConfirm = true }
             } label: {
                 HStack(spacing: 8) {
-                    Image(systemName: isOwnDrop ? "flag.checkered" : "rectangle.portrait.and.arrow.right")
+                    DazuIcon(isOwnDrop ? "flag.checkered" : "rectangle.portrait.and.arrow.right")
                         .font(.system(size: 14, weight: .bold))
                     Text(isOwnDrop ? tr("drop.end_drop") : tr("drop.leave_drop"))
                         .font(.system(size: 15, weight: .bold, design: .rounded))
@@ -3141,7 +3673,7 @@ struct ActiveDropTabView: View {
             // Info: wann der Drop automatisch endet (nur bei gesetzter Dauer)
             if item.durationMinutes > 0 && !item.timeRemainingString.isEmpty {
                 HStack(spacing: 4) {
-                    Image(systemName: "clock").font(.system(size: 10, weight: .bold))
+                    DazuIcon("clock").font(.system(size: 10, weight: .bold))
                     Text(item.timeRemainingString)
                         .font(.system(size: 11, weight: .semibold, design: .rounded))
                 }
@@ -3197,7 +3729,7 @@ struct ActiveDropTabView: View {
                 onBlock: {}
             )
             .environmentObject(store)
-            .presentationDetents([.medium])
+            .presentationDetents([.fraction(0.5)])
         }
     }
 
@@ -3327,7 +3859,7 @@ struct ParticipantDetailRow: View {
                         .overlay(Circle().stroke(Color.onlineGreen.opacity(0.55), lineWidth: 2))
 
                         Circle().fill(Color.onlineGreen).frame(width: 17, height: 17)
-                            .overlay(Image(systemName: "checkmark")
+                            .overlay(DazuIcon("checkmark")
                                 .font(.system(size: 8, weight: .bold)).foregroundColor(.white))
                             .offset(x: 2, y: 2)
                     }
@@ -3343,7 +3875,7 @@ struct ParticipantDetailRow: View {
                         // Trust-Badge nur anzeigen wenn verlässlich.
                         if ReliabilityScore.isTrusted(forPoints: displayPoints) {
                             HStack(spacing: 4) {
-                                Image(systemName: "checkmark.seal.fill")
+                                DazuIcon("checkmark.seal.fill")
                                     .font(.system(size: 10, weight: .bold))
                                     .foregroundColor(.brandViolet)
                                 Text(tr("tier.trusted"))
@@ -3381,7 +3913,7 @@ struct ParticipantDetailRow: View {
                         } else {
                             ZStack {
                                 Circle().fill(avatarBg)
-                                Text(participant.emoji).font(.system(size: 16))
+                                DazuPersonIcon().font(.system(size: 16))
                             }
                         }
                     }
@@ -3401,14 +3933,14 @@ struct ParticipantDetailRow: View {
                     HStack(spacing: 6) {
                         if let dist = distanceLabel {
                             HStack(spacing: 3) {
-                                Image(systemName: "figure.walk").font(.system(size: 9, weight: .medium))
+                                DazuIcon("figure.walk").font(.system(size: 9, weight: .medium))
                                 Text(dist).font(.system(size: 11, weight: .medium))
                             }
                             .foregroundColor(Color.textSecondary)
                         }
                         if let mins = etaMinutes {
                             HStack(spacing: 3) {
-                                Image(systemName: "clock").font(.system(size: 9))
+                                DazuIcon("clock").font(.system(size: 9))
                                 Text(tr("map.walk_minutes").replacingOccurrences(of: "{mins}", with: "\(mins)")).font(.system(size: 11))
                             }
                             .foregroundColor(Color.textSecondary)
@@ -3417,7 +3949,7 @@ struct ParticipantDetailRow: View {
                         }
                     }
 
-                    Image(systemName: "chevron.right")
+                    DazuIcon("chevron.right")
                         .font(.system(size: 9, weight: .medium))
                         .foregroundColor(Color.textSecondary.opacity(0.5))
                 }
@@ -3485,9 +4017,9 @@ struct ParticipantLiveLocationSheet: View {
             HStack(spacing: 12) {
                 ZStack {
                     Circle()
-                        .fill(Color(UIColor.systemGray5))
+                        .fill(Color.brandLavender)
                         .frame(width: 46, height: 46)
-                    Text(participant.emoji).font(.system(size: 22))
+                    DazuPersonIcon().font(.system(size: 22))
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 5) {
@@ -3500,13 +4032,13 @@ struct ParticipantLiveLocationSheet: View {
                                 .foregroundColor(.textTertiary)
                         }
                     }
-                    Label(tr("drop.heading_to_drop"), systemImage: "figure.walk")
+                    Label { Text(tr("drop.heading_to_drop")) } icon: { DazuIcon("figure.walk") }
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(.brand)
                 }
                 Spacer()
                 Button(action: { dismiss() }) {
-                    Image(systemName: "xmark.circle.fill")
+                    DazuIcon("xmark.circle.fill")
                         .font(.system(size: 22))
                         .foregroundStyle(Color(UIColor.systemGray3))
                 }
@@ -3527,7 +4059,7 @@ struct ParticipantLiveLocationSheet: View {
                                     Circle()
                                         .stroke(Color.brand.opacity(0.6), lineWidth: 2)
                                         .frame(width: 44, height: 44)
-                                    Text(participant.emoji)
+                                    DazuPersonIcon()
                                         .font(.system(size: 20))
                                 }
                                 .shadow(color: Color.brand.opacity(0.4), radius: 8)
@@ -3540,7 +4072,7 @@ struct ParticipantLiveLocationSheet: View {
                                     Circle()
                                         .stroke(Color.accentOrange.opacity(0.6), lineWidth: 2)
                                         .frame(width: 34, height: 34)
-                                    Image(systemName: "mappin.circle.fill")
+                                    DazuIcon("mappin.circle.fill")
                                         .font(.system(size: 16))
                                         .foregroundColor(.accentOrange)
                                 }
@@ -3555,7 +4087,7 @@ struct ParticipantLiveLocationSheet: View {
                 // Distanz-Overlay unten auf der Karte
                 if let dist = distanceLabel {
                     HStack(spacing: 5) {
-                        Image(systemName: "figure.walk")
+                        DazuIcon("figure.walk", accent: false)
                             .font(.system(size: 11))
                         Text(dist + " entfernt")
                             .font(.system(size: 12, weight: .semibold))
@@ -3703,7 +4235,7 @@ struct ParticipantAvatars: View {
             if extra > 0 {
                 ZStack {
                     Circle()
-                        .fill(Color(UIColor.systemGray5))
+                        .fill(Color.brandLavender)
                         .frame(width: size, height: size)
                         .overlay(Circle().stroke(Color.bgPrimary, lineWidth: border))
                     Text("+\(extra)")
@@ -3743,7 +4275,7 @@ struct ParticipantAvatars: View {
                     .fill(Color.brand.opacity(0.1))
                     .frame(width: size, height: size)
                     .overlay(
-                        Text(participant.emoji)
+                        DazuPersonIcon()
                             .font(.system(size: size * 0.5))
                     )
             }
@@ -3764,7 +4296,7 @@ struct MiniProfileSheet: View {
     var profileImageURL: String? = nil
     var reliabilityScore: Int = 85
     var totalCommits: Int = 0
-    var subtitle: String = "Dazu-Nutzer"
+    var subtitle: String = ""
     var accentColor: Color = Color.auroraCyan
     var isPlus: Bool = false
     /// Wenn gesetzt, wird der Drops+ Status live aus Firebase nachgezogen — dadurch
@@ -3786,9 +4318,32 @@ struct MiniProfileSheet: View {
     @State private var inviteSent: Bool = false
     /// Aus Firebase nachgezogen — für Beta-Badge-Cutoff und Alter im Subtitle.
     @State private var fetchedCreatedAt: Date? = nil
+    /// Letzter Online-Heartbeat des Users — nil wenn noch nicht geladen.
+    /// Daraus wird „Online jetzt" oder „Zuletzt online vor X Min" abgeleitet.
+    @State private var fetchedLastActive: Date? = nil
     @State private var fetchedAge: Int? = nil
     /// Hero-Gradient des anderen Users — aus Firestore geladen.
     @State private var fetchedHeroTemplate: ProfileHeroTemplate = .aurora
+
+    /// Online-Status-String — "Online jetzt" wenn der letzte Heartbeat
+    /// unter 5 Min alt ist, sonst "Zuletzt online vor X Min / vor X Std /
+    /// vor X Tagen". Fallback auf den statischen Subtitle wenn noch keine
+    /// Daten geladen sind.
+    private var onlineStatusLabel: String {
+        guard let la = fetchedLastActive else { return subtitle }
+        let delta = Date().timeIntervalSince(la)
+        if delta < 5 * 60 { return tr("mini.online_now") }
+        if delta < 60 * 60 {
+            let m = Int(delta / 60)
+            return tr("mini.last_online_min").replacingOccurrences(of: "{n}", with: "\(m)")
+        }
+        if delta < 24 * 60 * 60 {
+            let h = Int(delta / 3600)
+            return tr("mini.last_online_hours").replacingOccurrences(of: "{n}", with: "\(h)")
+        }
+        let d = Int(delta / 86400)
+        return tr("mini.last_online_days").replacingOccurrences(of: "{n}", with: "\(d)")
+    }
 
     /// Beta-Badge-Cutoff: Nutzer ab 04.05.2026 (Europe/Berlin) bekommen kein Badge mehr.
     /// Frühere Nutzer (Early Adopter) behalten den Badge dauerhaft. Wenn createdAt
@@ -3840,6 +4395,78 @@ struct MiniProfileSheet: View {
         return tr("map.member_today")
     }
 
+    /// Grid-Übersicht aller Badges die ein User haben könnte (außer Founder):
+    /// Verifiziert, Verlässlich, PLUS, BETA, Gastgeber. Erfüllt = Farbe,
+    /// nicht erfüllt = ausgegraut mit kurzem Hinweis wie man ihn erreicht.
+    @ViewBuilder
+    private var allBadgesRow: some View {
+        let hasHost = store.pastDrops.contains { $0.wasHost }
+        let isTrusted = ReliabilityScore.isTrusted(forPoints: reliabilityScore)
+        let items: [(name: String, icon: String, color: Color, achieved: Bool, hint: String)] = [
+            (tr("badge.verified"), "checkmark.shield.fill", Color.brandViolet,
+             priorEncountersCount > 0,
+             tr("badge.verified_hint")),
+            (tr("badge.trusted"), "checkmark.seal.fill", Color.brandViolet,
+             isTrusted,
+             tr("badge.trusted_hint")),
+            (tr("badge.beta"), "sparkle", Color.brandViolet,
+             qualifiesForBetaBadge,
+             tr("badge.beta_hint")),
+            (tr("badge.host"), "star.fill", Color.brandOrange,
+             hasHost,
+             tr("badge.host_hint"))
+        ]
+        let cols = [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)]
+        LazyVGrid(columns: cols, spacing: 8) {
+            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                HStack(spacing: 8) {
+                    Image(systemName: item.icon)
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(item.achieved ? item.color : .brandNight.opacity(0.3))
+                        .frame(width: 22, height: 22)
+                        .background(Circle().fill(
+                            item.achieved ? item.color.opacity(0.15) : Color.brandNight.opacity(0.06)
+                        ))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(item.name)
+                            .font(.system(size: 11, weight: .heavy, design: .rounded))
+                            .foregroundColor(item.achieved ? item.color : .brandNight.opacity(0.55))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.85)
+                        if !item.achieved {
+                            Text(item.hint)
+                                .font(.system(size: 9, weight: .medium, design: .rounded))
+                                .foregroundColor(.brandNight.opacity(0.4))
+                                .lineLimit(2)
+                                .minimumScaleFactor(0.8)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 8).padding(.vertical, 6)
+                .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(item.achieved
+                          ? item.color.opacity(0.08)
+                          : Color.brandNight.opacity(0.04)))
+            }
+        }
+    }
+
+    /// Chip-Badge für die Header-Chip-Row (Verlässlich, PLUS, Verifiziert …).
+    /// Lavendel-Tint mit tintfarbenem Icon + Label, konsistent zum Profil-
+    /// Header im Haupt-Tab.
+    @ViewBuilder
+    private func miniChip(_ text: String, icon: String, color: Color) -> some View {
+        HStack(spacing: 3) {
+            DazuIcon(icon).font(.system(size: 9, weight: .bold))
+            Text(text).font(.system(size: 10, weight: .heavy, design: .rounded))
+        }
+        .foregroundColor(color)
+        .padding(.horizontal, 7).padding(.vertical, 3)
+        .background(Capsule().fill(color.opacity(0.14)))
+    }
+
     /// Kompakte Info-Zeile innerhalb der Stats-Card.
     @ViewBuilder
     private func miniInfoRow(icon: String, tint: Color, text: String) -> some View {
@@ -3848,7 +4475,7 @@ struct MiniProfileSheet: View {
                 Circle()
                     .fill(tint.opacity(0.14))
                     .frame(width: 28, height: 28)
-                Image(systemName: icon)
+                DazuIcon(icon)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(tint)
             }
@@ -3862,177 +4489,84 @@ struct MiniProfileSheet: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            // Vollflächiger Hintergrund-Gradient — vivid oben, läuft nach ~60% aus.
-            // Liegt hinter allem anderen, passt sich automatisch an das Template an.
-            LinearGradient(
-                colors: [
-                    (fetchedHeroTemplate.colors.first ?? .auroraOrange).opacity(0.30),
-                    (fetchedHeroTemplate.colors.last  ?? .auroraGreen).opacity(0.14),
-                    Color.clear
-                ],
-                startPoint: .top,
-                endPoint: UnitPoint(x: 0.5, y: 1.0)
-            )
-            .ignoresSafeArea()
+            // Clean dazu-Hintergrund — Creme/Nacht (adaptive) statt
+            // Hero-Gradient. Kein Emoji-Scatter mehr.
+            Color.brandCream.ignoresSafeArea()
 
         VStack(spacing: 0) {
-            // ── Hero-Gradient-Header ───────────────────────────────────
-            ZStack(alignment: .bottom) {
-                // 1. Animierter Gradient-Hintergrund
-                AnimatedHeroGradient(template: fetchedHeroTemplate,
-                                     opacity: fetchedHeroTemplate.cardGradientOpacity)
-                    .frame(maxWidth: .infinity)
+            // ── Clean Header ───────────────────────────────────────────
+            VStack(spacing: 12) {
+                Capsule().fill(Color.brandNight.opacity(0.18))
+                    .frame(width: 36, height: 4)
+                    .padding(.top, 10)
 
-                // 2. Emoji-Scatter-Muster
-                if !emoji.isEmpty {
-                    EmojiScatterBackground(emoji: emoji)
-                }
-
-                VStack(spacing: 0) {
-                    Capsule().fill(Color.white.opacity(0.55))
-                        .frame(width: 36, height: 4)
-                        .padding(.top, 10).padding(.bottom, 14)
-
-                    // ── Avatar ────────────────────────────────────────
-                    ZStack {
-                        // Outer Glow in Hero-Farben
-                        Circle()
-                            .fill(LinearGradient(
-                                colors: [
-                                    (fetchedHeroTemplate.colors.first ?? .auroraOrange).opacity(0.28),
-                                    (fetchedHeroTemplate.colors.last  ?? .auroraGreen).opacity(0.20)
-                                ],
-                                startPoint: .topLeading, endPoint: .bottomTrailing
-                            ))
-                            .frame(width: 116, height: 116)
-                            .blur(radius: 14)
-
-                        // Animierter Gradient-Ring in Hero-Farben
-                        GradientAvatarRing(template: fetchedHeroTemplate, size: 96, lineWidth: 2.5)
-
-                if let img = selfie {
-                    Image(uiImage: img)
-                        .resizable().scaledToFill()
-                        .frame(width: 92, height: 92)
-                        .clipShape(Circle())
-                } else if let urlStr = profileImageURL {
-                    RemoteProfileImage(url: urlStr, fallbackEmoji: emoji, size: 92,
-                                       strokeColor: .clear)
-                } else {
-                    Circle()
-                        .fill(LinearGradient(
-                            colors: [
-                                (fetchedHeroTemplate.colors.first ?? .auroraOrange).opacity(0.18),
-                                (fetchedHeroTemplate.colors.last  ?? .auroraGreen).opacity(0.12)
-                            ],
-                            startPoint: .topLeading, endPoint: .bottomTrailing
-                        ))
-                        .frame(width: 92, height: 92)
-                        .overlay(Text(emoji).font(.system(size: 44)))
-                }
-                }   // Avatar ZStack
-                .frame(height: 120)
-                .padding(.bottom, 16)
-            }       // VStack (Capsule + Avatar)
-        }           // ZStack Hero-Header
-        .frame(maxHeight: 170)
-        .mask(
-            LinearGradient(
-                stops: [
-                    .init(color: .black,            location: 0.00),
-                    .init(color: .black,            location: 0.48),
-                    .init(color: .black.opacity(0.7), location: 0.68),
-                    .init(color: .black.opacity(0.3), location: 0.85),
-                    .init(color: .clear,            location: 1.00)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        )
-
-        HStack(spacing: 6) {
-                Text(name)
-                    .font(.system(size: 22, weight: .bold, design: .rounded))
-                    .foregroundColor(.textPrimary)
-                // Beta-Badge nur für Early-Adopter (registriert vor 04.05.2026)
-                if qualifiesForBetaBadge {
-                    BetaBadge()
-                }
-                // Community-Creator-Badge — wenn dieser User eine Community hat
-                if FeatureFlags.communitiesEnabled,
-                   let uid = userUID,
-                   let community = store.communityForCreator(uid: uid) {
-                    CommunityCreatorBadge(community: community, compact: true)
-                }
-                if isPlus || fetchedPlus {
-                    HStack(spacing: 3) {
-                        Image(systemName: "bolt.fill").font(.system(size: 9, weight: .bold))
-                        Text("PLUS").font(.system(size: 10, weight: .heavy))
-                    }
-                    .foregroundStyle(Color(hex: "7a4e05"))
-                    .padding(.horizontal, 7).padding(.vertical, 3)
-                    .background(
-                        LinearGradient(colors: [Color.auroraGoldLight, Color.auroraGoldDark],
-                                       startPoint: .topLeading, endPoint: .bottomTrailing),
-                        in: Capsule()
-                    )
-                    .overlay(Capsule().stroke(Color.white.opacity(0.35), lineWidth: 0.5))
-                }
-            }
-            HStack(spacing: 6) {
-                Text(subtitle)
-                    .font(.system(size: 13))
-                    .foregroundColor(.textSecondary)
-                if let age = displayAge {
-                    Text("·")
-                        .font(.system(size: 13))
-                        .foregroundColor(.textTertiary)
-                    Text("\(age)")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(.textSecondary)
-                }
-            }
-            .padding(.bottom, 18)
-
-            // ── Zuverlässigkeits-Ring + Member-Seit zusammen in 1 Card ──
-            // Vorher: 1 separate Card pro Info. Jetzt: kompakter Combo-
-            // Layout mit Divider — weniger vertikalem Platz, dichter Info.
-            VStack(spacing: 0) {
-                // Trust-Badge — nur anzeigen wenn der User verlässlich ist.
-                // Vorher: 5-Tier-Ring + Punkte-Rechnerei. Jetzt: binärer Marker.
-                if ReliabilityScore.isTrusted(forPoints: reliabilityScore) {
-                    HStack(spacing: 14) {
+                // Avatar — gleicher Stil wie der Profil-Tab-Header-Avatar:
+                // 96px Kreis mit 3px Lavendel-Border, Foto wenn vorhanden,
+                // sonst der zwei-ton dazu-Profil-Icon-Fallback.
+                Group {
+                    if let img = selfie {
+                        Image(uiImage: img)
+                            .resizable().scaledToFill()
+                            .frame(width: 96, height: 96)
+                            .clipShape(Circle())
+                    } else if let urlStr = profileImageURL, !urlStr.isEmpty {
+                        RemoteProfileImage(url: urlStr, fallbackEmoji: emoji, size: 96,
+                                           strokeColor: .clear)
+                    } else {
                         ZStack {
                             Circle()
                                 .fill(Color.brandLavender)
-                                .frame(width: 44, height: 44)
-                            Image(systemName: "checkmark.seal.fill")
-                                .font(.system(size: 20, weight: .bold))
-                                .foregroundColor(.brandViolet)
+                                .frame(width: 96, height: 96)
+                            DazuProfileIcon(size: 54)
                         }
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(tr("tier.trusted"))
-                                .font(.system(size: 15, weight: .bold, design: .rounded))
-                                .foregroundColor(.textPrimary)
-                            if totalCommits > 0 {
-                                Text("\(totalCommits) Treffen bestätigt")
-                                    .font(.system(size: 12, weight: .medium, design: .rounded))
-                                    .foregroundColor(.textSecondary)
-                            }
-                        }
-                        Spacer()
                     }
-                    .padding(.horizontal, 16).padding(.vertical, 14)
+                }
+                // Violetter Ring wie der Dennis-Avatar im Profil-Tab —
+                // ersetzt den dezenten Lavender-Ring.
+                .overlay(Circle().stroke(Color.brandViolet, lineWidth: 3.5))
+                .shadow(color: Color.brandViolet.opacity(0.25), radius: 10, y: 4)
+                .padding(.top, 4)
+            }
+
+            // ── Name + Alter + Badges ──────────────────────────────────
+            VStack(spacing: 8) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    // Namen-Stil wie das Profil: violett + oranger Punkt.
+                    (Text(name).foregroundColor(.brandViolet)
+                     + Text(".").foregroundColor(.brandOrange))
+                        .font(.system(size: 24, weight: .heavy, design: .rounded))
+                    if let age = displayAge {
+                        Text("\(age)")
+                            .font(.system(size: 17, weight: .semibold, design: .rounded))
+                            .foregroundColor(.brandNight.opacity(0.5))
+                    }
                 }
 
-                // Sekundär-Zeilen — Member-Seit, frühere Begegnungen.
-                // Jeweils mit Divider und kompakter Icon-Spalte für visuelle
-                // Konsistenz. Beides optional — nur rendern wenn Daten da.
+                // Online-Status — nur zeigen wenn tatsächlich bekannt
+                // (vorher Fallback "Dazu-Nutzer", das wirkte wie Platzhalter).
+                if !onlineStatusLabel.isEmpty {
+                    Text(onlineStatusLabel)
+                        .font(.system(size: 13, weight: .medium, design: .rounded))
+                        .foregroundColor(.brandNight.opacity(0.6))
+                }
+
+                // Badge-Übersicht: alle Badges die der User haben könnte,
+                // ausgegraut wenn noch nicht erreicht, mit kurzem Unlock-Hinweis.
+                allBadgesRow
+                    .padding(.horizontal, 20)
+                    .padding(.top, 4)
+            }
+            .padding(.top, 14)
+            .padding(.bottom, 20)
+
+            // ── Info-Card: Member-Seit + Treffen-Zähler ────────────────
+            // Trust-Badge wurde in die Chip-Zeile oben verschoben; hier
+            // nur noch sekundäre Infos (seit wann dabei, wie oft getroffen).
+            VStack(spacing: 0) {
                 if let memberSince = memberSinceLabel {
-                    Divider().padding(.leading, 52)
                     miniInfoRow(
                         icon: "sparkle",
-                        tint: Color.auroraGreen,
+                        tint: Color.brandViolet,
                         text: memberSince
                     )
                 }
@@ -4059,34 +4593,19 @@ struct MiniProfileSheet: View {
                 // werden könnte.
                 if isFriend, !store.activeDrops.isEmpty,
                    let targetUID = userUID, !targetUID.isEmpty {
-                    // Invite-Button mit Sunset-Gradient — fühlt sich an wie
-                    // ein „big positive action" statt einfacher Brand-Pill.
+                    // Flacher dazu-Primary (violett), konsistent zum Rest
+                    // der App statt eigener Sunset-Gradient.
                     Button {
                         store.inviteFriendToDrop(friendUID: targetUID)
                         withAnimation(.spring(response: 0.3)) { inviteSent = true }
                         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { dismiss() }
                     } label: {
                         HStack(spacing: 8) {
-                            Image(systemName: inviteSent ? "checkmark.circle.fill" : "paperplane.fill")
+                            DazuIcon(inviteSent ? "checkmark.circle.fill" : "paperplane.fill")
                                 .font(.system(size: 15, weight: .semibold))
                             Text(inviteSent ? tr("map.invitation_sent") : tr("map.invite_to_my_drop"))
-                                .font(.system(size: 15, weight: .bold, design: .rounded))
                         }
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(
-                            Capsule().fill(
-                                inviteSent
-                                ? AnyShapeStyle(Color.onlineGreen)
-                                : AnyShapeStyle(LinearGradient(
-                                    colors: [Color.auroraOrange, Color.auroraGreen],
-                                    startPoint: .leading, endPoint: .trailing
-                                ))
-                            )
-                        )
-                        .shadow(color: Color.auroraOrange.opacity(inviteSent ? 0 : 0.35),
-                                radius: 12, y: 5)
+                        .dropsPrimaryButton()
                     }
                     .dropsPressable()
                     .disabled(inviteSent)
@@ -4096,16 +4615,15 @@ struct MiniProfileSheet: View {
                 if isFriend {
                     Button { showRemoveFriendAlert = true } label: {
                         HStack(spacing: 6) {
-                            Image(systemName: "person.badge.minus")
-                                .font(.system(size: 13))
+                            DazuIcon("person.badge.minus", accent: false)
+                                .font(.system(size: 13, weight: .semibold))
                             Text(tr("map.remove_friend"))
-                                .font(.system(size: 14, weight: .semibold))
+                                .font(.system(size: 14, weight: .semibold, design: .rounded))
                         }
                         .foregroundColor(.accentRed)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 13)
-                        .liquidGlass(cornerRadius: 14)
-                        .overlay(RoundedRectangle(cornerRadius: Radius.card).stroke(Color.accentRed.opacity(0.25), lineWidth: 1))
+                        .background(Capsule().fill(Color.accentRed.opacity(0.10)))
                     }
                     .dropsPressable()
                     .padding(.horizontal, 20)
@@ -4114,27 +4632,25 @@ struct MiniProfileSheet: View {
                     HStack(spacing: 10) {
                         Button { showReportSheet = true } label: {
                             HStack(spacing: 6) {
-                                Image(systemName: "flag.fill").font(.system(size: 13))
-                                Text(tr("map.report")).font(.system(size: 14, weight: .semibold))
+                                DazuIcon("flag.fill").font(.system(size: 13, weight: .semibold))
+                                Text(tr("map.report")).font(.system(size: 14, weight: .semibold, design: .rounded))
                             }
                             .foregroundColor(.accentOrange)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 13)
-                            .liquidGlass(cornerRadius: 14)
-                            .overlay(RoundedRectangle(cornerRadius: Radius.card).stroke(Color.accentOrange.opacity(0.25), lineWidth: 1))
+                            .background(Capsule().fill(Color.accentOrange.opacity(0.10)))
                         }
                         .dropsPressable()
 
                         Button { showBlockAlert = true } label: {
                             HStack(spacing: 6) {
-                                Image(systemName: "hand.raised.fill").font(.system(size: 13))
-                                Text(tr("map.block")).font(.system(size: 14, weight: .semibold))
+                                DazuIcon("hand.raised.fill", accent: false).font(.system(size: 13, weight: .semibold))
+                                Text(tr("map.block")).font(.system(size: 14, weight: .semibold, design: .rounded))
                             }
                             .foregroundColor(.accentRed)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 13)
-                            .liquidGlass(cornerRadius: 14)
-                            .overlay(RoundedRectangle(cornerRadius: Radius.card).stroke(Color.accentRed.opacity(0.25), lineWidth: 1))
+                            .background(Capsule().fill(Color.accentRed.opacity(0.10)))
                         }
                         .dropsPressable()
                     }
@@ -4147,8 +4663,7 @@ struct MiniProfileSheet: View {
                 Spacer(minLength: 20)
             }
         }           // VStack body
-        }           // ZStack fullscreen gradient
-        .background(Color.white.opacity(0.75))
+        }           // ZStack fullscreen Cream
         .alert(tr("profile.confirm_block_title"), isPresented: $showBlockAlert) {
             Button(tr("common.cancel"), role: .cancel) {}
             Button(tr("map.block"), role: .destructive) {
@@ -4180,6 +4695,12 @@ struct MiniProfileSheet: View {
             if !isPlus, let uid = userUID, !uid.isEmpty {
                 RealtimeDBManager.shared.fetchPlusStatus(uid: uid) { plus in
                     fetchedPlus = plus
+                }
+            }
+            // Letzter Online-Heartbeat für Status-Label „Zuletzt online …".
+            if let uid = userUID, !uid.isEmpty {
+                RealtimeDBManager.shared.fetchLastActive(uid: uid) { lastActive in
+                    fetchedLastActive = lastActive
                 }
             }
             // createdAt + birthdate für Beta-Badge & Alter laden
@@ -4490,7 +5011,7 @@ struct MapBoostCard: View {
                     Button {
                         onCollapse?()
                     } label: {
-                        Image(systemName: "chevron.down")
+                        DazuIcon("chevron.down")
                             .font(.system(size: 12, weight: .bold))
                             .foregroundColor(.textPrimary.opacity(0.45))
                             .padding(6)
@@ -4516,7 +5037,7 @@ struct MapBoostCard: View {
                             color: Color.accentOrange.opacity(pulse ? 0.55 : 0.25),
                             radius: pulse ? 14 : 6
                         )
-                    Image(systemName: "bolt.fill")
+                    DazuIcon("bolt.fill")
                         .font(.system(size: 18, weight: .bold))
                         .foregroundColor(.white)
                 }
@@ -4560,9 +5081,9 @@ private struct ExtendDropSheet: View {
 
             VStack(alignment: .leading, spacing: 20) {
                 VStack(alignment: .leading, spacing: -2) {
-                    Text("Runde")
+                    Text(tr("live.round"))
                         .foregroundColor(.brandNight)
-                    Text("verlängern.")
+                    Text(tr("live.extend_dot"))
                         .foregroundColor(.brandViolet)
                 }
                 .font(.system(size: 30, weight: .heavy, design: .rounded))
@@ -4651,7 +5172,7 @@ struct ReportUserSheet: View {
             Form {
                 Section {
                     HStack {
-                        Image(systemName: "flag.fill")
+                        DazuIcon("flag.fill")
                             .foregroundColor(.accentOrange)
                         Text(reportedName).font(.system(size: 15, weight: .semibold))
                     }
@@ -4662,7 +5183,7 @@ struct ReportUserSheet: View {
                 if submitted {
                     Section {
                         HStack(spacing: 10) {
-                            Image(systemName: "checkmark.seal.fill")
+                            DazuIcon("checkmark.seal.fill")
                                 .foregroundColor(.brand)
                             Text(tr("map.report_received"))
                                 .font(.system(size: 14))
@@ -4678,7 +5199,7 @@ struct ReportUserSheet: View {
                                     Text(reason).foregroundColor(.textPrimary)
                                     Spacer()
                                     if selectedReason == reason {
-                                        Image(systemName: "checkmark").foregroundColor(.brand)
+                                        DazuIcon("checkmark").foregroundColor(.brand)
                                     }
                                 }
                             }
@@ -4782,7 +5303,7 @@ struct JoinerLiveInfoSheet: View {
                         Circle()
                             .fill(Color.onlineGreen.opacity(0.14))
                             .frame(width: 60, height: 60)
-                        Text(item.emoji.isEmpty ? "👤" : item.emoji)
+                        DazuPersonIcon()
                             .font(.system(size: 30))
                     }
                 }
@@ -4860,7 +5381,7 @@ struct JoinerLiveInfoSheet: View {
     @ViewBuilder
     private func statBlock(icon: String, value: String, label: String, color: Color) -> some View {
         VStack(spacing: 4) {
-            Image(systemName: icon)
+            DazuIcon(icon)
                 .font(.system(size: 16))
                 .foregroundColor(color)
             Text(value)
@@ -4933,7 +5454,7 @@ struct DemoDropCTASheet: View {
                     Circle()
                         .fill(Color(UIColor.tertiarySystemFill))
                         .frame(width: 52, height: 52)
-                    Text(item.emoji.isEmpty ? "👻" : item.emoji)
+                    DazuActivityIcon(item.emoji.isEmpty ? "👻" : item.emoji, when: item.hasActivityEmoji)
                         .font(.system(size: 24))
                 }
                 VStack(alignment: .leading, spacing: 4) {
@@ -5003,14 +5524,15 @@ struct DemoDropCTASheet: View {
 
             // ── CTA-Bereich ───────────────────────────────────────────────
             VStack(spacing: 6) {
-                Text("🌱")
+                DazuIcon("leaf.fill")
                     .font(.system(size: 32))
+                    .foregroundColor(.brandViolet)
                     .padding(.top, 20)
-                Text("Pläne wachsen mit der Community")
+                Text(tr("live.community_headline"))
                     .font(.system(size: 16, weight: .bold))
                     .foregroundColor(.textPrimary)
                     .multilineTextAlignment(.center)
-                Text("Teile die App mit Freunden — je mehr mitmachen, desto mehr echte Pläne in deiner Stadt.")
+                Text(tr("live.community_body"))
                     .font(.system(size: 13))
                     .foregroundColor(.textSecondary)
                     .multilineTextAlignment(.center)
@@ -5024,13 +5546,13 @@ struct DemoDropCTASheet: View {
             HStack(spacing: 10) {
                 ShareLink(
                     item: URL(string: "https://apps.apple.com/de/app/drops-triff-leute/id6762097493")!,
-                    subject: Text("Dazu App"),
-                    message: Text("Spontane Treffen in deiner Stadt 🌱")
+                    subject: Text(tr("live.share_subject")),
+                    message: Text(tr("live.share_message"))
                 ) {
                     HStack(spacing: 6) {
-                        Image(systemName: "square.and.arrow.up")
+                        DazuIcon("square.and.arrow.up")
                             .font(.system(size: 13, weight: .semibold))
-                        Text("Teilen")
+                        Text(tr("live.share"))
                             .font(.system(size: 14, weight: .semibold))
                     }
                     .foregroundColor(.brand)
@@ -5045,9 +5567,9 @@ struct DemoDropCTASheet: View {
                     }
                 } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: "plus.circle.fill")
+                        DazuIcon("plus.circle.fill")
                             .font(.system(size: 13, weight: .semibold))
-                        Text("Plan starten")
+                        Text(tr("live.start_plan"))
                             .font(.system(size: 14, weight: .semibold))
                     }
                     .foregroundColor(.white)
@@ -5127,7 +5649,7 @@ struct GhostDropInfoSheet: View {
                     Circle()
                         .fill(Color.textTertiary.opacity(0.12))
                         .frame(width: 60, height: 60)
-                    Text(item.emoji)
+                    DazuActivityIcon(item.emoji, when: item.hasActivityEmoji)
                         .font(.system(size: 30))
                         .saturation(0.7)
                 }
@@ -5553,8 +6075,17 @@ struct MapKitMapView: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
-            // User-Location bleibt MapKit-default
-            if annotation is MKUserLocation { return nil }
+            // User-Location: Blue Dot bleibt, aber Callout aus — sonst öffnet
+            // sich beim Tap ein grauer Placeholder-Bubble über dem Avatar-Pin,
+            // der mit der Runde nichts zu tun hat.
+            if let userLoc = annotation as? MKUserLocation {
+                let id = "userLocation"
+                let v = mapView.dequeueReusableAnnotationView(withIdentifier: id)
+                    ?? MKUserLocationView(annotation: userLoc, reuseIdentifier: id)
+                v.canShowCallout = false
+                v.isEnabled = false
+                return v
+            }
             guard let drop = annotation as? MapKitDropAnnotation else { return nil }
             let view = mapView.dequeueReusableAnnotationView(
                 withIdentifier: MapKitDropAnnotationView.reuseID, for: drop
@@ -5569,6 +6100,99 @@ struct MapKitMapView: UIViewRepresentable {
             )
             drop.lastRenderKey = annotationRenderKey(drop.item, isJoined: isJoined)
             return view
+        }
+    }
+}
+
+// MARK: - Pin Picker Map (V1 Live-View)
+
+/// MKMapView-Wrapper mit Long-Press-Gesture zum Setzen eines neuen Pins.
+/// Zeigt den bestehenden Drop-Pin orange und den neu gewählten Pin violett.
+struct PinPickerMap: UIViewRepresentable {
+    let initialCenter: CLLocationCoordinate2D
+    let existingPin: CLLocationCoordinate2D
+    @Binding var selectedCoord: CLLocationCoordinate2D?
+
+    func makeUIView(context: Context) -> MKMapView {
+        let map = MKMapView()
+        map.showsUserLocation = true
+        let region = MKCoordinateRegion(
+            center: initialCenter,
+            span: MKCoordinateSpan(latitudeDelta: 0.008, longitudeDelta: 0.008)
+        )
+        map.setRegion(region, animated: false)
+        map.delegate = context.coordinator
+
+        let existing = PinAnnotation(coordinate: existingPin, isNew: false)
+        map.addAnnotation(existing)
+
+        let lp = UILongPressGestureRecognizer(
+            target: context.coordinator,
+            action: #selector(Coordinator.handleLongPress(_:))
+        )
+        lp.minimumPressDuration = 0.3
+        map.addGestureRecognizer(lp)
+        context.coordinator.map = map
+        return map
+    }
+
+    func updateUIView(_ map: MKMapView, context: Context) {
+        let newPins = map.annotations.compactMap { $0 as? PinAnnotation }.filter { $0.isNew }
+        map.removeAnnotations(newPins)
+        if let coord = selectedCoord {
+            let pin = PinAnnotation(coordinate: coord, isNew: true)
+            map.addAnnotation(pin)
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, MKMapViewDelegate {
+        var parent: PinPickerMap
+        weak var map: MKMapView?
+        init(_ parent: PinPickerMap) { self.parent = parent }
+
+        @objc func handleLongPress(_ gr: UILongPressGestureRecognizer) {
+            guard gr.state == .began, let map = map else { return }
+            let point = gr.location(in: map)
+            let coord = map.convert(point, toCoordinateFrom: map)
+            parent.selectedCoord = coord
+            Haptic.selection()
+        }
+
+        func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
+            guard let pin = annotation as? PinAnnotation else { return nil }
+            let id = pin.isNew ? "newPin" : "existingPin"
+            let view = mapView.dequeueReusableAnnotationView(withIdentifier: id)
+                ?? MKAnnotationView(annotation: pin, reuseIdentifier: id)
+            view.annotation = pin
+            let color: UIColor = pin.isNew
+                ? UIColor(red: 0.357, green: 0.239, blue: 0.961, alpha: 1.0)
+                : UIColor(red: 1.000, green: 0.627, blue: 0.180, alpha: 1.0)
+            let size: CGFloat = pin.isNew ? 28 : 22
+            let container = UIView(frame: CGRect(x: 0, y: 0, width: size, height: size))
+            container.backgroundColor = color
+            container.layer.cornerRadius = size / 2
+            container.layer.borderWidth = 3
+            container.layer.borderColor = UIColor.white.cgColor
+            container.layer.shadowColor = color.cgColor
+            container.layer.shadowOpacity = 0.5
+            container.layer.shadowRadius = 6
+            container.layer.shadowOffset = CGSize(width: 0, height: 2)
+            view.subviews.forEach { $0.removeFromSuperview() }
+            view.frame = container.frame
+            view.addSubview(container)
+            view.centerOffset = CGPoint(x: 0, y: -size / 2)
+            return view
+        }
+    }
+
+    final class PinAnnotation: NSObject, MKAnnotation {
+        let coordinate: CLLocationCoordinate2D
+        let isNew: Bool
+        init(coordinate: CLLocationCoordinate2D, isNew: Bool) {
+            self.coordinate = coordinate
+            self.isNew = isNew
         }
     }
 }

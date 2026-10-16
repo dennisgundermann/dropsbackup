@@ -209,6 +209,12 @@ struct CreateDropView: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("appLanguage") private var appLanguage = "de"
     @State private var currentStep: CreateDropStep = .what
+    /// Scroll-adaptiv: true, sobald die Hero-Headline weggescrollt ist.
+    /// Treibt den kompakten dazu-Chip oben (iOS Large→Compact-Pattern).
+    @State private var createIsScrolled = false
+    /// Fokus-State für das Activity-TextField damit Return / Done die
+    /// Tastatur schließen können (vorher: nach Eingabe blieb sie offen).
+    @FocusState private var activityFieldFocused: Bool
 
     /// Falls aus dem Community-Dashboard geöffnet — markiert den entstehenden
     /// Drop als Community-Drop und triggert automatischen Push an Mitglieder.
@@ -222,6 +228,10 @@ struct CreateDropView: View {
     var maxParticipantsLimit: Int = 15
     /// Wenn true: First-Drop-Coach-Overlay wird angezeigt (kommt vom WelcomeSheet-CTA).
     var isWalkthrough: Bool = false
+    /// Optionaler Schließ-Callback — wird vom MainTabView übergeben wenn
+    /// CreateDropView als Tab-Inhalt läuft (statt Modal). Fehlt der Callback,
+    /// fällt die View auf `@Environment(\.dismiss)` zurück (Modal-Flow).
+    var onClose: (() -> Void)? = nil
 
     // ── First-Drop Coach-Mark Overlay ──────────────────────────────────────
     @State private var coachStep: CoachStep? = nil
@@ -235,13 +245,65 @@ struct CreateDropView: View {
     @State private var startTip   = StartDropTip()
 
     @State private var activityName: String = ""
+    /// Rotierender Typewriter-Placeholder für das Aktivitäts-Feld —
+    /// animiert alle ~2s zum nächsten Vorschlag.
+    @State private var animatedPlaceholder: String = "Tennis"
+    /// Letzter vollständig geschriebener Placeholder — wird als Fallback für
+    /// den Satz-Prefix genutzt wenn animatedPlaceholder gerade zwischen
+    /// Erase+Rewrite leer ist (sonst flackert "Ich mache eine Runde" durch).
+    @State private var lastCompletedPlaceholder: String = "Tennis"
+    @State private var placeholderCycleTask: Task<Void, Never>? = nil
+    /// Beispiel-Aktivitäten die als Placeholder zyklisch durchlaufen —
+    /// sprachabhängig damit IT/FR/ES-User nicht „Spaziergang" lesen.
+    private var placeholderIdeas: [String] {
+        let lang = UserDefaults.standard.string(forKey: "appLanguage") ?? "de"
+        // DE: nur Nomen/Infinitive die mit dem Keyword-Prefix grammatikalisch
+        // funktionieren (vorher: "Lauf" → "Ich geh Lauf" ✗). Jetzt: "Joggen"
+        // → "Ich geh Joggen" ✓.
+        switch lang {
+        case "en": return [
+            "Padel", "Matcha", "Run Club", "Pilates", "Brunch", "Bouldering",
+            "Afterwork", "Sushi", "Rooftop", "Kaffee", "Spaziergang", "Yoga",
+            "Fahrrad", "Konzert", "Kino", "Shopping", "Hike", "Pizza", "Burger"
+        ]
+        case "it": return [
+            "Padel", "Matcha", "Running club", "Pilates", "Brunch", "Boulder",
+            "Aperitivo", "Sushi", "Rooftop", "Caffè", "Passeggiata", "Yoga",
+            "Bici", "Concerto", "Cinema", "Shopping", "Trekking", "Pizza", "Burger"
+        ]
+        case "fr": return [
+            "Padel", "Matcha", "Running", "Pilates", "Brunch", "Escalade",
+            "Afterwork", "Sushi", "Rooftop", "Café", "Balade", "Yoga",
+            "Vélo", "Concert", "Ciné", "Shopping", "Rando", "Pizza", "Burger"
+        ]
+        case "es": return [
+            "Pádel", "Matcha", "Running", "Pilates", "Brunch", "Escalada",
+            "Afterwork", "Sushi", "Terraza", "Café", "Paseo", "Yoga",
+            "Bici", "Concierto", "Cine", "Compras", "Senderismo", "Pizza", "Burger"
+        ]
+        default:   return [
+            "Padel", "Matcha", "Lauftreff", "Pilates", "Brunch", "Bouldern",
+            "Afterwork", "Sushi", "Rooftop", "Kaffee", "Spaziergang", "Yoga",
+            "Fahrrad", "Konzert", "Kino", "Shoppen", "Wandern", "Pizza", "Burger"
+        ]
+        }
+    }
     @State private var selectedEmoji: String = ""
     @State private var emojiLockedByUser = false
     @State private var dropDescription: String = ""
     @State private var scheduledTime: String = "Jetzt"
     @State private var showCustomTimePicker = false
     @State private var customDate: Date = Date()
-@State private var selectedLocationType: LocationType = CLLocationManager().authorizationStatus == .authorizedWhenInUse || CLLocationManager().authorizationStatus == .authorizedAlways ? .current : .searched
+    /// Zeit-Picker läuft jetzt als Sheet (konsistent mit Dauer/Leute/Ort).
+    /// Vorher inline — war optisch schief ausgerichtet und ohne klare
+    /// Confirm-Action.
+    @State private var showTimeSheet = false
+// Immer `.current` als Default — vorher wurde bei fehlender Location-
+// Permission auf `.searched` umgestellt und der Create-Button blieb
+// disabled (Satz zeigte "woanders"). Jetzt zeigt der Satz direkt "hier",
+// und iOS wird nur dann nach Permission gefragt, wenn der User tatsächlich
+// die Runde startet.
+@State private var selectedLocationType: LocationType = .current
     @State private var maxParticipants: Int = 10   // 2–15
     @State private var durationMinutes: Int = 120  // 0 = kein Limit
     @State private var isCreating = false
@@ -277,8 +339,27 @@ struct CreateDropView: View {
     }
 
     var body: some View {
+        // In NavigationStack wrappen — gleiche Safe-Area-Insets wie bei
+        // Umgebung / Profil / Einstellungen. Logo sitzt dadurch auf
+        // identischer Höhe wie dort.
+        NavigationStack {
+            createBody
+                .scrollAdaptiveDazuHeader(isScrolled: createIsScrolled)
+                // Tap neben das TextField schließt die Tastatur. .background
+                // + Shape + simultaneousGesture, damit andere Buttons weiter
+                // tappen (plain .onTapGesture würde Taps schlucken).
+                .background(
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture { activityFieldFocused = false }
+                )
+        }
+    }
+
+    @ViewBuilder
+    private var createBody: some View {
         let isCommunityDrop = communityID != nil
-        return ZStack {
+        ZStack {
             // Vollflächiger App-Hintergrund — bei Community-Drop in Clero-Grün-Tint,
             // sonst der normale Aurora-Background.
             if isCommunityDrop {
@@ -329,38 +410,28 @@ struct CreateDropView: View {
                 // Eine Material-Schicht würde sich farblich vom darunter
                 // liegenden AppAuroraBackground absetzen und unschön
                 // aussehen.
-                // Rondesignlab-Style Top: Wortmarke + X + Riesige Hero-Headline
+                // Rondesignlab-Style Top: Inline-Wortmarke + Riesige
+                // Hero-Headline. Beim Scrollen fadet oben ein kompakter
+                // dazu-Chip ein (iOS Large→Compact-Pattern).
                 VStack(alignment: .leading, spacing: 20) {
                     HStack(alignment: .center) {
                         DazuWordmark(color: .brandNight, dotColor: .brandOrange)
                             .frame(height: 24)
                         Spacer()
-                        Button {
-                            Haptic.selection()
-                            dismiss()
-                        } label: {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(Color.brandNight.opacity(0.75))
-                                .padding(11)
-                                .background(Circle().fill(Color.brandLavender.opacity(0.55)))
-                                .overlay(Circle().stroke(Color.brandViolet.opacity(0.15), lineWidth: 0.8))
-                        }
-                        .dropsPressable()
                     }
 
                     VStack(alignment: .leading, spacing: -4) {
-                        Text("Lust auf eine")
+                        Text(tr("create.headline_prefix"))
                             .foregroundColor(.brandNight)
-                        Text("Runde?")
-                            .foregroundColor(.brandViolet)
+                        (Text(tr("create.headline_round")).foregroundColor(.brandViolet)
+                         + Text("?").foregroundColor(.brandOrange))
                     }
                     .font(.system(size: 38, weight: .bold, design: .rounded))
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .padding(.horizontal, 24)
-                .padding(.top, 12)
-                .padding(.bottom, 12)
+                .padding(.top, 16)
+                .padding(.bottom, 16)
 
                 ScrollViewReader { proxy in
                 GeometryReader { geo in
@@ -409,7 +480,7 @@ struct CreateDropView: View {
                                     withAnimation(.spring(response: 0.3)) { showCustomTimePicker.toggle() }
                                 }) {
                                     HStack(spacing: 5) {
-                                        Image(systemName: "clock").font(.system(size: 12))
+                                        DazuIcon("clock").font(.system(size: 12))
                                         Text(showCustomTimePicker
                                              ? customDate.formatted(date: .omitted, time: .shortened)
                                              : tr("create.time"))
@@ -479,7 +550,7 @@ struct CreateDropView: View {
 
                         if durationMinutes > 0 {
                             HStack(spacing: 4) {
-                                Image(systemName: "info.circle").font(.system(size: 11))
+                                DazuIcon("info.circle", accent: false).font(.system(size: 11))
                                 Text(tr("create.ends_after").replacingOccurrences(of: "{duration}", with: durationMinutes < 60 ? tr("create.duration_min").replacingOccurrences(of: "{n}", with: "\(durationMinutes)") : tr("create.duration_hours").replacingOccurrences(of: "{n}", with: "\(durationMinutes / 60)")))
                                     .font(.system(size: 11))
                                     .lineLimit(1)
@@ -558,7 +629,7 @@ struct CreateDropView: View {
                             VStack(spacing: 0) {
                                 Divider().padding(.leading, 16)
                                 HStack(spacing: 10) {
-                                    Image(systemName: "magnifyingglass")
+                                    DazuIcon("magnifyingglass")
                                         .font(.system(size: 14))
                                         .foregroundColor(Color.brand)
                                     TextField(tr("create.location_search_full"), text: $searchVM.searchText)
@@ -568,7 +639,7 @@ struct CreateDropView: View {
                                         .submitLabel(.search)
                                     if !searchVM.searchText.isEmpty {
                                         Button { searchVM.searchText = "" } label: {
-                                            Image(systemName: "xmark.circle.fill")
+                                            DazuIcon("xmark.circle.fill")
                                                 .foregroundColor(.textTertiary)
                                         }
                                     }
@@ -589,7 +660,7 @@ struct CreateDropView: View {
                                             }
                                         }) {
                                             HStack(spacing: 12) {
-                                                Image(systemName: "mappin.circle.fill")
+                                                DazuIcon("mappin.circle.fill")
                                                     .font(.system(size: 18))
                                                     .foregroundColor(.brand)
                                                     .frame(width: 28)
@@ -615,7 +686,7 @@ struct CreateDropView: View {
                                     }
                                 } else if searchVM.searchText.isEmpty && selectedLocationResult == nil {
                                     HStack(spacing: 8) {
-                                        Image(systemName: "text.magnifyingglass")
+                                        DazuIcon("text.magnifyingglass")
                                             .foregroundColor(.textTertiary)
                                         Text(tr("create.tap_to_search"))
                                             .font(.system(size: 13))
@@ -657,13 +728,13 @@ struct CreateDropView: View {
                     // ── CTA ────────────────────────────────────────────────
                     if created {
                         HStack(spacing: 12) {
-                            Image(systemName: "checkmark.circle.fill")
+                            DazuIcon("checkmark.circle.fill")
                                 .font(.system(size: 20, weight: .heavy))
                                 .foregroundColor(.brandViolet)
                                 .frame(width: 40, height: 40)
                                 .background(Circle().fill(Color.brandLavender))
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("Deine Runde läuft.")
+                                Text(tr("create.your_round_running"))
                                     .font(.system(size: 16, weight: .heavy, design: .rounded))
                                     .foregroundColor(.brandNight)
                                 Text(tr("create.drop_live_msg"))
@@ -693,61 +764,59 @@ struct CreateDropView: View {
                         // der 5 Launch-Städte liegen (Berlin, Hamburg, München,
                         // Köln, Frankfurt). Bei deaktiviertem Gate ist alles
                         // erlaubt.
-                        let isInServiceArea = !BetaConfig.cityRestrictionEnabled
-                            || ServiceCities.isInside(dropCoordPreview)
-                        // Swipe-to-Confirm statt Tap-Button: der User zieht
-                        // den weißen Handle nach rechts, der offene Ring in
-                        // der Mitte schließt sich live mit der Geste. Immer
-                        // swipebar (auch bei leerem Formular) damit man die
-                        // Morph-Animation ausprobieren kann; onConfirm wird
-                        // intern geblockt wenn !isValid oder !isInServiceArea.
-                        SwipeToConfirm(
-                            label: isCreating ? "Startet…" : "Zum Starten swipen",
-                            isEnabled: !isCreating,
-                            canConfirm: isValid && isInServiceArea && !isCreating,
-                            onConfirm: {
-                                // 1. Full-Screen Logo-Celebration triggern
-                                withAnimation(.spring(response: 0.7, dampingFraction: 0.78)) {
-                                    showJoinCelebration = true
-                                }
-                                // 2. Nach der Transition (0.9s) den echten
-                                //    Create / HomeZone-Flow auslösen.
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
-                                    if store.isInHomeZone(dropCoordPreview) {
-                                        pendingHomeZoneCoord = dropCoordPreview
-                                    } else {
-                                        performCreate(coord: dropCoordPreview)
-                                    }
-                                }
+                        // Service-Area-Begrenzung entfernt — Drops sind
+                        // überall erlaubt.
+                        let canConfirm = isValid && !isCreating
+                        // Gestartet wird per Geste: den orangen Punkt nach unten
+                        // in den Ring ziehen. Als Tab sitzt der Ring in der
+                        // Tab-Leiste (DazuTabMark), sonst hier im Formular
+                        // (DazuStartControl, DazuBranding.swift).
+                        // DazuStartPull.isOn = false bringt den Knopf zurück.
+                        let startRound: () -> Void = {
+                            guard canConfirm else { return }
+                            Haptic.selection()
+                            UIApplication.shared.sendAction(
+                                #selector(UIResponder.resignFirstResponder),
+                                to: nil, from: nil, for: nil
+                            )
+                            // Kein Full-Screen-Celebration-Overlay mehr —
+                            // direkter Create. HomeZone-Check bleibt bestehen.
+                            if store.isInHomeZone(dropCoordPreview) {
+                                pendingHomeZoneCoord = dropCoordPreview
+                            } else {
+                                performCreate(coord: dropCoordPreview)
                             }
-                        )
-                        .padding(.horizontal, 16)
-                        // Coach-Mark Schritt 3: Drop starten
-                        .popoverTip(startTip, arrowEdge: .bottom)
-                        .id(CoachStep.start.scrollID)
-                        .coachHighlight(active: coachStep == .start)
-                        if !isValid {
-                            Text(activityName.trimmingCharacters(in: .whitespaces).isEmpty
-                                 ? tr("create.enter_activity_first")
-                                 : tr("create.select_location"))
+                        }
+                        if !DazuStartPull.isOn {
+                            Button(action: startRound) {
+                                Text(isCreating ? tr("create.starting") : tr("create.start_round"))
+                                    .dropsPrimaryButton(isEnabled: canConfirm)
+                            }
+                            .disabled(!canConfirm)
+                            .dropsPressable()
+                            .padding(.horizontal, 16)
+                            // Coach-Mark Schritt 3: Drop starten
+                            // Tip entfernt — der Button spricht für sich.
+                            .id(CoachStep.start.scrollID)
+                            .coachHighlight(active: coachStep == .start)
+                        }
+                        if DazuStartPull.isOn {
+                            Text(DazuStartPull.hint(busy: isCreating))
                                 .font(.system(size: 13, weight: .medium, design: .rounded))
                                 .foregroundColor(.brandNight.opacity(0.5))
                                 .frame(maxWidth: .infinity, alignment: .center)
                                 .padding(.horizontal, 16)
                                 .padding(.top, 8)
                                 .transition(.opacity)
-                        } else if !isInServiceArea {
-                            HStack(spacing: 5) {
-                                Image(systemName: "mappin.slash")
-                                    .font(.system(size: 12, weight: .bold))
-                                Text(tr("create.cities_only"))
-                                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                            }
-                            .foregroundColor(.brandOrange)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .padding(.horizontal, 16)
-                            .padding(.top, 8)
-                            .transition(.opacity)
+                        }
+                        if DazuStartPull.isOn {
+                            DazuStartControl(inTab: onClose != nil, isEnabled: canConfirm,
+                                             isBusy: isCreating, onStart: startRound)
+                                .padding(.horizontal, 16)
+                                // Coach-Mark Schritt 3: Runde starten
+                                // Tip entfernt — der Button spricht für sich.
+                                .id(CoachStep.start.scrollID)
+                                .coachHighlight(active: coachStep == .start)
                         }
                     }
                     // Walkthrough-Puffer: damit auch der CTA (letztes Element)
@@ -780,13 +849,8 @@ struct CreateDropView: View {
 
             // ── Join-Celebration Overlay ───────────────────────────────────
             // Full-Screen: offener Ring + Dot bauen von allen Seiten in
-            // Richtung Zentrum auf. Schließt sich dann zur Mark.
-            if showJoinCelebration {
-                JoinCelebrationOverlay()
-                    .zIndex(200)
-                    .transition(.opacity)
-                    .allowsHitTesting(false)
-            }
+            // JoinCelebrationOverlay entfernt — User möchte keinen
+            // Full-Screen-Zwischenbildschirm, Create geht direkt durch.
 
             // ── First-Drop Coach-Mark Overlay ──────────────────────────────
             // Liegt im ZStack über dem gesamten Inhalt (inkl. Sticky-Header).
@@ -815,7 +879,7 @@ struct CreateDropView: View {
             coachHighlightFrame = frame
         }
         .sheet(isPresented: $showEmojiPicker) {
-            EmojiPickerSheet(selected: selectedEmoji) { emoji in
+            ActivityIconPickerSheet(selected: selectedEmoji) { emoji in
                 selectedEmoji = emoji
                 emojiLockedByUser = true
             }
@@ -824,20 +888,25 @@ struct CreateDropView: View {
             .sheetBackground()
         }
         // Sentence-Flow Picker Sheets
+        .sheet(isPresented: $showTimeSheet) {
+            timePickerSheet
+                .presentationDetents([.height(380)])
+                .presentationDragIndicator(.hidden)
+        }
         .sheet(isPresented: $showDurationSheet) {
             durationPickerSheet
-                .presentationDetents([.height(320)])
-                .presentationDragIndicator(.visible)
+                .presentationDetents([.height(440)])
+                .presentationDragIndicator(.hidden)
         }
         .sheet(isPresented: $showParticipantsSheet) {
             participantsPickerSheet
-                .presentationDetents([.height(260)])
-                .presentationDragIndicator(.visible)
+                .presentationDetents([.height(380)])
+                .presentationDragIndicator(.hidden)
         }
         .sheet(isPresented: $showLocationSheet) {
             locationPickerSheet
-                .presentationDetents([.height(420)])
-                .presentationDragIndicator(.visible)
+                .presentationDetents([.height(540), .large])
+                .presentationDragIndicator(.hidden)
         }
         // Custom Heimzone-Warn-Sheet (statt System-Alert) — bietet wärmere
         // Optik, klare Hinweise und einen "Anderen Ort wählen"-Primärbutton
@@ -855,13 +924,15 @@ struct CreateDropView: View {
                 },
                 onCancel: {
                     pendingHomeZoneCoord = nil
+                    // „Anderen Ort wählen" → direkt den Location-Picker öffnen,
+                    // sonst landet der User wieder im gleichen Zustand und
+                    // der Swipe triggert erneut die Heimzone-Warnung (Loop).
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        showLocationSheet = true
+                    }
                 }
             )
-            // 0.78 statt 0.65 — auf SE/mini wurden sonst die Buttons
-            // unten abgeschnitten. Der Inhalt ist jetzt zusätzlich
-            // scrollbar (Footer fix), das ist die Belt-and-Suspenders-
-            // Lösung für sehr kompakte Display Zoom-Modi.
-            .presentationDetents([.fraction(0.78)])
+            .presentationDetents([.fraction(0.72)])
             // Heimzone-Warnung darf nicht versehentlich weggewischt werden —
             // User soll bewusst „Anderen Ort" oder „Trotzdem erstellen"
             // wählen, sonst geht der Sicherheits-Check ins Leere.
@@ -883,10 +954,19 @@ struct CreateDropView: View {
             }
             .overlay(alignment: .topLeading) {
                 Button(action: { showPinMap = false }) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 28))
-                        .foregroundColor(.textSecondary)
-                        .padding(20)
+                    // Weißer Chip mit kräftigem X — vorher ging grau auf
+                    // heller Karte unter. Shadow trennt vom Map-Hintergrund.
+                    ZStack {
+                        Circle()
+                            .fill(.white)
+                            .frame(width: 36, height: 36)
+                            .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
+                        Image(systemName: "xmark")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(.brandNight)
+                    }
+                    .padding(.leading, 16)
+                    .padding(.top, 12)
                 }
             }
         }
@@ -919,6 +999,155 @@ struct CreateDropView: View {
             if communityID != nil && maxParticipants == 10 {
                 maxParticipants = min(25, maxParticipantsLimit)
             }
+            // Typewriter-Cycle für den Aktivitäts-Placeholder — rotiert
+            // Vorschläge solange der User nicht selbst tippt.
+            startPlaceholderCycle()
+        }
+        .onDisappear { placeholderCycleTask?.cancel() }
+        .onChange(of: activityName) { _, newValue in
+            // Sobald der User selbst tippt → Cycle stoppen und Placeholder
+            // auf leer setzen (damit nicht konkurriert). Wenn User wieder
+            // alles löscht → Cycle neu starten.
+            let trimmed = newValue.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty {
+                startPlaceholderCycle()
+            } else {
+                placeholderCycleTask?.cancel()
+                placeholderCycleTask = nil
+            }
+        }
+    }
+
+    /// Dynamischer Satz-Prefix basierend auf der eingegebenen Aktivität.
+    /// Default „Ich mache eine Runde", aber je nach Keyword angepasst
+    /// („Ich spiele Tennis", „Ich trinke einen Kaffee" …).
+    private var activitySentencePrefix: String {
+        // Priorität: user-Input → lastCompletedPlaceholder (stabil pro
+        // Zyklus) → animatedPlaceholder (fallback). Das verhindert dass
+        // der Prefix während Erase/Write zu Zwischenstrings wie "Ten"
+        // auswertet und auf "Lust auf" zurückfällt.
+        let raw: String = {
+            let user = activityName.trimmingCharacters(in: .whitespaces)
+            if !user.isEmpty { return user }
+            if !lastCompletedPlaceholder.isEmpty { return lastCompletedPlaceholder }
+            return animatedPlaceholder
+        }()
+        let name = raw.lowercased()
+        // Für non-DE Sprachen: Einheitlich das generische Verb-Prefix
+        // („I'm doing" / „Faccio" / „Je fais" / „Hago"). Die feingliedrige
+        // Keyword-Mapping-Logik („Ich spiele Tennis", „Ich trinke Kaffee") ist
+        // bewusst DE-only — Konjugationen variieren je Sprache zu stark
+        // für sinnvolles Auto-Matching.
+        let lang = UserDefaults.standard.string(forKey: "appLanguage") ?? "de"
+        if lang != "de" { return tr("create.activity_verb_doing") }
+
+        if name.isEmpty { return "Ich mache eine Runde" }
+
+        // Keyword-Mapping — jedes Keyword vorne (contains reicht fürs grobe Matching).
+        if name.contains("tennis") || name.contains("fußball") || name.contains("basket")
+           || name.contains("tischtennis") || name.contains("squash") || name.contains("badminton")
+           || name.contains("padel") || name.contains("pickleball") || name.contains("volley") {
+            return "Ich spiele"
+        }
+        if name.contains("kaffee") || name.contains("matcha") || name.contains("espresso")
+           || name.contains("latte") || name.contains("cappuccino") {
+            return "Ich trinke einen"
+        }
+        if name.contains("tee") { return "Ich trinke einen" }
+        if name.contains("bier") || name.contains("wein") || name.contains("drink")
+           || name.contains("cocktail") || name.contains("aperol") || name.contains("spritz") {
+            return "Ich trinke ein"
+        }
+        if name.contains("essen") || name.contains("brunch")
+           || name.contains("dinner") || name.contains("lunch")
+           || name.contains("pizza") || name.contains("burger")
+           || name.contains("sushi") || name.contains("döner") {
+            return "Ich geh"
+        }
+        if name.contains("spazier") || name.contains("walk") { return "Ich mache einen" }
+        if name.contains("yoga") || name.contains("meditation") || name.contains("pilates") {
+            return "Ich mache"
+        }
+        // Sport & Fitness — generisches "Ich mache" statt "Ich geh".
+        if name.contains("sport") || name.contains("fitness") || name.contains("gym")
+           || name.contains("workout") || name.contains("training") {
+            return "Ich mache"
+        }
+        if name.contains("bouldern") || name.contains("klettern") || name.contains("laufen")
+           || name.contains("joggen") || name.contains("schwimmen") || name.contains("skaten")
+           || name.contains("tanzen") || name.contains("spielen") || name.contains("wandern") {
+            return "Ich geh"
+        }
+        // Shopping — "Ich geh Shoppen / Einkaufen".
+        if name.contains("shoppen") || name.contains("shopping") || name.contains("einkaufen") {
+            return "Ich geh"
+        }
+        // Lauf-Treff / Running Club — "Ich geh zum Lauftreff".
+        if name.contains("lauftreff") || name.contains("lauf-treff")
+           || name.contains("run club") || name.contains("running club") {
+            return "Ich geh zum"
+        }
+        // Running als Aktivität — "Ich mache einen Lauf".
+        if name.contains("lauf") || name.contains("run") || name.contains("running") {
+            return "Ich mache einen"
+        }
+        if name.contains("kino") || name.contains("film") || name.contains("theater")
+           || name.contains("konzert") || name.contains("museum") || name.contains("club") {
+            return "Ich geh ins"
+        }
+        if name.contains("fahrrad") || name.contains("rad") || name.contains("bike") {
+            return "Ich fahre"
+        }
+        if name.contains("feierabend") || name.contains("chillen")
+           || name.contains("afterwork") || name.contains("after-work") {
+            return "Ich mache"
+        }
+        // Rooftop / Terrasse — "Ich geh auf die Terrasse / aufs Rooftop".
+        if name.contains("rooftop") { return "Ich geh aufs" }
+        if name.contains("terrasse") || name.contains("terraza") { return "Ich geh auf die" }
+        if name.contains("sauna") || name.contains("spa") { return "Ich geh in die" }
+        if name.contains("picknick") || name.contains("grillen")
+           || name.contains("party") || name.contains("bbq") {
+            return "Ich mache ein"
+        }
+        // Parks / öffentliche Orte — "Ich geh zum Park / Spielplatz".
+        if name.contains("park") || name.contains("spielplatz") {
+            return "Ich geh zum"
+        }
+        // Default: generisch.
+        return "Lust auf"
+    }
+
+    /// Startet eine async Loop die alle 2s zu einem neuen Vorschlag wechselt
+    /// mit Typewriter-Erase+Rewrite-Animation.
+    private func startPlaceholderCycle() {
+        placeholderCycleTask?.cancel()
+        placeholderCycleTask = Task { @MainActor in
+            var idx = 0
+            while !Task.isCancelled {
+                // Zum nächsten Vorschlag.
+                let target = placeholderIdeas[idx]
+                idx = (idx + 1) % placeholderIdeas.count
+                // Erase vom aktuellen Text zeichenweise.
+                while animatedPlaceholder.count > 0 {
+                    try? await Task.sleep(nanoseconds: 35_000_000)
+                    if Task.isCancelled { return }
+                    animatedPlaceholder.removeLast()
+                }
+                // Satz-Prefix VORHER setzen damit er sofort passt, bevor
+                // der Placeholder zeichenweise erscheint ("Ich spiele" steht,
+                // dann wird "Tennis" eingetippt — nicht umgekehrt).
+                lastCompletedPlaceholder = target
+                try? await Task.sleep(nanoseconds: 150_000_000)
+                // Write target zeichenweise.
+                for ch in target {
+                    if Task.isCancelled { return }
+                    animatedPlaceholder.append(ch)
+                    try? await Task.sleep(nanoseconds: 60_000_000)
+                }
+                // Halten bevor zum nächsten.
+                try? await Task.sleep(nanoseconds: 1_600_000_000)
+            }
         }
     }
 
@@ -933,7 +1162,7 @@ struct CreateDropView: View {
             // Emoji-Suggestions wenn Text eingegeben + kein Emoji
             if selectedEmoji.isEmpty && !suggestedEmojis.isEmpty {
                 VStack(spacing: 8) {
-                    Text("WÄHLE EIN EMOJI")
+                    Text(tr("create.choose_icon_caps"))
                         .font(.system(size: 10, weight: .bold, design: .rounded))
                         .tracking(1.2)
                         .foregroundColor(.brandViolet.opacity(0.6))
@@ -944,14 +1173,14 @@ struct CreateDropView: View {
                                 emojiLockedByUser = true
                                 Haptic.selection()
                             } label: {
-                                Text(emoji).font(.system(size: 32))
+                                DazuActivityIcon(emoji).font(.system(size: 32))
                             }
                             .dropsPressable()
                         }
                         Button {
                             showEmojiPicker = true
                         } label: {
-                            Image(systemName: "ellipsis")
+                            DazuIcon("ellipsis")
                                 .font(.system(size: 18, weight: .semibold))
                                 .foregroundColor(.brandViolet)
                                 .frame(width: 36, height: 36)
@@ -970,48 +1199,90 @@ struct CreateDropView: View {
     // Kompakter Rhythmus damit nichts verwaist unten rumsteht.
     @ViewBuilder private var sentenceLinesView: some View {
         VStack(alignment: .leading, spacing: 10) {
-            // Zeile 1: Ich mache eine Runde
-            sentenceText("Ich mache eine Runde")
+            // Zeile 1: dynamischer Verb-Prefix je nach Aktivität
+            // ("Ich spiele" bei Tennis, "Ich trinke einen" bei Kaffee …).
+            sentenceText(activitySentencePrefix)
 
             // Zeile 2: Aktivität (groß, prominent, Violett)
-            sentenceInputWord(placeholder: "Tennis", text: $activityName)
+            sentenceInputWord(placeholder: animatedPlaceholder, text: $activityName)
                 .padding(.bottom, 4)
 
             // Zeile 3: {jetzt/zeit} für {dauer}
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 sentenceWord(timePreviewLabel, action: {
-                    withAnimation(.spring(response: 0.3)) {
-                        showCustomTimePicker.toggle()
-                    }
+                    showCustomTimePicker = false
+                    showTimeSheet = true
                     Haptic.selection()
                 })
-                sentenceText("für")
-                sentenceWord(durationMinutes <= 0 ? "offen" :
+                sentenceText(tr("create.sentence_for"))
+                sentenceWord(durationMinutes <= 0 ? tr("create.duration_open") :
                              (durationMinutes < 60 ? "\(durationMinutes)m" : "\(durationMinutes/60)h"),
-                             action: { showDurationSheet = true })
+                             action: {
+                                 // Inline-Clock-Picker schließen bevor das
+                                 // Dauer-Sheet aufgeht — sonst überlappen die
+                                 // beiden.
+                                 withAnimation(.easeOut(duration: 0.15)) {
+                                     showCustomTimePicker = false
+                                 }
+                                 showDurationSheet = true
+                             })
             }
 
-            // Zeile 4: mit {N} Leuten {Ort} — Ort kommt direkt dahinter,
-            // damit "hier" nicht alleine in einer eigenen Zeile verwaist.
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                sentenceText("mit")
-                sentenceWord("\(maxParticipants) Leuten", action: { showParticipantsSheet = true })
-                sentenceText("·")
-                sentenceWord(sentenceLocationLabel, action: { showLocationSheet = true })
+            // Zeile 4: „mit {N} Leuten · {Ort}". Auf schmalen Geräten (z. B.
+            // iPhone 16 Pro, 393pt) passt die vollständige Zeile nicht in
+            // 32pt-Font nebeneinander — `ViewThatFits` wählt dynamisch zwischen
+            // einer einzeiligen und einer zweizeiligen Variante, statt den
+            // HStack-Inhalt zu zerreißen (sonst wurde „mit" vertikal zu
+            // „m\ni\nt" umgebrochen).
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    sentenceText(tr("create.sentence_with")).lineLimit(1).fixedSize()
+                    peopleWord
+                    sentenceText("·").lineLimit(1).fixedSize()
+                    locationWord
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        sentenceText(tr("create.sentence_with")).lineLimit(1).fixedSize()
+                        peopleWord
+                    }
+                    locationWord
+                }
             }
 
-            // Inline Time Picker (klappt auf wenn tap auf Zeit-Wort)
-            if showCustomTimePicker {
-                DatePicker("", selection: $customDate, displayedComponents: .hourAndMinute)
-                    .datePickerStyle(.wheel)
-                    .labelsHidden()
-                    .frame(maxHeight: 150)
-                    .padding(.top, 8)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-            }
+            // Zeit-Picker läuft jetzt als Sheet (siehe `showTimeSheet`
+            // weiter unten) — konsistent mit Dauer/Leute/Ort.
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 24)
+    }
+
+    // Shortcut-Builder für die Satzzeile 4 — damit beide `ViewThatFits`-
+    // Zweige exakt dasselbe Verhalten teilen.
+    @ViewBuilder private var peopleWord: some View {
+        sentenceWord("\(maxParticipants) \(tr("create.people_label"))", action: {
+            withAnimation(.easeOut(duration: 0.15)) { showCustomTimePicker = false }
+            showParticipantsSheet = true
+        })
+    }
+
+    @ViewBuilder private var locationWord: some View {
+        // Location kann lang sein (z.B. "Cafe Frischhut Schmalznudeln") —
+        // ohne fixedSize+lineLimit(1) würde der Text über den Screen laufen.
+        // truncationMode .tail hängt "…" an statt den Rand zu überschreiten.
+        Button(action: {
+            withAnimation(.easeOut(duration: 0.15)) { showCustomTimePicker = false }
+            showLocationSheet = true
+        }) {
+            Text(sentenceLocationLabel)
+                .font(.system(size: 32, weight: .bold, design: .rounded))
+                .foregroundColor(.brandViolet)
+                .underline(true, color: .brandViolet.opacity(0.45))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .dropsPressable()
     }
 
     // Simple statisches Text-Element im Satz-Flow
@@ -1064,22 +1335,107 @@ struct CreateDropView: View {
 
     private var sentenceLocationLabel: String {
         switch selectedLocationType {
-        case .current:  return "hier"
-        case .searched: return selectedLocationResult?.title ?? "woanders"
-        case .pin:      return pinnedCoordinate != nil ? "am Pin" : "Pin setzen"
+        case .current:  return tr("create.location_here")
+        case .searched: return selectedLocationResult?.title ?? tr("create.location_elsewhere")
+        case .pin:      return pinnedCoordinate != nil ? tr("create.location_at_pin") : tr("create.location_pin")
         }
     }
 
     // MARK: - Sentence Flow Picker Sheets
 
-    private var durationPickerSheet: some View {
+    /// Uhrzeit-Picker als Sheet statt inline — konsistent mit den anderen
+    /// Satz-Pickern (Dauer, Leute, Ort). Oben „Jetzt"-Chip für den
+    /// Default-Fall, darunter das Wheel + Übernehmen-CTA.
+    private var timePickerSheet: some View {
         VStack(spacing: 20) {
-            Text("Wie lange?")
+            Capsule().fill(Color.brandNight.opacity(0.18))
+                .frame(width: 36, height: 4)
+                .padding(.top, 10)
+            Text(tr("create.when"))
                 .font(.system(size: 20, weight: .bold, design: .rounded))
                 .foregroundColor(.brandNight)
-                .padding(.top, 24)
+
+            Button {
+                scheduledTime = "Jetzt"
+                showCustomTimePicker = false
+                Haptic.selection()
+                showTimeSheet = false
+            } label: {
+                HStack {
+                    Text(tr("create.now"))
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    Spacer()
+                    if scheduledTime == "Jetzt" && !showCustomTimePicker {
+                        DazuIcon("checkmark").foregroundColor(.brandOrange)
+                    }
+                }
+                .foregroundColor(.brandNight)
+                .padding(.horizontal, 20).padding(.vertical, 14)
+                .background(RoundedRectangle(cornerRadius: 14)
+                    .fill(Color.brandLavender
+                        .opacity(scheduledTime == "Jetzt" && !showCustomTimePicker ? 0.9 : 0.5)))
+            }
+            .dropsPressable()
+            .padding(.horizontal, 20)
+
+            // Klarer Trenner — sonst sieht man "Jetzt" selected UND den
+            // Picker gleichzeitig und weiß nicht welche Zeit zählt.
+            Text(tr("create.or_pick_time"))
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .foregroundColor(.textTertiary)
+                .textCase(.uppercase)
+                .tracking(0.5)
+                .padding(.top, 8)
+
+            DatePicker("", selection: $customDate, displayedComponents: .hourAndMinute)
+                .datePickerStyle(.wheel)
+                .labelsHidden()
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 20)
+                // Dimmed solange "Jetzt" aktiv ist — macht visuell klar,
+                // dass der Picker gerade ignoriert wird.
+                .opacity(showCustomTimePicker ? 1.0 : 0.45)
+                .onChange(of: customDate) { _, _ in
+                    // User scrollt am Wheel → automatisch auf Custom-Zeit
+                    // umschalten (deselektiert "Jetzt"-Chip).
+                    showCustomTimePicker = true
+                }
+
+            Button {
+                let f = DateFormatter()
+                f.dateFormat = "HH:mm"
+                scheduledTime = f.string(from: customDate)
+                showCustomTimePicker = true
+                Haptic.selection()
+                showTimeSheet = false
+            } label: {
+                Text(tr("create.apply"))
+                    .dropsPrimaryButton()
+            }
+            .dropsPressable()
+            .padding(.horizontal, 20)
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.brandCream.ignoresSafeArea())
+    }
+
+    private var durationPickerSheet: some View {
+        VStack(spacing: 20) {
+            Capsule().fill(Color.brandNight.opacity(0.18))
+                .frame(width: 36, height: 4)
+                .padding(.top, 10)
+            Text(tr("create.how_long"))
+                .font(.system(size: 20, weight: .bold, design: .rounded))
+                .foregroundColor(.brandNight)
+                .padding(.top, 8)
             let options: [(String, Int)] = [
-                ("30 Min", 30), ("1 Stunde", 60), ("2 Stunden", 120), ("4 Stunden", 240), ("offen", 0)
+                (tr("create.duration_30min"), 30),
+                (tr("create.duration_1h"), 60),
+                (tr("create.duration_2h"), 120),
+                (tr("create.duration_4h"), 240),
+                (tr("create.duration_open"), 0)
             ]
             VStack(spacing: 10) {
                 ForEach(options, id: \.1) { label, value in
@@ -1093,7 +1449,7 @@ struct CreateDropView: View {
                                 .font(.system(size: 16, weight: .semibold, design: .rounded))
                             Spacer()
                             if durationMinutes == value {
-                                Image(systemName: "checkmark").foregroundColor(.brandOrange)
+                                DazuIcon("checkmark").foregroundColor(.brandOrange)
                             }
                         }
                         .foregroundColor(.brandNight)
@@ -1112,10 +1468,13 @@ struct CreateDropView: View {
 
     private var participantsPickerSheet: some View {
         VStack(spacing: 20) {
-            Text("Wie viele Leute?")
+            Capsule().fill(Color.brandNight.opacity(0.18))
+                .frame(width: 36, height: 4)
+                .padding(.top, 10)
+            Text(tr("create.how_many_people"))
                 .font(.system(size: 20, weight: .bold, design: .rounded))
                 .foregroundColor(.brandNight)
-                .padding(.top, 24)
+                .padding(.top, 8)
             Text("\(maxParticipants)")
                 .font(.system(size: 56, weight: .bold, design: .rounded))
                 .foregroundColor(.brandViolet)
@@ -1141,31 +1500,99 @@ struct CreateDropView: View {
 
     private var locationPickerSheet: some View {
         VStack(spacing: 16) {
-            Text("Wo?")
+            Capsule().fill(Color.brandNight.opacity(0.18))
+                .frame(width: 36, height: 4)
+                .padding(.top, 10)
+            Text(tr("create.where"))
                 .font(.system(size: 20, weight: .bold, design: .rounded))
                 .foregroundColor(.brandNight)
-                .padding(.top, 24)
+                .padding(.top, 8)
             VStack(spacing: 10) {
-                locationChoice(icon: "location.fill", label: "Hier", isSelected: selectedLocationType == .current) {
+                locationChoice(icon: "location.fill", label: tr("create.location_choice_here"), isSelected: selectedLocationType == .current) {
                     selectedLocationType = .current
                     searchVM.searchText = ""
                     showLocationSheet = false
                 }
-                locationChoice(icon: "magnifyingglass", label: "Ort suchen", isSelected: selectedLocationType == .searched) {
+                locationChoice(icon: "magnifyingglass", label: tr("create.location_choice_search"), isSelected: selectedLocationType == .searched) {
                     selectedLocationType = .searched
                     // Suchfeld kommt auf, Sheet bleibt für Interaktion offen
                 }
-                locationChoice(icon: "mappin", label: "Pin setzen", isSelected: selectedLocationType == .pin) {
+                locationChoice(icon: "mappin", label: tr("create.location_choice_pin"), isSelected: selectedLocationType == .pin) {
                     selectedLocationType = .pin
                     showPinMap = true
                     showLocationSheet = false
                 }
                 if selectedLocationType == .searched {
-                    TextField("Adresse suchen...", text: $searchVM.searchText)
-                        .padding(.horizontal, 16).padding(.vertical, 12)
-                        .background(RoundedRectangle(cornerRadius: 12).fill(Color.brandLavender.opacity(0.5)))
-                        .padding(.horizontal, 20)
-                        .onChange(of: searchVM.searchText) { _, newValue in searchVM.search(newValue) }
+                    VStack(spacing: 8) {
+                        HStack(spacing: 10) {
+                            Image(systemName: "magnifyingglass")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(.brandViolet)
+                            TextField("Adresse, Café, Spot …", text: $searchVM.searchText)
+                                .textInputAutocapitalization(.sentences)
+                                .onChange(of: searchVM.searchText) { _, newValue in
+                                    searchVM.search(newValue)
+                                }
+                            if !searchVM.searchText.isEmpty {
+                                Button {
+                                    searchVM.searchText = ""
+                                    searchVM.results = []
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundColor(.brandNight.opacity(0.4))
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 14).padding(.vertical, 12)
+                        .background(RoundedRectangle(cornerRadius: 14).fill(Color.brandLavender.opacity(0.5)))
+
+                        if !searchVM.results.isEmpty {
+                            VStack(spacing: 0) {
+                                ForEach(Array(searchVM.results.prefix(6).enumerated()), id: \.element.title) { idx, result in
+                                    Button {
+                                        searchVM.selectResult(result) { loc in
+                                            guard let loc = loc else { return }
+                                            selectedLocationResult = loc
+                                            searchVM.searchText = loc.title
+                                            searchVM.results = []
+                                            showLocationSheet = false
+                                        }
+                                    } label: {
+                                        HStack(spacing: 12) {
+                                            Image(systemName: "mappin.circle.fill")
+                                                .font(.system(size: 18))
+                                                .foregroundColor(.brandViolet)
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text(result.title)
+                                                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                                    .foregroundColor(.brandNight)
+                                                    .lineLimit(1)
+                                                if !result.subtitle.isEmpty {
+                                                    Text(result.subtitle)
+                                                        .font(.system(size: 12, weight: .regular, design: .rounded))
+                                                        .foregroundColor(.brandNight.opacity(0.6))
+                                                        .lineLimit(1)
+                                                }
+                                            }
+                                            Spacer()
+                                        }
+                                        .padding(.horizontal, 14).padding(.vertical, 10)
+                                    }
+                                    .buttonStyle(.plain)
+                                    if idx < min(searchVM.results.count, 6) - 1 {
+                                        Divider().padding(.leading, 44)
+                                    }
+                                }
+                            }
+                            .background(RoundedRectangle(cornerRadius: 14).fill(Color.brandLavender.opacity(0.3)))
+                        } else if !searchVM.searchText.isEmpty {
+                            Text(tr("create.nothing_found"))
+                                .font(.system(size: 13, weight: .medium, design: .rounded))
+                                .foregroundColor(.brandNight.opacity(0.5))
+                                .padding(.vertical, 20)
+                        }
+                    }
+                    .padding(.top, 4)
                 }
             }
             .padding(.horizontal, 20)
@@ -1178,7 +1605,7 @@ struct CreateDropView: View {
     private func locationChoice(icon: String, label: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: { action(); Haptic.selection() }) {
             HStack(spacing: 14) {
-                Image(systemName: icon)
+                DazuIcon(icon, accent: false)
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(isSelected ? .white : .brandViolet)
                     .frame(width: 36, height: 36)
@@ -1188,7 +1615,7 @@ struct CreateDropView: View {
                     .foregroundColor(.brandNight)
                 Spacer()
                 if isSelected {
-                    Image(systemName: "checkmark").foregroundColor(.brandOrange)
+                    DazuIcon("checkmark").foregroundColor(.brandOrange)
                 }
             }
             .padding(.horizontal, 16).padding(.vertical, 12)
@@ -1213,12 +1640,12 @@ struct CreateDropView: View {
                                     Circle().stroke(Color.brandViolet.opacity(0.25),
                                                     style: StrokeStyle(lineWidth: 1.5, dash: [5, 5]))
                                 )
-                            Image(systemName: "face.smiling.inverse")
+                            DazuIcon("face.smiling.inverse")
                                 .font(.system(size: 48, weight: .light))
                                 .foregroundColor(Color.brandViolet.opacity(0.6))
                         }
                     } else {
-                        Text(displayEmoji)
+                        DazuActivityIcon(displayEmoji)
                             .font(.system(size: 100))
                             .transition(.scale.combined(with: .opacity))
                     }
@@ -1230,7 +1657,7 @@ struct CreateDropView: View {
             // Title Input (zentriert, Headline-Font, keine Border)
             TextField("",
                       text: $activityName,
-                      prompt: Text("Dein Plan")
+                      prompt: Text(tr("create.your_plan"))
                         .font(.system(size: 28, weight: .bold, design: .rounded))
                         .foregroundColor(Color.brandNight.opacity(0.3)))
                 .font(.system(size: 28, weight: .bold, design: .rounded))
@@ -1256,12 +1683,12 @@ struct CreateDropView: View {
                             emojiLockedByUser = true
                             Haptic.selection()
                         }) {
-                            Text(emoji).font(.system(size: 28))
+                            DazuActivityIcon(emoji).font(.system(size: 28))
                         }
                         .dropsPressable()
                     }
                     Button(action: { showEmojiPicker = true }) {
-                        Image(systemName: "ellipsis")
+                        DazuIcon("ellipsis")
                             .font(.system(size: 16, weight: .semibold))
                             .foregroundColor(Color.brandNight.opacity(0.5))
                             .frame(width: 32, height: 32)
@@ -1321,12 +1748,12 @@ struct CreateDropView: View {
                             .stroke(Color.textTertiary.opacity(0.3),
                                     style: StrokeStyle(lineWidth: 1.2, dash: [5, 5]))
                             .frame(width: 120, height: 120)
-                        Image(systemName: "plus")
+                        DazuIcon("plus")
                             .font(.system(size: 40, weight: .light))
                             .foregroundColor(.textTertiary.opacity(0.65))
                     }
                 } else {
-                    Text(displayEmoji)
+                    DazuActivityIcon(displayEmoji)
                         .font(.system(size: 110))
                         .transition(.scale.combined(with: .opacity))
                 }
@@ -1339,12 +1766,15 @@ struct CreateDropView: View {
     private var minimalActivityField: some View {
         VStack(spacing: 8) {
             TextField("", text: $activityName,
-                      prompt: Text("Was machst du?")
+                      prompt: Text(tr("create.what_doing"))
                         .font(.system(size: 20, weight: .regular, design: .rounded))
                         .foregroundColor(.textTertiary.opacity(0.5)))
                 .font(.system(size: 20, weight: .medium, design: .rounded))
                 .foregroundColor(.textPrimary)
                 .multilineTextAlignment(.center)
+                .focused($activityFieldFocused)
+                .submitLabel(.done)
+                .onSubmit { activityFieldFocused = false }
                 .onChange(of: activityName) { _, _ in
                     if activityName.trimmingCharacters(in: .whitespaces).isEmpty {
                         selectedEmoji = ""
@@ -1370,7 +1800,7 @@ struct CreateDropView: View {
 
     private var minimalTemplatesRow: some View {
         VStack(spacing: 12) {
-            Text("ODER")
+            Text(tr("create.or"))
                 .font(.system(size: 11, weight: .semibold))
                 .tracking(1.5)
                 .foregroundColor(.textTertiary.opacity(0.6))
@@ -1387,7 +1817,7 @@ struct CreateDropView: View {
 
     private var minimalEmojiSuggestionsRow: some View {
         VStack(spacing: 10) {
-            Text("Wähle ein Emoji")
+            Text(tr("create.choose_icon"))
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(.textTertiary)
 
@@ -1398,14 +1828,14 @@ struct CreateDropView: View {
                         emojiLockedByUser = true
                         Haptic.selection()
                     }) {
-                        Text(emoji)
+                        DazuActivityIcon(emoji)
                             .font(.system(size: 32))
                     }
                     .dropsPressable()
                     .transition(.scale.combined(with: .opacity))
                 }
                 Button(action: { showEmojiPicker = true }) {
-                    Image(systemName: "ellipsis")
+                    DazuIcon("ellipsis", accent: false)
                         .font(.system(size: 20, weight: .light))
                         .foregroundColor(.textTertiary)
                         .frame(width: 32, height: 32)
@@ -1423,7 +1853,7 @@ struct CreateDropView: View {
     @ViewBuilder private var minimalCompactHero: some View {
         VStack(spacing: 8) {
             if !displayEmoji.isEmpty {
-                Text(displayEmoji)
+                DazuActivityIcon(displayEmoji)
                     .font(.system(size: 56))
                     .transition(.scale.combined(with: .opacity))
             }
@@ -1498,14 +1928,14 @@ struct CreateDropView: View {
                                        value: hasActivity)
 
                         if displayEmoji.isEmpty {
-                            Image(systemName: "plus")
+                            DazuIcon("plus")
                                 .font(.system(size: 36, weight: .light))
                                 .foregroundStyle(pinColor)
                                 .scaleEffect(sheetPulse ? 1.1 : 1.0)
                                 .animation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true),
                                            value: sheetPulse)
                         } else {
-                            Text(displayEmoji)
+                            DazuActivityIcon(displayEmoji)
                                 .font(.system(size: 56))
                                 .transition(.scale.combined(with: .opacity))
                         }
@@ -1549,7 +1979,7 @@ struct CreateDropView: View {
 
     private func previewChip(icon: String, text: String, tint: Color, dim: Bool) -> some View {
         HStack(spacing: 4) {
-            Image(systemName: icon)
+            DazuIcon(icon, accent: false)
                 .font(.system(size: 9, weight: .semibold))
             Text(text)
                 .font(.system(size: 11, weight: .semibold))
@@ -1577,13 +2007,13 @@ struct CreateDropView: View {
             return customDate.formatted(date: .omitted, time: .shortened)
         }
         if scheduledTime.isEmpty || scheduledTime == "Jetzt" {
-            return "Jetzt"
+            return tr("create.now")
         }
         return scheduledTime
     }
 
     private var durationPreviewLabel: String {
-        if durationMinutes <= 0 { return "offen" }
+        if durationMinutes <= 0 { return tr("create.duration_open") }
         if durationMinutes < 60 { return "\(durationMinutes)m" }
         return "\(durationMinutes / 60)h"
     }
@@ -1615,13 +2045,16 @@ struct CreateDropView: View {
     private var activityInputCard: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
-                Image(systemName: "text.cursor")
+                DazuIcon("text.cursor")
                     .font(.system(size: 15, weight: .medium))
                     .foregroundColor(.textTertiary)
                 TextField(tr("create.activity_field_placeholder"),
                           text: $activityName)
                     .font(.system(size: 17, weight: .medium))
                     .foregroundColor(.textPrimary)
+                    .focused($activityFieldFocused)
+                    .submitLabel(.done)
+                    .onSubmit { activityFieldFocused = false }
                     .onChange(of: activityName) { _, _ in
                         if activityName.trimmingCharacters(in: .whitespaces).isEmpty {
                             selectedEmoji = ""
@@ -1632,7 +2065,7 @@ struct CreateDropView: View {
                     }
                 if !activityName.isEmpty {
                     Button(action: { activityName = "" }) {
-                        Image(systemName: "xmark.circle.fill")
+                        DazuIcon("xmark.circle.fill")
                             .font(.system(size: 17))
                             .foregroundColor(.textTertiary)
                     }
@@ -1654,7 +2087,7 @@ struct CreateDropView: View {
                                 emojiLockedByUser = true
                                 Haptic.selection()
                             }) {
-                                Text(emoji).font(.system(size: 26))
+                                DazuActivityIcon(emoji).font(.system(size: 26))
                                     .frame(width: 48, height: 48)
                                     .background(
                                         Circle().fill(.white.opacity(0.3))
@@ -1666,7 +2099,7 @@ struct CreateDropView: View {
                             .dropsPressable()
                         }
                         Button(action: { showEmojiPicker = true }) {
-                            Image(systemName: "ellipsis")
+                            DazuIcon("ellipsis")
                                 .font(.system(size: 16, weight: .semibold))
                                 .foregroundColor(.textSecondary)
                                 .frame(width: 48, height: 48)
@@ -1682,7 +2115,7 @@ struct CreateDropView: View {
                 Divider().padding(.leading, 18)
                 Button(action: { showEmojiPicker = true }) {
                     HStack(spacing: 8) {
-                        Image(systemName: "face.smiling")
+                        DazuIcon("face.smiling")
                             .font(.system(size: 15, weight: .medium))
                         Text(tr("create.pick_emoji"))
                             .font(.system(size: 14, weight: .medium))
@@ -1708,7 +2141,7 @@ struct CreateDropView: View {
 
     private var templatesSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Oder wähle etwas Spontanes")
+            Text(tr("create.choose_spontaneous"))
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(.textSecondary)
                 .padding(.leading, 6)
@@ -1769,8 +2202,8 @@ struct CreateDropView: View {
     @ViewBuilder private var stepBackButton: some View {
         Button(action: backStep) {
             HStack(spacing: 6) {
-                Image(systemName: "chevron.left")
-                Text("Zurück")
+                DazuIcon("chevron.left")
+                Text(tr("create.back"))
             }
             .font(.system(size: 15, weight: .semibold))
             .foregroundColor(.textPrimary)
@@ -1791,8 +2224,8 @@ struct CreateDropView: View {
             Spacer()
             Button(action: advanceStep) {
                 HStack(spacing: 6) {
-                    Text("Weiter")
-                    Image(systemName: "chevron.right")
+                    Text(tr("create.next"))
+                    DazuIcon("chevron.right")
                 }
                 .font(.system(size: 16, weight: .bold))
                 .foregroundColor(.white)
@@ -1850,7 +2283,7 @@ struct CreateDropView: View {
                     RoundedRectangle(cornerRadius: Radius.sm)
                         .fill(isSelected ? Color.brand.opacity(0.18) : Color.white.opacity(0.08))
                         .frame(width: 36, height: 36)
-                    Image(systemName: icon)
+                    DazuIcon(icon)
                         .font(.system(size: 15))
                         .foregroundColor(isSelected ? .brand : .textSecondary)
                 }
@@ -1899,7 +2332,7 @@ struct CreateDropView: View {
                             )
                         )
                         .frame(width: 44, height: 44)
-                    Image(systemName: "bolt.fill")
+                    DazuIcon("bolt.fill")
                         .font(.system(size: 18, weight: .bold))
                         .foregroundStyle(
                             LinearGradient(
@@ -1919,7 +2352,7 @@ struct CreateDropView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
+                DazuIcon("chevron.right")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(Color.auroraAmber)
             }
@@ -1985,12 +2418,10 @@ struct CreateDropView: View {
                              durationMinutes: durationMinutes,
                              communityID: communityID)
             isCreating = false
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) { created = true }
-            // Kurz die Erfolgsmeldung zeigen, dann zum Aktiv-Tab wechseln
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-                dismiss()
-                store.selectedTab = .create   // .create ist der Aktiv-Tab
-            }
+            // Kein Zwischen-Success-Sheet mehr — Celebration-Overlay war
+            // die einzige Übergangsanimation. Direkt dismiss und Tab-Wechsel.
+            if let onClose { onClose() } else { dismiss() }
+            store.selectedTab = .create   // .create ist der Aktiv-Tab
         }
     }
 }
@@ -2011,7 +2442,7 @@ struct DropLocationRowContent: View {
     let icon: String; let title: String; let subtitle: String; var isSelected: Bool
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: icon).font(.system(size: 16))
+            DazuIcon(icon).font(.system(size: 16))
                 .foregroundColor(isSelected ? .brand : .textSecondary).frame(width: 24)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.system(size: 14, weight: .medium)).foregroundColor(.textPrimary)
@@ -2019,7 +2450,7 @@ struct DropLocationRowContent: View {
             }
             Spacer()
             if isSelected {
-                Image(systemName: "checkmark").font(.system(size: 13, weight: .bold))
+                DazuIcon("checkmark").font(.system(size: 13, weight: .bold))
                     .foregroundColor(.brand)
             }
         }
@@ -2047,13 +2478,13 @@ struct DropLocationSearchSheet: View {
                     .padding(.top, 12).padding(.bottom, 16)
 
                 HStack(spacing: 10) {
-                    Image(systemName: "magnifyingglass").foregroundColor(.textTertiary)
+                    DazuIcon("magnifyingglass").foregroundColor(.textTertiary)
                     TextField(tr("create.location_search_short"), text: $searchVM.searchText)
                         .font(.system(size: 16)).foregroundColor(.textPrimary)
                         .onChange(of: searchVM.searchText) { _, newValue in searchVM.search(newValue) }
                     if !searchVM.searchText.isEmpty {
                         Button(action: { searchVM.searchText = "" }) {
-                            Image(systemName: "xmark.circle.fill").foregroundColor(.textTertiary)
+                            DazuIcon("xmark.circle.fill").foregroundColor(.textTertiary)
                         }
                     }
                 }
@@ -2071,7 +2502,7 @@ struct DropLocationSearchSheet: View {
                                 }
                             }) {
                                 HStack(spacing: 12) {
-                                    Image(systemName: "mappin.circle.fill")
+                                    DazuIcon("mappin.circle.fill")
                                         .font(.system(size: 20)).foregroundColor(.brand)
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(result.title)
@@ -2120,7 +2551,7 @@ struct InteractivePinMapView: View {
                 .ignoresSafeArea()
             if pinnedCoordinate == nil {
                 VStack(spacing: 6) {
-                    Image(systemName: "hand.tap.fill").font(.system(size: 28))
+                    DazuIcon("hand.tap.fill").font(.system(size: 28))
                         .foregroundColor(.textPrimary)
                     Text(tr("create.tap_on_map"))
                         .font(.system(size: 13, weight: .medium)).foregroundColor(.textSecondary)
@@ -2174,8 +2605,17 @@ struct InteractivePinMap: UIViewRepresentable {
         func mapView(_ map: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
             guard !(annotation is MKUserLocation) else { return nil }
             let view = MKMarkerAnnotationView(annotation: annotation, reuseIdentifier: "pin")
-            view.markerTintColor = .black
+            // Markenviolett + dazu-Logo als Glyph — passt zur App-Identität,
+            // statt generischem schwarzen Pin.
+            view.markerTintColor = UIColor(red: 0x5B/255.0, green: 0x3D/255.0, blue: 0xF5/255.0, alpha: 1)
+            if let img = UIImage(named: "TabDazuAktiv") {
+                view.glyphImage = img.withRenderingMode(.alwaysTemplate)
+                view.glyphTintColor = .white
+            } else {
+                view.glyphText = "d"
+            }
             view.animatesWhenAdded = true
+            view.canShowCallout = false
             return view
         }
     }
@@ -2269,7 +2709,7 @@ struct DropQuickTemplatesBar: View {
                     ForEach(templates) { tpl in
                         Button { onSelect(tpl) } label: {
                             HStack(spacing: 6) {
-                                Text(tpl.emoji).font(.system(size: 16))
+                                DazuActivityIcon(tpl.emoji, tint: .white, accent: false).font(.system(size: 16))
                                 Text(tpl.name)
                                     .font(.system(size: 13, weight: .semibold))
                                     .foregroundColor(.white)
@@ -2307,82 +2747,176 @@ struct DropQuickTemplatesBar: View {
 // treffen sich dort und formen den geschlossenen Dazu-Ring mit orangem Dot.
 // Signal: „Deine Runde entsteht gerade — alle kommen dazu."
 private struct JoinCelebrationOverlay: View {
-    @State private var beamProgress: CGFloat = 0  // 0 = außen, 1 = Zentrum
-    @State private var markScale: CGFloat = 0.2
-    @State private var markOpacity: Double = 0
-    @State private var ringPulse: CGFloat = 1.0
+    @State private var ringScale: CGFloat = 0.3
+    @State private var ringOpacity: Double = 0
+    @State private var orbitSpin: Double = 0
+    @State private var orbitRadius: CGFloat = 112       // Abstand vom Zentrum
+    @State private var dotScale: CGFloat = 1.0
+
+    private let markSize: CGFloat = 180
+    // Ziel: Lücke des offenen Rings (-48° in SwiftUI = oben rechts)
+    private let finalAngle: Double = -48
+    private var onRingRadius: CGFloat { markSize * 0.33 }      // auf Ringlinie
+    private var orbitOuterRadius: CGFloat { markSize * 0.62 }  // = Umgebungs-Dot-Abstand
 
     var body: some View {
         GeometryReader { geo in
-            let w = geo.size.width
-            let h = geo.size.height
-            let cx = w / 2
-            let cy = h / 2
-            let beamLength: CGFloat = min(w, h) * 0.6
-
             ZStack {
-                // Dim-Cream-Backdrop
-                Color.brandCream.opacity(0.92)
-                    .ignoresSafeArea()
+                Color.brandCream.opacity(0.95).ignoresSafeArea()
 
-                // Vier Violett-Beams von den Seiten
-                Group {
-                    beam()  // oben
-                        .offset(x: cx - 2, y: cy - beamLength * (1 - beamProgress) - beamLength / 2)
-                    beam()
-                        .offset(x: cx - 2, y: cy + beamLength * (1 - beamProgress) + beamLength / 2 - beamLength)
-                        .rotationEffect(.degrees(180), anchor: .top)
-                    beam()
-                        .rotationEffect(.degrees(90))
-                        .offset(x: cx - beamLength * (1 - beamProgress) - beamLength / 2, y: cy - 2)
-                    beam()
-                        .rotationEffect(.degrees(-90))
-                        .offset(x: cx + beamLength * (1 - beamProgress) + beamLength / 2 - beamLength, y: cy - 2)
+                ZStack {
+                    // Offener Ring (gleicher Shape wie Umgebungs-Empty-State:
+                    // Ring ohne Stamm). Baut sich mit Spring-Scale auf.
+                    OpenRingShape()
+                        .fill(Color.brandViolet)
+                        .frame(width: markSize, height: markSize)
+                        .scaleEffect(ringScale)
+                        .opacity(ringOpacity)
+                        .shadow(color: Color.brandViolet.opacity(0.4), radius: 30, y: 10)
+
+                    // Oranger „du"-Dot — kreist mit großem Abstand um den
+                    // Ring und wandert dann in die Lücke bei −48°.
+                    ZStack {
+                        Circle()
+                            .fill(Color.brandOrange.opacity(0.4))
+                            .frame(width: 36, height: 36)
+                            .blur(radius: 10)
+                        Circle()
+                            .fill(Color.brandOrange)
+                            .frame(width: 26, height: 26)
+                            .shadow(color: Color.brandOrange.opacity(0.6), radius: 8, y: 2)
+                    }
+                    .scaleEffect(dotScale)
+                    .offset(x: orbitRadius)
+                    .rotationEffect(.degrees(orbitSpin))
+                    .opacity(ringOpacity)
                 }
-                .opacity(1.0 - beamProgress * 0.7)
-
-                // Zentrum: der echte DropsMark mit Dot, baut auf
-                DropsMark(ringColor: .brandViolet, dotColor: .brandOrange, showDot: true)
-                    .frame(width: 180, height: 180)
-                    .scaleEffect(markScale * ringPulse)
-                    .opacity(markOpacity)
-                    .shadow(color: Color.brandViolet.opacity(0.4), radius: 30, y: 10)
+                .frame(width: markSize, height: markSize)
+                .position(x: geo.size.width / 2, y: geo.size.height / 2)
             }
         }
         .onAppear { runSequence() }
     }
 
-    private func beam() -> some View {
-        // Senkrechter Violett-Streifen mit weichen Enden (vertikal gezeichnet,
-        // dann rotiert für die Himmelsrichtungen).
-        Capsule()
-            .fill(
-                LinearGradient(
-                    colors: [Color.brandViolet.opacity(0), Color.brandViolet, Color.brandViolet.opacity(0)],
-                    startPoint: .top, endPoint: .bottom
-                )
-            )
-            .frame(width: 4, height: 220)
-            .blur(radius: 1.5)
+    private func runSequence() {
+        // Phase 1: Ring baut sich auf (Spring-Scale).
+        withAnimation(.spring(response: 0.5, dampingFraction: 0.68)) {
+            ringScale = 1.0
+            ringOpacity = 1.0
+        }
+        orbitSpin = finalAngle + 90   // Start 90° weiter rechts
+
+        // Phase 2 (0.35s): Dot kreist 1× (450° total) um den Ring, Radius
+        // schrumpft gleichzeitig von außen (112) auf die Ringlinie (60) in
+        // der Lücke bei −48°.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            withAnimation(.easeInOut(duration: 0.95)) {
+                orbitSpin = finalAngle + 360
+                orbitRadius = onRingRadius
+            }
+        }
+
+        // Phase 3 (1.3s): Dock-Puls — Dot rastet ein.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.3) {
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.55)) {
+                dotScale = 1.25
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+                    dotScale = 1.0
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Dazu Ambient Visual
+
+/// Hero-Animation die die dazu-Marke erzählt: der offene violette Ring
+/// (dazu-Logomark) steht zentral, ein orangener Punkt läuft außen im
+/// Orbit heran, dreht einmal ums Ring-Ganze und landet in der Öffnung
+/// (= "komm dazu"). Nach kurzer Pause startet der nächste Punkt. Rein
+/// grafisch, keine Daten, keine Emojis.
+struct DazuAmbientVisual: View {
+    @State private var breathe = false
+    @State private var orbitStart = Date()
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: false)) { ctx in
+            let t = ctx.date.timeIntervalSince(orbitStart)
+            // 3.2s pro vollem Loop, danach reset wird natürlich fortgesetzt.
+            let cycle: Double = 3.2
+            let phase = (t.truncatingRemainder(dividingBy: cycle)) / cycle   // 0...1
+
+            GeometryReader { geo in
+                let size = min(geo.size.width, geo.size.height) * 0.72
+                let center = CGPoint(x: geo.size.width / 2, y: geo.size.height / 2)
+                let ringRadius = size / 2
+
+                ZStack {
+                    // Atmender Lavender-Halo hinter dem Ring.
+                    Circle()
+                        .fill(Color.brandViolet.opacity(0.12))
+                        .frame(width: size * 1.6, height: size * 1.6)
+                        .scaleEffect(breathe ? 1.08 : 0.95)
+                        .blur(radius: 28)
+                        .position(center)
+
+                    // Der dazu-Logo-Ring (OpenRingShape — mit kleiner Pause
+                    // oben rechts, der "Einstieg" für den Punkt).
+                    OpenRingShape()
+                        .stroke(Color.brandViolet, style: StrokeStyle(lineWidth: size * 0.11, lineCap: .round))
+                        .frame(width: size, height: size)
+                        .shadow(color: Color.brandViolet.opacity(0.3), radius: 10, y: 4)
+                        .position(center)
+
+                    // Orbit-Punkt: läuft einmal um den Ring (Winkel 0...2π).
+                    // Startet ab Phase 0.0, dreht bis 0.75 ums Ring, dann
+                    // schwenkt die letzte Viertelphase in die Mitte des Rings
+                    // (= landet im Logo).
+                    let dot = dotPosition(phase: phase, center: center, radius: ringRadius)
+                    Circle()
+                        .fill(Color.accentOrange)
+                        .frame(width: size * 0.14, height: size * 0.14)
+                        .shadow(color: Color.accentOrange.opacity(0.55), radius: 8, y: 2)
+                        .position(dot)
+                        .opacity(phase < 0.95 ? 1 : (1 - (phase - 0.95) * 20))  // fade-out am Ende
+                }
+            }
+            .onAppear {
+                withAnimation(.easeInOut(duration: 3.0).repeatForever(autoreverses: true)) {
+                    breathe = true
+                }
+            }
+        }
+        .allowsHitTesting(false)
     }
 
-    private func runSequence() {
-        // Phase 1 (0.0–0.55s): Beams fliegen zum Zentrum
-        withAnimation(.easeOut(duration: 0.55)) {
-            beamProgress = 1.0
-        }
-        // Phase 2 (0.35–0.9s): Mark baut sich im Zentrum auf
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            withAnimation(.spring(response: 0.5, dampingFraction: 0.65)) {
-                markScale = 1.0
-                markOpacity = 1.0
-            }
-        }
-        // Phase 3 (0.9s): sanfter Pulse am Ende als Finisher
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
-            withAnimation(.easeInOut(duration: 0.4).repeatForever(autoreverses: true)) {
-                ringPulse = 1.05
-            }
+    /// Berechnet die Position des Orbit-Punkts.
+    /// - Phase 0.0–0.75: läuft ums Ring (von oben rechts im Uhrzeigersinn).
+    /// - Phase 0.75–1.0: schwenkt vom Ring-Rand zum Zentrum (lands in der
+    ///   Logo-Öffnung oben rechts).
+    private func dotPosition(phase: Double, center: CGPoint, radius: CGFloat) -> CGPoint {
+        if phase < 0.75 {
+            let angle = (phase / 0.75) * 2 * .pi - .pi / 2   // Start oben
+            return CGPoint(
+                x: center.x + cos(angle) * radius,
+                y: center.y + sin(angle) * radius
+            )
+        } else {
+            // Lineare Fahrt vom aktuellen Ring-Punkt zur Logo-Öffnung
+            // (oben rechts, ca. 30° über horizontal).
+            let edgeAngle = -Double.pi / 2 + 2 * .pi * 0.75
+            let edge = CGPoint(
+                x: center.x + cos(edgeAngle) * radius,
+                y: center.y + sin(edgeAngle) * radius
+            )
+            let target = CGPoint(x: center.x + radius * 0.55, y: center.y - radius * 0.55)
+            let p = (phase - 0.75) / 0.25
+            return CGPoint(
+                x: edge.x + (target.x - edge.x) * p,
+                y: edge.y + (target.y - edge.y) * p
+            )
         }
     }
 }

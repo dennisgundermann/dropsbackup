@@ -1,6 +1,92 @@
 import SwiftUI
 import CoreLocation
+import MapKit
 import UserNotifications
+
+// MARK: - Scroll-adaptiver dazu-Compact-Header
+
+/// Kompakte dazu-Wortmarke, die nur erscheint wenn die Hero-Headline eines
+/// Tabs wegscrollt. Hochwertig im iOS-Large→Compact-Pattern: solange der
+/// User oben ist, trägt die große Hero das Branding; sobald sie den
+/// sichtbaren Bereich verlässt, klebt oben ein dünner Material-Streifen
+/// mit kleiner Wortmarke, damit der Content nicht hart in die Statusbar
+/// läuft und die App-Identität weiter präsent bleibt.
+struct DazuCompactHeaderBar: View {
+    var body: some View {
+        HStack {
+            DazuWordmark(color: .brandNight, dotColor: .brandOrange)
+                .frame(height: 18)
+            Spacer()
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 6)
+        .padding(.bottom, 8)
+        .background {
+            ZStack(alignment: .top) {
+                Rectangle()
+                    .fill(.ultraThinMaterial)
+                    .frame(maxHeight: .infinity)
+                LinearGradient(
+                    colors: [
+                        Color.brandCream.opacity(0.75),
+                        Color.brandCream.opacity(0.0)
+                    ],
+                    startPoint: .top, endPoint: .bottom
+                )
+            }
+            .mask(
+                LinearGradient(
+                    colors: [.black, .black, .black.opacity(0.4), .clear],
+                    startPoint: .top, endPoint: .bottom
+                )
+            )
+            .ignoresSafeArea(edges: .top)
+        }
+    }
+}
+
+extension View {
+    /// iOS-Large→Compact-Pattern: Der Compact-Header fadet nur ein, wenn
+    /// der dahinter liegende ScrollView weit genug gescrollt wurde (die
+    /// Hero-Headline hat den Sichtbereich verlassen). Vorher ist oben
+    /// nichts — die Hero trägt das Branding allein.
+    func scrollAdaptiveDazuHeader(isScrolled: Bool) -> some View {
+        overlay(alignment: .top) {
+            if isScrolled {
+                DazuCompactHeaderBar()
+                    .allowsHitTesting(false)
+                    .transition(.opacity.combined(
+                        with: .move(edge: .top)))
+            }
+        }
+        .animation(.easeInOut(duration: 0.18), value: isScrolled)
+    }
+}
+
+/// Hält eine unsichtbare `MKMapView`-Instanz am Leben, damit der Tile-
+/// Download/Cache und das MapKit-Framework beim App-Start bereits warm
+/// sind. Ohne diesen Pre-Warm braucht die echte LiveMapView beim ersten
+/// Tab-Wechsel ~1–2 s bis die erste Kachel kommt (iOS mountet SwiftUI-
+/// TabView-Inhalte lazy, MapKit initialisiert kalt sein Tile-Backend).
+private struct MapKitPrewarm: UIViewRepresentable {
+    func makeUIView(context: Context) -> MKMapView {
+        let v = MKMapView(frame: CGRect(x: 0, y: 0, width: 2, height: 2))
+        v.showsUserLocation = false
+        v.isZoomEnabled = false
+        v.isScrollEnabled = false
+        v.isPitchEnabled = false
+        v.isRotateEnabled = false
+        v.pointOfInterestFilter = .excludingAll
+        // Default-Region auf München — reicht aus damit der Tile-Backend
+        // sich warm fährt. Der Live-Tab setzt eh seine echte Region neu.
+        v.setRegion(MKCoordinateRegion(
+            center: CLLocationCoordinate2D(latitude: 48.1374, longitude: 11.5755),
+            latitudinalMeters: 1500, longitudinalMeters: 1500
+        ), animated: false)
+        return v
+    }
+    func updateUIView(_ uiView: MKMapView, context: Context) {}
+}
 
 struct MainTabView: View {
     /// Verzögerung bevor das WelcomeSheet nach Tab-Mount erscheint — damit erst
@@ -17,29 +103,37 @@ struct MainTabView: View {
     private static let bluetoothPermissionStagger: TimeInterval = 1.1
 
     @EnvironmentObject var store: AppStore
-    @State private var showCreateSheet = false
     /// Hält den CLLocationManager am Leben bis der Permission-Dialog bestätigt ist.
     @State private var permLocManager: CLLocationManager? = nil
-    @State private var isWalkthroughCreate = false
     @StateObject private var cityGate = CityGateChecker()
     @AppStorage("hasSeenWelcome") private var hasSeenWelcome = false
     @AppStorage("appLanguage") private var appLanguage = "de"
-    @State private var showWelcomeSheet = false
-    /// Wird im WelcomeSheet-CTA gesetzt; CreateDropView öffnet sich erst im
-    /// onDismiss-Callback des Sheets — damit ist die Dismiss-Animation
-    /// garantiert fertig und kein UIKit-Presentation-Conflict entsteht.
-    @State private var pendingWalkthrough = false
+    /// Lage des dazu-Icons in der Tab-Leiste (für DazuTabMark).
+    @ObservedObject private var tabLink = DazuTabLink.shared
+    /// Der dazu-Tab zeigt das Formular (keine laufende Runde).
+    private var showsCreateForm: Bool {
+        !(store.isInActiveDrop && store.currentActiveAnnotation != nil)
+    }
 
     var body: some View {
         ZStack(alignment: .top) {
+        // MapKit beim App-Start warm halten, damit der Karte-Tab beim ersten
+        // Öffnen sofort rendert statt 1–2 s auf Tiles zu warten.
+        MapKitPrewarm()
+            .frame(width: 2, height: 2)
+            .opacity(0)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
         TabView(selection: $store.selectedTab) {
             LiveMapView()
-                .tabItem { Label(tr("tab.map"), systemImage: "map.fill") }
+                .tabItem { tabLabel(tr("tab.map"), asset: "TabKarte",
+                                    selected: store.selectedTab == .map) }
                 .badge(store.pendingJoinRequests.count)
                 .tag(AppStore.Tab.map)
 
             FeedView()
-                .tabItem { Label(tr("tab.nearby"), systemImage: "person.2.wave.2.fill") }
+                .tabItem { tabLabel(tr("tab.nearby"), asset: "TabUmgebung",
+                                    selected: store.selectedTab == .feed) }
                 .tag(AppStore.Tab.feed)
 
             Group {
@@ -47,46 +141,85 @@ struct MainTabView: View {
                     ActiveDropTabView(item: item)
                         .environmentObject(store)
                 } else {
-                    Color.clear
+                    // CreateDropView jetzt als echter Tab-Inhalt, damit die
+                    // Tab Bar sichtbar bleibt (statt fullScreenCover-Modal).
+                    // onClose kippt den Tab zurück auf Map und requestet im
+                    // Walkthrough-Fall die Permissions.
+                    CreateDropView(isWalkthrough: false, onClose: {
+                        store.selectedTab = .map
+                    })
+                    .environmentObject(store)
                 }
             }
             .tabItem {
-                if store.isInActiveDrop {
-                    Label(tr("tab.active"), systemImage: "dot.radiowaves.left.and.right")
+                // Dazu-Icon ist egal ob „Create" oder „Live-Drop" dasselbe Logo —
+                // der Label-Text wechselt kontextabhängig. Ein leerer Text
+                // lässt iOS die TabItem u.U. kollabieren, deshalb immer ein
+                // Wort setzen.
+                if DazuStartPull.isOn && tabLink.usesTabBar && store.selectedTab == .create && showsCreateForm {
+                    // Offener dazu-Tab: das Zeichen zeichnet DazuTabMark selbst
+                    // (animiert), hier bleibt nur der Platz frei.
+                    Label {
+                        Text("dazu")
+                    } icon: {
+                        Image(uiImage: DazuTabLink.clearIcon)
+                    }
+                } else if store.isInActiveDrop {
+                    // Live-Runde läuft → das dazu-Logo selbst dreht sich.
+                    // UITabBar snapshotet SwiftUI-Rotation im tabItem-Slot,
+                    // deshalb bleibt hier der Platz leer (clearIcon) und das
+                    // rotierende Logo kommt via `DazuLiveSpinOverlay` als
+                    // SwiftUI-Overlay auf die TabView.
+                    Label {
+                        Text(tr("tab.active"))
+                    } icon: {
+                        Image(uiImage: DazuTabLink.clearIcon)
+                    }
                 } else {
-                    Label("", systemImage: "plus.circle.fill")
+                    tabLabel("dazu",
+                             asset: "TabDazu",
+                             selected: store.selectedTab == .create)
                 }
             }
             .tag(AppStore.Tab.create)
 
             FreundeView()
-                .tabItem { Label(tr("tab.friends"), systemImage: "person.fill") }
+                .tabItem { tabLabel(tr("tab.friends"), asset: "TabProfil",
+                                    selected: store.selectedTab == .alerts) }
                 .badge(store.incomingFriendRequests.count + store.pendingEncounters.count)
                 .tag(AppStore.Tab.alerts)
 
             ProfileView()
-                .tabItem { Label(tr("tab.settings"), systemImage: "gearshape.fill") }
+                .tabItem { tabLabel(tr("tab.settings"), asset: "TabEinstellungen",
+                                    selected: store.selectedTab == .profile) }
                 .tag(AppStore.Tab.profile)
         }
         .tint(.brand)
-        .onChange(of: store.selectedTab) { _, tab in
-            if tab == .create && !store.isInActiveDrop {
-                showCreateSheet = true
-                store.selectedTab = .map
-            }
+        .toolbarBackground(Color.tabBarSurface, for: .tabBar)
+        .toolbarBackground(.visible, for: .tabBar)
+        // dazu-Zeichen auf dem mittleren Tab-Icon: dreht sich auf, der Punkt
+        // springt in den Bildschirm und startet die Runde, wenn man ihn
+        // zurück in den Ring zieht (DazuBranding.swift).
+        .overlay {
+            DazuTabMark(active: store.selectedTab == .create && showsCreateForm)
         }
+        // Rotierendes dazu-Logo über dem mittleren Tab, solange eine Runde
+        // live ist. Overlay statt tabItem-Icon, damit die Rotation läuft
+        // (UITabBar snapshotet Icons im tabItem-Slot).
+        .overlay {
+            DazuLiveSpinOverlay(active: store.isInActiveDrop,
+                                selected: store.selectedTab == .create)
+        }
+        // DynamicToast-Overlay entfernt — iOS-System-Push ist jetzt der
+        // einzige Kanal für Benachrichtigungen. Keine In-App-Pills mehr
+        // oben am Screen (DynamicToast.swift bleibt im Projekt, wird aber
+        // nicht mehr gemountet).
         .onChange(of: store.isInActiveDrop) { _, isActive in
+            // Nach Drop-Ende aus dem Live-Tab raus — sonst sieht User leeres
+            // "Live"-Icon-Label obwohl kein Drop mehr läuft.
             if !isActive && store.selectedTab == .create {
                 store.selectedTab = .map
             }
-        }
-        .fullScreenCover(isPresented: $showCreateSheet, onDismiss: {
-            // Walkthrough abgeschlossen → jetzt Permissions anfragen
-            if isWalkthroughCreate { requestAllPermissions() }
-            isWalkthroughCreate = false
-        }) {
-            CreateDropView(isWalkthrough: isWalkthroughCreate)
-                .environmentObject(store)
         }
         .onAppear {
             consumePendingQuickAction()
@@ -152,6 +285,11 @@ struct MainTabView: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             OfflineBanner()
         }
+        // Hinweis: der globale Sticky-dazu-Header liegt NICHT hier auf
+        // TabView-Ebene, weil SwiftUI den Inset dort nicht an die Tab-
+        // Children durchreicht (Content würde unter den Header rutschen).
+        // Stattdessen wird jede Tab-Root-View per `.stickyDazuHeader()`
+        // selbst mit dem Header und dem Blur-Übergang versehen.
         // ── Pending-Join-Request Pill ─────────────────────────────────────
         // Floating-Pill oben mit Countdown wenn der User eine Anfrage gestellt
         // hat und auf Host-Reaktion wartet. Schwebt über allem (Sheets, Tab-Bar)
@@ -174,42 +312,19 @@ struct MainTabView: View {
         }
         .onAppear {
             cityGate.startChecking()
+            // WelcomeSheet entfernt — das Intro-Onboarding nach Installation
+            // deckt die 4 Features bereits ab. Nach Login direkt zur Map.
+            // Permissions werden jetzt direkt beim ersten Appear angefragt
+            // (statt im onDismiss des alten WelcomeSheets).
             if !hasSeenWelcome {
+                hasSeenWelcome = true
                 DispatchQueue.main.asyncAfter(deadline: .now() + Self.welcomeSheetDelay) {
-                    showWelcomeSheet = true
+                    requestAllPermissions()
                 }
             }
             // Profilbild ist freiwillig — bereits geplante Erinnerungen aus
             // älteren App-Versionen entfernen.
             PushNotificationManager.shared.cancelProfilePictureReminder()
-        }
-        .sheet(isPresented: $showWelcomeSheet, onDismiss: {
-            if pendingWalkthrough {
-                // "Ersten Drop erstellen"-Pfad: Walkthrough öffnen.
-                // Permissions kommen nach Walkthrough-Sheet-Dismiss.
-                pendingWalkthrough = false
-                store.selectedTab = .map
-                isWalkthroughCreate = true
-                showCreateSheet = true
-            } else {
-                // Direkt überspringen: Permissions jetzt anfragen.
-                requestAllPermissions()
-            }
-        }) {
-            WelcomeSheet(
-                onDismiss: {
-                    hasSeenWelcome = true
-                    showWelcomeSheet = false
-                },
-                onStartFirstDrop: {
-                    hasSeenWelcome = true
-                    pendingWalkthrough = true   // Merker setzen
-                    showWelcomeSheet = false     // Sheet dismisst → onDismiss öffnet CreateDrop
-                }
-            )
-            .presentationDetents([.large])
-            .presentationDragIndicator(.hidden)
-            .interactiveDismissDisabled()
         }
         .sheet(isPresented: $store.showPushReaskSheet) {
             PushReaskSheet()
@@ -278,13 +393,33 @@ struct MainTabView: View {
                 .presentationDragIndicator(.visible)
                 .sheetBackground()
         }
-        .fullScreenCover(item: $store.firstDropCelebrationKind) { kind in
-            FirstDropCelebrationSheet(kind: kind)
-        }
+        // FirstDrop-Celebration-Sheet entfernt (Nutzer wollte keinen
+        // "Runde steht."-Zwischenbildschirm nach dem Create). Nur noch
+        // das reine Share-Sheet im Erfolgsfall:
         .sheet(item: $store.dropSuccessShareData) { data in
             DropSuccessShareSheet(data: data)
                 .presentationDetents([.height(480)])
                 .presentationDragIndicator(.visible)
+        }
+    }
+
+    /// Baut ein Tab-Item mit den custom dazu-Icons: Template-Version im Idle-
+    /// Zustand (Tab-Bar tint färbt sie ein), Markenfarben-Version wenn dieser
+    /// Tab selektiert ist. Fürs Aktiv-Icon wird `renderingMode(.original)`
+    /// gesetzt, damit die iconColor-Appearance die Original-Farben nicht
+    /// überschreibt (iOS 17+ respektiert das in `.tabItem`).
+    @ViewBuilder
+    private func tabLabel(_ title: String, asset: String, selected: Bool) -> some View {
+        Label {
+            Text(title)
+        } icon: {
+            if selected {
+                Image("\(asset)Aktiv")
+                    .renderingMode(.original)
+            } else {
+                Image(asset)
+                    .renderingMode(.template)
+            }
         }
     }
 
@@ -296,10 +431,7 @@ struct MainTabView: View {
         print("🚦 [QA] MainTabView consumes: \(type)")
         switch type {
         case "com.dennis.drops.shortcut.create":
-            store.selectedTab = .map
-            DispatchQueue.main.asyncAfter(deadline: .now() + Self.quickActionSheetDelay) {
-                showCreateSheet = true
-            }
+            store.selectedTab = .create
         case "com.dennis.drops.shortcut.map":
             store.selectedTab = .map
         case "com.dennis.drops.shortcut.feed":
@@ -355,7 +487,7 @@ struct FirstDropCelebrationSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var emojiAppeared = false
 
-    private var hero: String { kind == .created ? "🎉" : "🙌" }
+    private var hero: String { kind == .created ? "sparkles" : "hand.thumbsup.fill" }
 
     /// Marketing-Copy — kürzer, punchier, hook-driven.
     private var headline: String {
@@ -403,8 +535,9 @@ struct FirstDropCelebrationSheet: View {
                     Spacer().frame(height: geo.size.height * 0.20)
 
                     // Hero-Emoji mit Spring-Pop-In
-                    Text(hero)
+                    DazuIcon(hero)
                         .font(.system(size: 96))
+                        .foregroundColor(.brandViolet)
                         .scaleEffect(emojiAppeared ? 1.0 : 0.4)
                         .opacity(emojiAppeared ? 1.0 : 0.0)
                         .shadow(color: Color.brand.opacity(0.35), radius: 30, y: 8)
@@ -434,7 +567,7 @@ struct FirstDropCelebrationSheet: View {
                         HStack(spacing: 8) {
                             Text(cta)
                                 .font(.system(size: 17, weight: .bold, design: .rounded))
-                            Image(systemName: "arrow.right")
+                            DazuIcon("arrow.right")
                                 .font(.system(size: 15, weight: .bold))
                         }
                         .foregroundColor(.white)
@@ -536,12 +669,17 @@ struct ConfettiBurstView: View {
         if y > size.height + 80 || opacity <= 0.0 { return }
 
         // Text-Resolve mit Rotation
-        let resolved = ctx.resolve(Text(piece.emoji).font(.system(size: piece.size)))
+        let side = piece.size * 0.5
+        let dot = Path(ellipseIn: CGRect(x: -side / 2, y: -side / 2, width: side, height: side))
         var transformed = ctx
         transformed.opacity = opacity
         transformed.translateBy(x: x, y: y)
         transformed.rotate(by: .degrees(rotation))
-        transformed.draw(resolved, at: .zero, anchor: .center)
+        if piece.emoji == "ring" {
+            transformed.stroke(dot, with: .color(.brandVioletFixed), lineWidth: side * 0.3)
+        } else {
+            transformed.fill(dot, with: .color(ConfettiPiece.color(piece.emoji)))
+        }
     }
 }
 
@@ -557,10 +695,20 @@ struct ConfettiPiece: Identifiable {
     let rotationEnd: Double
     let size: CGFloat
 
+    /// Farbe eines Konfetti-Plättchens. `emoji` trägt nur noch den Farbnamen.
+    static func color(_ key: String) -> Color {
+        switch key {
+        case "orange":   return .brandOrangeFixed
+        case "lavendel": return Color(red: 0.788, green: 0.741, blue: 0.996)
+        case "creme":    return .brandCreamFixed
+        default:         return .brandVioletFixed
+        }
+    }
+
     static func random() -> ConfettiPiece {
-        let emojis = ["🎉", "✨", "💫", "🎊", "⭐️", "🟠", "🟣", "🔵"]
+        let emojis = ["orange", "orange", "violett", "violett", "lavendel", "creme", "ring", "ring"]
         return ConfettiPiece(
-            emoji: emojis.randomElement() ?? "🎉",
+            emoji: emojis.randomElement() ?? "orange",
             // Vollkreis 360° gleichmäßig verteilt
             angle: Double.random(in: -Double.pi ... Double.pi),
             // Speed: variabel, einige fliegen weiter, andere nah am Origin
@@ -595,7 +743,7 @@ struct PushReaskSheet: View {
                         .fill(Color.brandLavender.opacity(0.9))
                         .frame(width: 96, height: 96)
                         .scaleEffect(pulse ? 1.05 : 0.98)
-                    Image(systemName: "bell.badge.fill")
+                    DazuIcon("bell.badge.fill")
                         .font(.system(size: 42, weight: .heavy))
                         .foregroundColor(.brandOrange)
                 }
@@ -706,7 +854,7 @@ struct WelcomeSheet: View {
                             RoundedRectangle(cornerRadius: 10, style: .continuous)
                                 .fill(f.color.opacity(0.12))
                                 .frame(width: 44, height: 44)
-                            Image(systemName: f.icon)
+                            DazuIcon(f.icon)
                                 .font(.system(size: 18, weight: .medium))
                                 .foregroundColor(f.color)
                         }
@@ -738,7 +886,7 @@ struct WelcomeSheet: View {
             VStack(spacing: 10) {
                 Button(action: { onStartFirstDrop?() ?? onDismiss() }) {
                     HStack(spacing: 8) {
-                        Image(systemName: "plus.circle.fill")
+                        DazuIcon("plus.circle.fill")
                             .font(.system(size: 17, weight: .semibold))
                         Text(tr("tab.make_first_drop"))
                     }
