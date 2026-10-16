@@ -19,11 +19,34 @@ private enum LAImageHelper {
     }
 }
 
+// MARK: - Markenfarben (Widget-Target)
+// Die Extension kompiliert ohne DesignSystem.swift der Haupt-App, deshalb
+// stehen die Markenfarben hier noch einmal. Werte = DesignSystem (Redesign 10/2026).
+
+extension Color {
+    // Markenfarben (dazu). Die Extension kompiliert ohne DesignSystem.swift
+    // der Haupt-App, deshalb stehen die Werte hier gespiegelt.
+    static let widgetViolet      = Color(red: 0.357, green: 0.239, blue: 0.961) // #5B3DF5 brandViolet
+    static let widgetVioletLight = Color(red: 0.486, green: 0.361, blue: 1.000) // #7C5CFF
+    static let widgetOrange      = Color(red: 1.000, green: 0.627, blue: 0.180) // #FFA02E brandOrange
+    static let widgetLavender    = Color(red: 0.914, green: 0.890, blue: 1.000) // #E9E3FF brandLavender
+    static let widgetCream       = Color(red: 1.000, green: 0.965, blue: 0.918) // #FFF6EA brandCream
+    static let widgetNight       = Color(red: 0.067, green: 0.051, blue: 0.133) // #110D22 brandNight
+    // Semantische Aliase: `widgetMint` (ehemals Türkis) ist jetzt Lavendel —
+    // Chips/Secondary-Accents im Dynamic Island; `widgetCoral` bleibt als
+    // „voll"-Warn-Farbe.
+    static let widgetMint        = widgetLavender
+    static let widgetCoral       = Color(red: 1.000, green: 0.478, blue: 0.349) // #FF7A59
+}
+
 // MARK: - Entry Point
 
 @main
 struct DropLiveActivityWidgetBundle: WidgetBundle {
-    var body: some Widget { DropLiveActivityWidget() }
+    var body: some Widget {
+        DropLiveActivityWidget()
+        RadarWidget()
+    }
 }
 
 struct DropLiveActivityWidget: Widget {
@@ -42,7 +65,7 @@ struct DropLiveActivityWidget: Widget {
             } compactTrailing: {
                 CompactTrailing(context: context)
             } minimal: {
-                Text(context.attributes.activityEmoji).font(.system(size: 14))
+                WidgetRingMark().font(.system(size: 14))
             }
         }
     }
@@ -54,7 +77,7 @@ private struct CompactLeading: View {
     let context: ActivityViewContext<DropLiveActivityAttributes>
     var body: some View {
         HStack(spacing: 3) {
-            Text(context.attributes.activityEmoji).font(.system(size: 14))
+            WidgetRingMark().font(.system(size: 14))
             Text("\(context.state.participantCount)/\(context.state.maxParticipants)")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.white)
@@ -68,11 +91,11 @@ private struct CompactTrailing: View {
     var body: some View {
         HStack(spacing: 2) {
             if !context.state.onTheWayEmojis.isEmpty {
-                Text(context.state.onTheWayEmojis[0]).font(.system(size: 11))
+                WidgetPersonMark().font(.system(size: 11))
                 if let eta = context.state.onTheWayETAs.first {
                     Text("~\(eta)m")
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.green)
+                        .foregroundStyle(Color.widgetMint)
                 }
             }
         }
@@ -86,7 +109,7 @@ private struct ExpandedLeading: View {
     let context: ActivityViewContext<DropLiveActivityAttributes>
     var body: some View {
         HStack(spacing: 8) {
-            Text(context.attributes.activityEmoji)
+            WidgetRingMark()
                 .font(.system(size: 28))
                 .frame(width: 46, height: 46)
                 .background(Color.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
@@ -125,16 +148,16 @@ private struct ExpandedTrailing: View {
             .padding(.horizontal, 9)
             .padding(.vertical, 5)
             .background(
-                isFull ? Color.orange.opacity(0.25) : Color.white.opacity(0.12),
+                isFull ? Color.widgetCoral.opacity(0.25) : Color.white.opacity(0.12),
                 in: Capsule()
             )
             .overlay(Capsule().stroke(
-                isFull ? Color.orange.opacity(0.6) : Color.clear, lineWidth: 1))
+                isFull ? Color.widgetCoral.opacity(0.6) : Color.clear, lineWidth: 1))
 
             if let eta = context.state.onTheWayETAs.first {
                 Text("~\(eta) Min")
                     .font(.system(size: 11))
-                    .foregroundStyle(.green.opacity(0.8))
+                    .foregroundStyle(Color.widgetMint.opacity(0.8))
             }
         }
         .padding(.trailing, 4)
@@ -168,7 +191,7 @@ private struct ExpandedBottom: View {
                 HStack(spacing: 6) {
                     Text("Unterwegs")
                         .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.green.opacity(0.7))
+                        .foregroundStyle(Color.widgetMint.opacity(0.7))
                         .frame(width: 46, alignment: .leading)
                     ForEach(Array(zip(context.state.onTheWayEmojis,
                                      context.state.onTheWayETAs).prefix(3).enumerated()),
@@ -177,11 +200,11 @@ private struct ExpandedBottom: View {
                             Text(pair.0).font(.system(size: 13))
                             Text("~\(pair.1)m")
                                 .font(.system(size: 10, weight: .medium))
-                                .foregroundStyle(.green)
+                                .foregroundStyle(Color.widgetMint)
                         }
                         .padding(.horizontal, 6)
                         .padding(.vertical, 3)
-                        .background(Color.green.opacity(0.12), in: Capsule())
+                        .background(Color.widgetMint.opacity(0.12), in: Capsule())
                     }
                     Spacer()
                 }
@@ -215,7 +238,7 @@ private struct AvatarCell: View {
                         .frame(width: 30, height: 30)
                         .clipShape(Circle())
                 } else {
-                    Text(emoji)
+                    WidgetPersonMark()
                         .font(.system(size: 15))
                 }
             }
@@ -279,7 +302,7 @@ private struct DropBannerView: View {
 
             // ── Kopfzeile ────────────────────────────────────────────
             HStack(spacing: 10) {
-                Text(context.attributes.activityEmoji)
+                WidgetRingMark()
                     .font(.system(size: 30))
                     .frame(width: 48, height: 48)
                     .background(Color.white.opacity(0.1),
@@ -358,7 +381,7 @@ private struct DropBannerView: View {
                             Text(triple.0)
                                 .font(.system(size: 16))
                                 .frame(width: 30, height: 30)
-                                .background(Color.green.opacity(0.15), in: Circle())
+                                .background(Color.widgetMint.opacity(0.15), in: Circle())
 
                             // Name + "ist unterwegs"
                             VStack(alignment: .leading, spacing: 1) {
@@ -376,10 +399,10 @@ private struct DropBannerView: View {
                             VStack(alignment: .trailing, spacing: 1) {
                                 Text("~\(triple.2)")
                                     .font(.system(size: 15, weight: .bold))
-                                    .foregroundStyle(.green)
+                                    .foregroundStyle(Color.widgetMint)
                                 Text("Min")
                                     .font(.system(size: 9))
-                                    .foregroundStyle(.green.opacity(0.6))
+                                    .foregroundStyle(Color.widgetMint.opacity(0.6))
                             }
                         }
                     }
@@ -466,7 +489,7 @@ private struct BannerStandalone: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                Text(attrs.activityEmoji).font(.system(size: 30))
+                WidgetRingMark().font(.system(size: 30))
                     .frame(width: 48, height: 48)
                     .background(Color.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
                 VStack(alignment: .leading, spacing: 3) {
@@ -507,15 +530,15 @@ private struct BannerStandalone: View {
                     ForEach(Array(zip3(state.onTheWayEmojis, state.onTheWayNames, state.onTheWayETAs).enumerated()), id: \.offset) { _, t in
                         HStack(spacing: 8) {
                             Text(t.0).font(.system(size: 16)).frame(width: 30, height: 30)
-                                .background(Color.green.opacity(0.15), in: Circle())
+                                .background(Color.widgetMint.opacity(0.15), in: Circle())
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(t.1).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
                                 Text("ist unterwegs").font(.system(size: 11)).foregroundStyle(.white.opacity(0.45))
                             }
                             Spacer()
                             VStack(alignment: .trailing, spacing: 1) {
-                                Text("~\(t.2)").font(.system(size: 15, weight: .bold)).foregroundStyle(.green)
-                                Text("Min").font(.system(size: 9)).foregroundStyle(.green.opacity(0.6))
+                                Text("~\(t.2)").font(.system(size: 15, weight: .bold)).foregroundStyle(Color.widgetMint)
+                                Text("Min").font(.system(size: 9)).foregroundStyle(Color.widgetMint.opacity(0.6))
                             }
                         }
                     }
@@ -530,3 +553,57 @@ private struct BannerStandalone: View {
 #Preview("Mehrere unterwegs")    { PreviewHelper(state: .previewMultiple) }
 #Preview("Nur ich da")           { PreviewHelper(state: .previewNoOne) }
 #endif
+
+// MARK: - Zeichen statt Emojis
+
+/// dazu-Zeichen (offener Ring mit Punkt) an Stelle des Aktivitäts-Emojis.
+/// Verhält sich wie `Text(emoji)`: Größe über .font(...).
+private struct WidgetRingMark: View {
+    var body: some View {
+        Image(systemName: "circle")
+            .hidden()
+            .overlay(
+                GeometryReader { geo in
+                    let s: CGFloat = min(geo.size.width, geo.size.height)
+                    ZStack {
+                        Circle()
+                            .trim(from: 0, to: 0.737)
+                            .stroke(Color.white, style: StrokeStyle(lineWidth: s * 0.175, lineCap: .round))
+                            .frame(width: s * 0.684, height: s * 0.684)
+                        Circle()
+                            .fill(Color.widgetOrange)
+                            .frame(width: s * 0.237, height: s * 0.237)
+                            .offset(x: s * 0.229, y: -s * 0.254)
+                    }
+                    .frame(width: geo.size.width, height: geo.size.height)
+                }
+            )
+            .accessibilityHidden(true)
+    }
+}
+
+/// Person ohne Profilbild: Kopf und Schultern an Stelle des Profil-Emojis.
+private struct WidgetPersonMark: View {
+    var body: some View {
+        Image(systemName: "circle")
+            .hidden()
+            .overlay(
+                GeometryReader { geo in
+                    let s: CGFloat = min(geo.size.width, geo.size.height)
+                    ZStack {
+                        Circle()
+                            .fill(Color.widgetOrange)
+                            .frame(width: s * 0.34, height: s * 0.34)
+                            .offset(y: -s * 0.2)
+                        Circle()
+                            .trim(from: 0.57, to: 0.93)
+                            .stroke(Color.white, style: StrokeStyle(lineWidth: s * 0.14, lineCap: .round))
+                            .frame(width: s * 0.72, height: s * 0.72)
+                            .offset(y: s * 0.46)
+                    }
+                    .frame(width: geo.size.width, height: geo.size.height)
+                }
+            )
+            .accessibilityHidden(true)
+    }
+}

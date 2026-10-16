@@ -1681,3 +1681,62 @@ export const purgeDemoDrops = onRequest(
         res.status(200).json({ deleted: count });
     }
 );
+
+// ── Globaler Tageszähler: "heute passiert" ──────────────────────────────────
+// Beim Übergang drops/{id}/active true → false prüfen wir das Spam-Gate
+// (≥10 Min Dauer UND mindestens 1 Joiner) und erhöhen bei Erfolg einen
+// Counter unter stats/dropsToday/{YYYY-MM-DD}. Clients lesen nur diesen
+// Wert — kein eigenes Zählen, keine lokale Berechnung.
+// Idempotent via stats/dropsToday_counted/{dropID}: der Drop wird genau
+// einmal gezählt, auch wenn active mehrmals geschrieben wird oder die
+// Function erneut läuft.
+export const onDropEndedCount = onValueUpdated(
+    {
+        ref: "/drops/{dropID}/active",
+        region: "europe-west1",
+        timeoutSeconds: 30,
+    },
+    async (event) => {
+        const before = event.data.before.val();
+        const after = event.data.after.val();
+        if (before !== true || after !== false) return;
+
+        const dropID = event.params.dropID;
+        const db = getDatabase();
+
+        // Idempotenz-Guard: schon gezählt?
+        const guardRef = db.ref(`stats/dropsToday_counted/${dropID}`);
+        const guardSnap = await guardRef.get();
+        if (guardSnap.exists()) return;
+
+        const dropSnap = await db.ref(`drops/${dropID}`).get();
+        if (!dropSnap.exists()) return;
+        const drop = dropSnap.val() as Record<string, unknown>;
+
+        // Spam-Gate: ≥10 Min Dauer UND ≥1 Joiner.
+        const createdAt = Number(drop.createdAt ?? drop.timestamp ?? 0);
+        const now = Date.now();
+        const durationMs = now - createdAt;
+        if (!createdAt || durationMs < 10 * 60_000) {
+            logger.info("onDropEndedCount: too short", { dropID, durationMs });
+            return;
+        }
+
+        // Joiner-Count (ohne Host) aus joinerIDs.
+        let joinerCount = 0;
+        const joinerIDsSnap = await db.ref(`drops/${dropID}/joinerIDs`).get();
+        joinerIDsSnap.forEach((child) => { if (child.key) joinerCount++; return false; });
+        if (joinerCount < 1) {
+            logger.info("onDropEndedCount: no joiners", { dropID });
+            return;
+        }
+
+        // Day-Key in Europe/Berlin (TZ-stabil über Mitternachts-Rolls).
+        const berlinDate = new Date(now).toLocaleDateString("en-CA", { timeZone: TZ });
+        // Atomic increment via transaction, idempotency guard via multi-path write.
+        const counterRef = db.ref(`stats/dropsToday/${berlinDate}`);
+        await counterRef.transaction((cur: number | null) => (cur ?? 0) + 1);
+        await guardRef.set(now);
+        logger.info("onDropEndedCount: +1", { dropID, berlinDate, joinerCount, durationMs });
+    }
+);

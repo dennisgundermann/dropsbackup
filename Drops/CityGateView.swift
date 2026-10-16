@@ -1067,7 +1067,7 @@ struct CityGateView: View {
     var body: some View {
         ZStack {
             // ── Aurora Hintergrund ─────────────────────────
-            Color(hex: "f5f7fe").ignoresSafeArea()
+            Color.brandCream.ignoresSafeArea()
 
             // Aurora-Blobs aufs App-Icon abgestimmt: Orange dominant oben,
             // Grün dominant unten, Coral in der Mitte als Übergang.
@@ -1079,7 +1079,7 @@ struct CityGateView: View {
                 .blur(radius: 90)
 
             Circle()
-                .fill(Color(hex: "F6BD4D").opacity(0.26))      // Warmer Amber
+                .fill(Color.brandCoral.opacity(0.22))      // Koralle
                 .frame(width: 420)
                 .offset(x: animateAurora ? 180 : 140, y: animateAurora ? -260 : -220)
                 .blur(radius: 80)
@@ -1103,25 +1103,25 @@ struct CityGateView: View {
                 // Icon
                 ZStack {
                     Circle()
-                        .fill(Color(hex: "34D36E").opacity(0.12))
+                        .fill(Color.brand.opacity(0.12))
                         .frame(width: 120, height: 120)
                         .scaleEffect(pulse ? 1.12 : 1.0)
                         .animation(.easeInOut(duration: 2).repeatForever(autoreverses: true), value: pulse)
 
                     Circle()
-                        .fill(Color(hex: "34D36E").opacity(0.18))
+                        .fill(Color.brand.opacity(0.18))
                         .frame(width: 88, height: 88)
 
-                    Image(systemName: "mappin.and.ellipse")
+                    DazuIcon("mappin.and.ellipse")
                         .font(.system(size: 38, weight: .medium))
-                        .foregroundColor(Color(hex: "34D36E"))
+                        .foregroundColor(Color.brand)
                 }
                 .padding(.bottom, 36)
 
                 // Titel
                 Text(tr("city.not_in_city"))
                     .font(.system(size: 28, weight: .bold, design: .rounded))
-                    .foregroundColor(Color(hex: "111827"))
+                    .foregroundColor(Color.brandNight)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 32)
                     .padding(.bottom, 14)
@@ -1130,7 +1130,7 @@ struct CityGateView: View {
                 Text((try? AttributedString(markdown: tr("city.coming_soon"),
                     options: AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(tr("city.coming_soon")))
                     .font(.system(size: 16))
-                    .foregroundColor(Color(hex: "111827").opacity(0.55))
+                    .foregroundColor(Color.brandNight.opacity(0.55))
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
                     .padding(.horizontal, 36)
@@ -1139,21 +1139,21 @@ struct CityGateView: View {
                 // Stadt-Badge
                 HStack(spacing: 8) {
                     Circle()
-                        .fill(Color(hex: "34D36E"))
+                        .fill(Color.brand)
                         .frame(width: 8, height: 8)
                         .overlay(
-                            Circle().fill(Color(hex: "34D36E").opacity(0.3))
+                            Circle().fill(Color.brand.opacity(0.3))
                                 .frame(width: 16, height: 16)
                                 .scaleEffect(pulse ? 1.2 : 1.0)
                                 .animation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true), value: pulse)
                         )
                     Text("Live in \(BetaConfig.cityName)")
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(Color(hex: "34D36E"))
+                        .foregroundColor(Color.brand)
                 }
                 .padding(.horizontal, 18).padding(.vertical, 10)
-                .background(Color(hex: "34D36E").opacity(0.10), in: Capsule())
-                .overlay(Capsule().stroke(Color(hex: "34D36E").opacity(0.25), lineWidth: 1))
+                .background(Color.brand.opacity(0.10), in: Capsule())
+                .overlay(Capsule().stroke(Color.brand.opacity(0.25), lineWidth: 1))
                 .padding(.bottom, 56)
 
                 Spacer()
@@ -1161,7 +1161,7 @@ struct CityGateView: View {
                 // Info-Text unten
                 Text(tr("city.notification_request"))
                     .font(.system(size: 12))
-                    .foregroundColor(Color(hex: "111827").opacity(0.35))
+                    .foregroundColor(Color.brandNight.opacity(0.35))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)
                     .padding(.bottom, 36)

@@ -7,9 +7,13 @@
         ".read":  "auth != null",
         ".write": "auth != null && (auth.uid == $uid || root.child('users').child(auth.uid).child('isAdmin').val() == true)",
 
-        "isAdmin":    { ".write": false },
-        "isBanned":   { ".write": false },
-        "isPlusUser": { ".write": false }
+        "isAdmin":        { ".write": false },
+        "isBanned":       { ".write": false },
+        "isPlusUser":     { ".write": false },
+        // Server-aggregierter Feedback-Counter (Cloud Function onFeedbackVoteWritten).
+        // Client darf nicht schreiben — sonst könnte User eigene Ratings inflationieren.
+        // Admin-SDK bypassed Rules → Cloud Function kann trotzdem schreiben.
+        "feedbackThumbs": { ".write": false }
       }
     },
 
@@ -17,7 +21,13 @@
       "$uid": {
         ".read":  "auth != null && auth.uid == $uid",
         "$friendUID": {
-          ".write": "auth != null && (auth.uid == $uid || auth.uid == $friendUID)",
+          // Owner ($uid) darf seine eigene Liste managen.
+          // Andere ($friendUID) dürfen NUR:
+          //   - sich selbst löschen (Unfriend von der Gegenseite), ODER
+          //   - sich eintragen, wenn $uid eine pending FriendRequest an $friendUID hat
+          //     (= Accept-Flow: empfangender User schreibt beide Seiten atomisch)
+          // Admins dürfen für Demo-Seeding alle Einträge beidseitig anlegen.
+          ".write": "auth != null && (auth.uid == $uid || (auth.uid == $friendUID && (newData.val() === null || root.child('friendRequests').child(auth.uid).child($uid).exists())) || root.child('users').child(auth.uid).child('isAdmin').val() === true)",
           ".validate": "newData.val() === true || newData.val() === null"
         }
       }
@@ -36,7 +46,7 @@
     "drops": {
       ".read":  "auth != null",
       "$dropID": {
-        ".write": "auth != null && (newData.child('userID').val() == auth.uid || data.child('userID').val() == auth.uid || newData.val() == null)",
+        ".write": "auth != null && (newData.child('userID').val() == auth.uid || data.child('userID').val() == auth.uid || newData.val() == null || root.child('users').child(auth.uid).child('isAdmin').val() === true)",
         "joinerIDs": {
           "$joinerUID": {
             ".write": "auth != null && auth.uid == $joinerUID"
@@ -179,6 +189,19 @@
       }
     },
 
+    "userFeedback": {
+      // Raw votes — privat (Anonymität schützt ehrliches Feedback).
+      // Aggregat ist über /users/{uid}/feedbackThumbs öffentlich lesbar.
+      ".read": "auth != null && root.child('users').child(auth.uid).child('isAdmin').val() == true",
+      "$ratedUID": {
+        "$voteID": {
+          // Rater darf eigene Votes anlegen/updaten/löschen. Niemand sonst.
+          ".write":    "auth != null && (newData.val() === null || newData.child('raterUID').val() == auth.uid)",
+          ".validate": "newData.child('vote').isString() && (newData.child('vote').val() == 'up' || newData.child('vote').val() == 'down') && newData.child('raterUID').val() == auth.uid"
+        }
+      }
+    },
+
     "communityPushQueue": {
       "$communityID": {
         ".read":    "auth != null && root.child('communities').child($communityID).child('creatorUID').val() == auth.uid",
@@ -187,6 +210,18 @@
         "$pushID": {
           ".write": "auth != null && root.child('communities').child($communityID).child('creatorUID').val() == auth.uid"
         }
+      }
+    },
+
+    "presence": {
+      // Delayed-Presence-Feature (Opt-in).
+      // Jeder eingeloggte User darf ALLE Einträge lesen — clientseitig wird
+      // dann der 20-Min-Delay-Filter angewandt. Schreiben darf jeder nur
+      // seinen eigenen Eintrag. Cloud Function purget Einträge > 4h.
+      ".read": "auth != null",
+      "$uid": {
+        ".write": "auth != null && auth.uid == $uid",
+        ".validate": "newData.hasChildren(['lat','lng','updatedAt']) || newData.val() === null"
       }
     }
   }

@@ -42,21 +42,48 @@ extension Color {
     // Marken-Palette (Redesign 10/2026) — Violett + Mint, dazu Creme, Nacht,
     // Lavendel und Koralle. Direkt-RGB statt Color(hex:), damit die Tokens bei
     // Hex→Token-Migrationen nicht durch replace_all selbst zerschossen werden.
-    static let brandViolet      = Color(red: 0.357, green: 0.239, blue: 0.961) // #5B3DF5
-    static let brandVioletLight = Color(red: 0.486, green: 0.361, blue: 1.000) // #7C5CFF
-    /// „dazu"-Orange: zweite Hauptfarbe (statt Mint seit Rebrand).
-    static let brandOrange      = Color(red: 1.000, green: 0.627, blue: 0.180) // #FFA02E
+    /// Primär-Akzent — Violett im Light-Mode, warmer Orange-Ton im Dark-
+    /// Mode. Dadurch werden Accent-Texte ("bei dir.", Headlines) im Dark
+    /// orange und bleiben warm & lesbar.
+    static let brandViolet      = Color.adaptive(light: (0.357, 0.239, 0.961),  // #5B3DF5
+                                                 dark:  (1.000, 0.627, 0.180))  // #FFA02E (orange)
+    static let brandVioletLight = Color(red: 0.486, green: 0.361, blue: 1.000)  // #7C5CFF
+    /// „dazu"-Orange: Sekundär-Akzent. Adaptiv: orange im Light, helles
+    /// Lavendel-Violett im Dark-Mode (umgedrehter Look).
+    static let brandOrange      = Color.adaptive(light: (1.000, 0.627, 0.180),  // #FFA02E
+                                                 dark:  (0.788, 0.741, 0.996))  // #C9BDFE lavender
+    /// Fixer Violett-Ton für Button-Hintergründe und andere Stellen die
+    /// unabhängig vom Scheme violett bleiben müssen.
+    static let brandVioletFixed = Color(red: 0.357, green: 0.239, blue: 0.961)
+    /// Fixer Orange-Ton für Branding-Elemente die in beiden Modi orange
+    /// bleiben müssen (z.B. der Dot im Logo falls gewünscht).
+    static let brandOrangeFixed = Color(red: 1.000, green: 0.627, blue: 0.180)
     /// Mint bleibt als Alias auf Orange — damit alle Call-Sites automatisch
     /// die neue Palette bekommen ohne manuellen Rename.
     static let brandMint        = brandOrange
-    static let brandCream       = Color(red: 1.000, green: 0.965, blue: 0.918) // #FFF6EA
+    /// Hintergrund-Flächen (Sheets, Tabs, Hero-Backgrounds). Adaptiv:
+    /// Creme im Light-Mode, dunkles Nacht-Violett im Dark-Mode. Wird fast
+    /// überall als `.ignoresSafeArea()` genutzt.
+    static let brandCream       = Color.adaptive(light: (1.000, 0.965, 0.918),   // #FFF6EA
+                                                 dark:  (0.067, 0.051, 0.133))   // #110D22
+    /// Fixer Creme-Wert für Stellen die immer hell bleiben sollen (z.B.
+    /// weiße Text-Felder auf Violett-Buttons).
+    static let brandCreamFixed  = Color(red: 1.000, green: 0.965, blue: 0.918)
     /// „Nacht" als TEXT-Farbe — adaptiv: dunkel im Light-Mode, Creme im Dark-Mode.
     /// Dadurch sind alle Haupt-Texte in beiden Modi lesbar.
     static let brandNight       = Color.adaptive(light: (0.090, 0.067, 0.180),  // #17112E Nacht
                                                   dark:  (1.000, 0.965, 0.918))  // #FFF6EA Creme
     /// Fixer dunkler Nacht-Wert (für backgrounds etc. die immer dunkel sein müssen).
     static let brandNightFixed  = Color(red: 0.090, green: 0.067, blue: 0.180)
-    static let brandLavender    = Color(red: 0.914, green: 0.890, blue: 1.000) // #E9E3FF
+    /// Tab-Bar-Fläche — hell cream im Light-Mode, Nacht-Violett im Dark-Mode.
+    static let tabBarSurface    = Color.adaptive(light: (1.000, 0.965, 0.918),
+                                                 dark:  (0.098, 0.078, 0.165))
+    /// Lavendel-Tiles (Settings-Rows, Buttons, Stat-Karten). Adaptiv:
+    /// Hellviolett im Light-Mode, warmer gedämpfter Orange-Ton im Dark-Mode
+    /// damit die Cards die dazu-Orange als Akzent aufgreifen und sich klar
+    /// vom tiefen Violett-Hintergrund abheben.
+    static let brandLavender    = Color.adaptive(light: (0.914, 0.890, 1.000),  // #E9E3FF
+                                                 dark:  (0.439, 0.278, 0.165))   // #70472A warmer dark-orange tile
     /// Koralle (deprecated — zugunsten Orange). Zeigt auf brandOrange.
     static let brandCoral       = brandOrange
 
@@ -172,20 +199,19 @@ private struct LiquidGlassModifier: ViewModifier {
 
     @ViewBuilder
     func body(content: Content) -> some View {
-        // Flat Card mit Lavendel-Tint — passt zum Dazu-Design, kein hartes Weiß.
+        // Flat Card mit Lavendel-Fill (adaptive) → im Light hellviolett,
+        // im Dark satter Mittel-Violett, klar vom Hintergrund abgehoben.
         content
             .background(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(scheme == .dark
-                          ? Color.brandViolet.opacity(0.15)
-                          : Color.brandLavender.opacity(0.55))
-                    .shadow(color: Color.brandViolet.opacity(scheme == .dark ? 0.12 : 0.05),
-                            radius: 8, x: 0, y: 3)
+                    .fill(Color.brandLavender)
+                    .shadow(color: Color.brandViolet.opacity(scheme == .dark ? 0.25 : 0.10),
+                            radius: 10, x: 0, y: 4)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .stroke(Color.brandViolet.opacity(scheme == .dark ? 0.25 : 0.10),
-                            lineWidth: 0.5)
+                    .stroke(Color.brandViolet.opacity(scheme == .dark ? 0.45 : 0.18),
+                            lineWidth: 1)
             )
             .id(scheme)
     }
@@ -332,12 +358,12 @@ struct AuroraDropButton: View {
                     .fill(Color.brandViolet)
 
                 if isLoading {
-                    ProgressView().tint(.white)
+                    DazuLoader().tint(.white)
                 } else {
                     HStack(spacing: 8) {
                         Text("Komm dazu")
                             .font(.system(size: 17, weight: .bold, design: .rounded))
-                        Image(systemName: "arrow.right")
+                        DazuIcon("arrow.right")
                             .font(.system(size: 14, weight: .heavy))
                     }
                     .foregroundColor(.white)
@@ -366,7 +392,7 @@ struct PrimaryButton: View {
     var body: some View {
         Button(action: action) {
             Group {
-                if isLoading { ProgressView().tint(Color.brandInverse) }
+                if isLoading { DazuLoader().tint(Color.brandInverse) }
                 else {
                     Text(title)
                         .font(.system(size: 16, weight: .semibold, design: .rounded))
@@ -427,15 +453,19 @@ struct AvatarBadge: View {
     var isAvailable: Bool = false
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
-            Circle()
-                .fill(Color.white.opacity(0.75))
-                .frame(width: size, height: size)
-                .overlay(Text(emoji).font(.system(size: size * 0.5)))
-                .overlay(
-                    Circle()
-                        .stroke(isAvailable ? Color.onlineGreen : Color.clear, lineWidth: 2.5)
-                        .padding(-2)
-                )
+            ZStack {
+                Circle()
+                    .fill(Color.brandLavender)
+                    .frame(width: size, height: size)
+                // System-Fallback: dazu-Profil-Icon mit orangem Kopf +
+                // violettem Schulter-Arc. Kein Emoji mehr.
+                DazuProfileIcon(size: size * 0.6)
+            }
+            .overlay(
+                Circle()
+                    .stroke(isAvailable ? Color.onlineGreen : Color.clear, lineWidth: 2.5)
+                    .padding(-2)
+            )
             if isAvailable {
                 Circle().fill(Color.onlineGreen)
                     .frame(width: size * 0.22, height: size * 0.22)
@@ -685,7 +715,7 @@ struct ReliabilityBadgeView: View {
         HStack(spacing: 10) {
             ZStack {
                 Circle().fill(score.color.opacity(0.15)).frame(width: 40, height: 40)
-                Image(systemName: score.badgeIcon)
+                DazuIcon(score.badgeIcon, solid: true)
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(score.color)
             }
@@ -720,7 +750,7 @@ struct SafetySheetView: View {
                             Circle()
                                 .fill(Color.brandLavender.opacity(0.9))
                                 .frame(width: 92, height: 92)
-                            Image(systemName: "shield.fill")
+                            DazuIcon("shield.fill")
                                 .font(.system(size: 40, weight: .heavy))
                                 .foregroundColor(.brandOrange)
                         }
@@ -770,7 +800,7 @@ struct SafetyRow: View {
     let subtitle: String
     var body: some View {
         HStack(spacing: 14) {
-            Image(systemName: icon)
+            DazuIcon(icon)
                 .font(.system(size: 16, weight: .bold))
                 .foregroundColor(.brandViolet)
                 .frame(width: 36, height: 36)
@@ -859,7 +889,7 @@ struct ReliabilityInfoSheet: View {
         HStack(spacing: 16) {
             ZStack {
                 Circle().fill(score.color.opacity(0.14)).frame(width: 62, height: 62)
-                Image(systemName: score.badgeIcon)
+                DazuIcon(score.badgeIcon, solid: true)
                     .font(.system(size: 26, weight: .semibold))
                     .foregroundColor(score.color)
             }
@@ -913,7 +943,7 @@ struct ReliabilityInfoSheet: View {
                         in: RoundedRectangle(cornerRadius: Radius.lg))
         } else {
             HStack(spacing: 10) {
-                Image(systemName: "crown.fill").foregroundColor(.brand)
+                DazuIcon("crown.fill").foregroundColor(.brand)
                 Text(tr("design.top_tier_reached"))
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(.textPrimary)
@@ -991,7 +1021,7 @@ struct ReliabilityInfoSheet: View {
                         ZStack {
                             Circle().fill(tier.color.opacity(isNow ? 0.22 : 0.10))
                                 .frame(width: 34, height: 34)
-                            Image(systemName: tier.icon)
+                            DazuIcon(tier.icon, solid: true)
                                 .font(.system(size: 14, weight: .semibold))
                                 .foregroundColor(tier.color)
                         }
@@ -1063,7 +1093,7 @@ struct ReliabilityInfoSheet: View {
         HStack(spacing: 12) {
             ZStack {
                 Circle().fill(color.opacity(0.14)).frame(width: 34, height: 34)
-                Image(systemName: icon).font(.system(size: 14, weight: .semibold))
+                DazuIcon(icon).font(.system(size: 14, weight: .semibold))
                     .foregroundColor(color)
             }
             Text(title)
@@ -1080,7 +1110,7 @@ struct ReliabilityInfoSheet: View {
 
 private func rsStatPill(value: String, label: String, icon: String, color: Color) -> some View {
     VStack(spacing: 4) {
-        Image(systemName: icon)
+        DazuIcon(icon)
             .font(.system(size: 15))
             .foregroundColor(color)
         Text(value)
@@ -1292,16 +1322,22 @@ private struct DropsPrimaryButtonModifier: ViewModifier {
     func body(content: Content) -> some View {
         // Flat dazu-Button: solid Violett, kein Gradient / kein Hue-Rotate.
         // Konsistent mit dem rest des Designs — keine „Aurora"-Buttons mehr.
+        // Disabled: Capsule geht in gedämpftes Violett, Text bleibt weiß und
+        // damit lesbar (vorher: 0.4 opacity auf ALLES → im Dark Mode fast
+        // unsichtbarer Text).
         content
             .font(.system(size: 17, weight: .bold, design: .rounded))
             .foregroundColor(.white)
             .frame(maxWidth: .infinity)
             .frame(height: 54)
-            .background(Capsule().fill(Color.brandViolet))
-            .opacity(isEnabled ? 1.0 : 0.4)
+            .background(
+                Capsule().fill(isEnabled
+                               ? Color.brandVioletFixed
+                               : Color.brandVioletFixed.opacity(0.55))
+            )
             .overlay(
                 Group {
-                    if isLoading { ProgressView().tint(.white) }
+                    if isLoading { DazuLoader().tint(.white) }
                 }
             )
     }

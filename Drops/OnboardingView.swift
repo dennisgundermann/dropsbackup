@@ -250,16 +250,16 @@ class DropMapControllerHolder: ObservableObject {
     let controller = DropMapViewController()
 
     private let drops: [AnimatedDrop] = [
-        AnimatedDrop(name: "Mia",   activity: "☕️ Kaffee",  coordinate: .init(latitude: 48.155, longitude: 11.548)),
-        AnimatedDrop(name: "Ben",   activity: "🍺 Drink",   coordinate: .init(latitude: 48.125, longitude: 11.592)),
-        AnimatedDrop(name: "Zoe",   activity: "🏃 Sport",   coordinate: .init(latitude: 48.148, longitude: 11.601)),
-        AnimatedDrop(name: "Leo",   activity: "🍕 Essen",   coordinate: .init(latitude: 48.120, longitude: 11.558)),
-        AnimatedDrop(name: "Max",   activity: "🎮 Zocken",  coordinate: .init(latitude: 48.158, longitude: 11.582)),
-        AnimatedDrop(name: "Lena",  activity: "🎸 Jam",     coordinate: .init(latitude: 48.130, longitude: 11.545)),
-        AnimatedDrop(name: "Jonas", activity: "🏋️ Gym",     coordinate: .init(latitude: 48.143, longitude: 11.610)),
-        AnimatedDrop(name: "Sara",  activity: "🎨 Kunst",   coordinate: .init(latitude: 48.118, longitude: 11.575)),
-        AnimatedDrop(name: "Finn",  activity: "🚴 Radeln",  coordinate: .init(latitude: 48.162, longitude: 11.565)),
-        AnimatedDrop(name: "Lia",   activity: "📚 Lernen",  coordinate: .init(latitude: 48.128, longitude: 11.600)),
+        AnimatedDrop(name: "Mia",   activity: "Kaffee",  coordinate: .init(latitude: 48.155, longitude: 11.548)),
+        AnimatedDrop(name: "Ben",   activity: "Drink",   coordinate: .init(latitude: 48.125, longitude: 11.592)),
+        AnimatedDrop(name: "Zoe",   activity: "Sport",   coordinate: .init(latitude: 48.148, longitude: 11.601)),
+        AnimatedDrop(name: "Leo",   activity: "Essen",   coordinate: .init(latitude: 48.120, longitude: 11.558)),
+        AnimatedDrop(name: "Max",   activity: "Zocken",  coordinate: .init(latitude: 48.158, longitude: 11.582)),
+        AnimatedDrop(name: "Lena",  activity: "Jam",     coordinate: .init(latitude: 48.130, longitude: 11.545)),
+        AnimatedDrop(name: "Jonas", activity: "Gym",     coordinate: .init(latitude: 48.143, longitude: 11.610)),
+        AnimatedDrop(name: "Sara",  activity: "Kunst",   coordinate: .init(latitude: 48.118, longitude: 11.575)),
+        AnimatedDrop(name: "Finn",  activity: "Radeln",  coordinate: .init(latitude: 48.162, longitude: 11.565)),
+        AnimatedDrop(name: "Lia",   activity: "Lernen",  coordinate: .init(latitude: 48.128, longitude: 11.600)),
     ]
 
     func startAnimating() {
@@ -312,7 +312,7 @@ class KeyboardObserver: ObservableObject {
 }
 
 enum OnboardingStep {
-    case welcome, profile, birthday, done, underage
+    case intro, welcome, profile, birthday, done, underage
 }
 
 
@@ -369,7 +369,7 @@ struct OnboardingPulseIcon: View {
             Circle()
                 .fill(color.opacity(0.14))
                 .frame(width: size, height: size)
-            Image(systemName: systemName)
+            DazuIcon(systemName)
                 .font(.system(size: iconSize, weight: .semibold))
                 .foregroundColor(color)
         }
@@ -414,19 +414,19 @@ struct WarmGlowBackground: View {
 
     var body: some View {
         ZStack {
-            (dark ? Color.black : Color(hex: "FFF8F0")).ignoresSafeArea()
+            (dark ? Color.black : Color.white).ignoresSafeArea()
             Circle()
-                .fill(Color(hex: "FF9500").opacity(dark ? 0.45 : 0.22))
+                .fill(Color(hex: "7C5CFF").opacity(dark ? 0.45 : 0.22))
                 .frame(width: 360)
                 .offset(x: 110, y: animate ? 220 : 280)
                 .blur(radius: dark ? 90 : 70)
             Circle()
-                .fill(Color(hex: "34C759").opacity(dark ? 0.30 : 0.15))
+                .fill(Color(hex: "4DEBBE").opacity(dark ? 0.30 : 0.15))
                 .frame(width: 260)
                 .offset(x: -110, y: animate ? -200 : -160)
                 .blur(radius: 75)
             Circle()
-                .fill(Color(hex: "FF3B30").opacity(dark ? 0.15 : 0.08))
+                .fill(Color(hex: "FF7A59").opacity(dark ? 0.15 : 0.08))
                 .frame(width: 200)
                 .offset(x: animate ? -60 : 60, y: 80)
                 .blur(radius: 60)
@@ -476,20 +476,20 @@ struct GreenGlowBackground: View {
 
     var body: some View {
         ZStack {
-            (dark ? Color.black : Color(hex: "F0FFF5")).ignoresSafeArea()
+            (dark ? Color.black : Color.white).ignoresSafeArea()
             Circle()
-                .fill(Color(hex: "34C759").opacity(dark ? 0.40 : 0.20))
+                .fill(Color(hex: "7C5CFF").opacity(dark ? 0.40 : 0.20))
                 .frame(width: 400)
                 .offset(x: animate ? -20 : 20, y: animate ? -200 : -160)
                 .blur(radius: 100)
             Circle()
-                .fill(Color(hex: "FF9500").opacity(dark ? 0.20 : 0.10))
+                .fill(Color(hex: "4DEBBE").opacity(dark ? 0.20 : 0.10))
                 .frame(width: 280)
                 .offset(x: 130, y: animate ? 280 : 240)
                 .blur(radius: 90)
             ForEach(0..<4, id: \.self) { i in
                 Circle()
-                    .stroke(Color(hex: "34C759").opacity(dark ? 0.08 - Double(i)*0.015
+                    .stroke(Color(hex: "7C5CFF").opacity(dark ? 0.08 - Double(i)*0.015
                                                                : 0.05 - Double(i)*0.01),
                             lineWidth: 1.5)
                     .frame(width: CGFloat(120 + i * 70))
@@ -528,7 +528,7 @@ struct UnderAgeBlockView: View {
                     Circle()
                         .fill(Color.accentRed.opacity(0.14))
                         .frame(width: 96, height: 96)
-                    Image(systemName: "nosign")
+                    DazuIcon("nosign")
                         .font(.system(size: 44, weight: .semibold))
                         .foregroundColor(Color.accentRed)
                 }
@@ -551,7 +551,7 @@ struct UnderAgeBlockView: View {
 
                 // Rechtlicher Hinweis
                 HStack(spacing: 6) {
-                    Image(systemName: "info.circle.fill")
+                    DazuIcon("info.circle.fill", accent: false)
                         .font(.system(size: 12))
                         .foregroundColor(Color.white.opacity(0.35))
                     Text(tr("onboard.legal_notice"))
@@ -565,7 +565,7 @@ struct UnderAgeBlockView: View {
                 // Zurück-Button (kein Weiterkommen)
                 Button(action: onBack) {
                     HStack(spacing: 8) {
-                        Image(systemName: "arrow.left")
+                        DazuIcon("arrow.left")
                         Text(tr("common.back"))
                             .fontWeight(.semibold)
                     }
@@ -578,7 +578,7 @@ struct UnderAgeBlockView: View {
                             .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 1))
                     )
                 }
-                .buttonStyle(.plain)
+                .dropsPressable()
                 .padding(.horizontal, 32)
                 .padding(.bottom, 48)
             }
@@ -640,7 +640,12 @@ struct OnboardingView: View {
     @AppStorage("hasOnboarded") private var hasOnboarded = false
     @Environment(\.colorScheme) var systemColorScheme
 
-    @State private var step: OnboardingStep = .welcome
+    @State private var step: OnboardingStep = {
+        // Beim allerersten App-Start zeigen wir den Intro-Slide-Flow. Danach
+        // speichert `hasSeenIntro` dass der User es schon kennt und wir
+        // springen direkt zum Welcome / Sign-up.
+        UserDefaults.standard.bool(forKey: "hasSeenIntro") ? .welcome : .intro
+    }()
     @State private var isLoginMode: Bool = false
     @State private var userName = ""
     @State private var userPhone = ""
@@ -650,6 +655,9 @@ struct OnboardingView: View {
     @State private var showNotFoundAlert = false
     @StateObject private var auth = FirebaseAuthManager()
     @State private var capturedAppleEmail: String? = nil
+    /// Fullscreen für die Phone-Auth-Flow (SMS-Code). Wird vom WelcomeStep
+    /// via `onPhone`-Callback gesetzt.
+    @State private var showPhoneAuthSheet = false
     // Muss als Property gehalten werden damit ARC es nicht sofort freigibt
     @State private var onboardingLocManager: CLLocationManager? = nil
 
@@ -670,11 +678,13 @@ struct OnboardingView: View {
             (systemColorScheme == .dark ? Color(hex: "0d0f14") : Color(hex: "f5f7fe"))
                 .ignoresSafeArea()
 
-            // Einheitlicher Aurora-Hintergrund für alle Steps
+            // Einheitlicher heller Lavendel-Hintergrund für alle Onboarding-
+            // Steps — fix (adaptive brandLavender wird im Dark zu Orange und
+            // kollidiert mit den orange Logo-Pins in den Demos).
             if step == .underage {
                 Color(hex: "1C1C1E").ignoresSafeArea()
             } else if step != .welcome {
-                AppAuroraBackground()
+                Color(red: 0.914, green: 0.890, blue: 1.000).ignoresSafeArea()
             }
 
             // Inhalt je nach Step — ausgelagert in @ViewBuilder um Type-Check-Timeout zu vermeiden
@@ -721,6 +731,7 @@ struct OnboardingView: View {
 
     @ViewBuilder private var stepContent: some View {
         switch step {
+        case .intro:     introStepView
         case .welcome:   welcomeStepView
         case .profile:   profileStepView
         case .birthday:  profileStepView   // Zurück zum Profil-Schritt (Geburtsdatum korrigieren)
@@ -729,9 +740,20 @@ struct OnboardingView: View {
         }
     }
 
+    /// Pre-Sign-up Intro: 3 Slides mit den Core-Features. Nur beim ersten
+    /// App-Start sichtbar (via `hasSeenIntro` AppStorage).
+    @ViewBuilder private var introStepView: some View {
+        IntroSlidesView {
+            UserDefaults.standard.set(true, forKey: "hasSeenIntro")
+            withAnimation(.spring(response: 0.45, dampingFraction: 0.78)) {
+                step = .welcome
+            }
+        }
+    }
+
     @ViewBuilder private var welcomeStepView: some View {
         WelcomeStep(
-            onPhone: { },  // unused — nur Apple Sign In
+            onPhone: { showPhoneAuthSheet = true },
             onApple: { isNewUser, email in
                 capturedAppleEmail = email
                 // Apple sendet die Relay-E-Mail nur beim ersten Login → persistent speichern
@@ -821,6 +843,28 @@ struct OnboardingView: View {
         // Strategie. User der schon Konto hat, klickt einfach den „Schon
         // registriert? Anmelden"-Toggle drunter.
         .onAppear { isLoginMode = false }
+        // Phone-Auth-Flow (SMS-Code). Routing-Policy:
+        //  - bestehender Account (needsProfileSetup=false) → direkt in die
+        //    App via isAuthenticated=true
+        //  - neuer Account oder Account ohne RTDB-Profil (true) → Sheet
+        //    schließen und ins Profile-Setup-Step wechseln. `isAuthenticated`
+        //    wird vom ProfileSetupStep nach Name/Alter-Eingabe gesetzt.
+        .fullScreenCover(isPresented: $showPhoneAuthSheet) {
+            LoginView(
+                onCompleted: { needsSetup in
+                    showPhoneAuthSheet = false
+                    if needsSetup {
+                        isLoginMode = false
+                        withAnimation(.spring(response: 0.4)) { step = .profile }
+                    } else {
+                        store.syncReliabilityFromFirestore()
+                        store.isAuthenticated = true
+                    }
+                },
+                isLoginMode: isLoginMode
+            )
+            .environmentObject(store)
+        }
     }
 
     @ViewBuilder private var profileStepView: some View {
@@ -914,6 +958,7 @@ struct OnboardingView: View {
             if let uid = Auth.auth().currentUser?.uid {
                 store.startObservingFriends(ownerUID: uid)
                 store.startObservingAdminNotices()
+                store.startObservingPresence()
             }
             // Online-Heartbeat — sonst sieht einen Freunde nicht als "online" bis
             // zur ersten Background-Return. Inkl. Koord für Admin-Panel-
@@ -921,6 +966,7 @@ struct OnboardingView: View {
             RealtimeDBManager.shared.markOnlineHeartbeat(
                 coordinate: store.currentUser.coordinate
             )
+            store.syncReliabilityFromFirestore()
             store.isAuthenticated = true
         }
     }
@@ -1010,6 +1056,7 @@ struct OnboardingView: View {
                 guard !didComplete else { return }
                 didComplete = true
                 isLoading = false
+                store.syncReliabilityFromFirestore()
                 store.isAuthenticated = true
                 // Freundes-Observer neu starten — `init()` läuft nur einmal,
                 // nach Logout ist er gestoppt. Ohne das bleibt die Freundes-
@@ -1017,6 +1064,7 @@ struct OnboardingView: View {
                 if let uid = Auth.auth().currentUser?.uid {
                     store.startObservingFriends(ownerUID: uid)
                 store.startObservingAdminNotices()
+                    store.startObservingPresence()
                 }
                 // Profilbild-Re-Retrigger falls die erste Runde kein URL hatte
                 // (z.B. Token-Race) — jetzt sollte Auth komplett durchgerouted sein.
@@ -1088,6 +1136,9 @@ struct OnboardingView: View {
         if AdminConfig.isBootstrapAdmin(authEmail: authEmail, storedAppleEmail: storedApple) {
             self.store.isAdmin = true
         }
+        // Reliability-Score aus Firestore wiederherstellen — greift wenn
+        // UserDefaults leer sind (Neuinstallation, Account-Wechsel, Gerätewechsel).
+        store.syncReliabilityFromFirestore()
         RealtimeDBManager.shared.loadUserProfile { profile in
             defer {
                 DispatchQueue.main.async { completion?() }
@@ -1098,6 +1149,10 @@ struct OnboardingView: View {
                 // Persistiert den Namen für den Quick-Login-Button auf
                 // dem Welcome-Screen — überlebt Logout (anders als UDKey.userName).
                 UserDefaults.standard.set(name, forKey: "ud_lastLoginName")
+                // UDKey.userName ist der Schlüssel, den AppStore.init beim
+                // nächsten App-Start prüft (hasNameStored). Ohne diesen
+                // Write klemmt die App nach jedem Kill im Post-Logout-Screen.
+                UserDefaults.standard.set(name.capitalizedFirst, forKey: "ud_userName")
             }
             // Emoji aus Firebase übernehmen — sonst springt der User-Emoji
             // bei Re-Login / Gerätewechsel zurück auf den Default „😊".
@@ -1136,7 +1191,7 @@ struct DropsLogo: View {
     /// zum App-Icon-„D" (kompakter Halbkreis mit fetten Strichen).
     /// `.default` mit `.bold` war schlanker und passte nicht zur Icon-DNA.
     private var dropsFont: Font {
-        .system(size: fontSize, weight: .heavy, design: .rounded)
+        .system(size: fontSize, weight: .bold, design: .rounded)
     }
 
     var body: some View {
@@ -1147,55 +1202,142 @@ struct DropsLogo: View {
         }
     }
 
+    /// Die gezeichnete Wortmarke „dazu" statt getipptem Text. Höhe so gewählt,
+    /// dass sie etwa so viel Platz einnimmt wie vorher „Drops" in SF Rounded.
     private var plainText: some View {
-        Text("Drops")
-            .font(dropsFont)
-            .tracking(-fontSize * 0.015)
-            .foregroundColor(textColor)
+        DazuWordmark(color: textColor)
+            .frame(height: fontSize * 0.95)
+            .accessibilityLabel("Dazu")
     }
 
-    /// „Drops" mit Custom-D in Icon-Proportionen + „rops" als SF-Text.
-    /// Das D ist ein Path-Render basierend auf dem App-Icon-LetterD-D.svg
-    /// (chunky-runde Form, etwas breiter als ein normales SF-Heavy-D).
-    /// Das gibt dem Wordmark sofort die Icon-Identity zurück.
+    /// Wortmarke mit Glow — das a in „dazu" ist das Zeichen selbst, deshalb
+    /// steht kein zusätzliches Icon daneben.
     private var glassWordmark: some View {
-        // D-Höhe sollte zur Cap-Height von "rops" passen (~70% fontSize bei
-        // SF .heavy .rounded). Wir machen's leicht größer als cap-height
-        // damit das D als Akzent etwas hervorsteht — wie im Logo.
-        let dHeight = fontSize * 0.92
-        // Aspect-Ratio des Icon-D-Pfads: Outer-Bounding x:264-792, y:232-792
-        // → 528/560 ≈ 0.94 — ist also fast quadratisch, etwas breiter als
-        // ein typisches SF-Heavy-D (das eher 0.72 wide ist).
-        let dWidth = dHeight * 0.94
+        DazuWordmark(color: textColor)
+            .frame(height: fontSize * 0.95)
+            .accessibilityLabel("Dazu")
+            // Heller Violett-Glow oben-links — wie der Icon-Top
+            .shadow(color: Color.brandVioletLight.opacity(0.65), radius: 24, x: -2, y: -3)
+            // Orange-Glow unten-rechts — wie der Punkt im Icon
+            .shadow(color: Color.brandOrange.opacity(0.40), radius: 22, x: 3, y: 4)
+            // Subtle dunkler Drop-Shadow für Boden-Definition
+            .shadow(color: Color.black.opacity(0.22), radius: 10, y: 7)
+    }
+}
 
-        return HStack(alignment: .firstTextBaseline, spacing: -fontSize * 0.04) {
-            // Custom-D — solider Fill (LetterDShape hat Outer + Inner Path,
-            // beide mit normaler .fill rendern den Outer-Pfad solide,
-            // Inner liegt darin und wird überzeichnet). Vorher war hier
-            // hartkodiert .white — das lässt die Wordmark im Light-Mode
-            // verschwinden. Jetzt nutzt es `textColor` wie der plainText-
-            // Pfad, damit die glassy-Variante auf dem LoginScreen im
-            // Light-Mode mit dunklem Text und im Dark-Mode mit weiß
-            // sauber rendert.
-            LetterDShape()
-                .fill(textColor)
-                .frame(width: dWidth, height: dHeight)
-                // Vertikales Alignment: D-Path-Top sitzt höher als die
-                // Cap-Height vom Text, leichter Y-Offset zentriert ihn
-                // visuell auf die Buchstabenlinie der "rops".
-                .alignmentGuide(.firstTextBaseline) { d in d.height * 0.86 }
+// MARK: - Dazu Wortmarke
+//
+// Die Wortmarke „dazu" als Vektor: d, a und u sind aus demselben Ring gebaut
+// wie das Icon (r=78, Strich 40), das a ist das Zeichen selbst mit orangem
+// Punkt. Maße wie in Design/dazu-logo/dazu-wortmarke.svg (828 × 288 Einheiten).
+struct DazuWordmark: View {
+    var color: Color = .textPrimary
+    var dotColor: Color = .brandOrange
 
-            Text("rops")
-                .font(dropsFont)
-                .tracking(-fontSize * 0.015)
-                .foregroundColor(textColor)
+    var body: some View {
+        ZStack {
+            DazuLettersShape().fill(color)
+            DazuDotShape().fill(dotColor)
         }
-        // Orange-Glow oben-links — wie der Icon-Top
-        .shadow(color: Color.auroraOrange.opacity(0.65), radius: 24, x: -2, y: -3)
-        // Grün-Glow unten-rechts — wie der Icon-Bottom
-        .shadow(color: Color.auroraGreen.opacity(0.55), radius: 22, x: 3, y: 4)
-        // Subtle dunkler Drop-Shadow für Boden-Definition
-        .shadow(color: Color.black.opacity(0.22), radius: 10, y: 7)
+        .aspectRatio(828.0 / 288.0, contentMode: .fit)
+    }
+}
+
+private struct DazuLettersShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        let s = min(rect.width / 828.0, rect.height / 288.0)
+        let ox = rect.midX - 414 * s          // linke Kante der Wortmarke
+        let oy = rect.midY - 144 * s + 190 * s // y=0 ist die Mitte der runden Buchstaben
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: ox + x * s, y: oy + y * s) }
+
+        var line = Path()
+        // d — Ring und hoher Stamm
+        line.addEllipse(in: CGRect(x: ox + 20 * s, y: oy - 78 * s, width: 156 * s, height: 156 * s))
+        line.move(to: p(176, -170)); line.addLine(to: p(176, 78))
+        // a — offener Ring (Lücke oben rechts) und kurzer Stamm
+        line.move(to: p(322 + 78 * CGFloat(cos(-1.16 * Double.pi / 180)), 78 * CGFloat(sin(-1.16 * Double.pi / 180))))
+        line.addArc(center: p(322, 0), radius: 78 * s,
+                    startAngle: .degrees(-1.16), endAngle: .degrees(265.16), clockwise: false)
+        line.move(to: p(400, 0)); line.addLine(to: p(400, 78))
+        // z
+        line.move(to: p(464, -75)); line.addLine(to: p(584, -75))
+        line.addLine(to: p(464, 75)); line.addLine(to: p(584, 75))
+        // u — Bogen unten, rechter Stamm bis zur Grundlinie
+        line.move(to: p(652, -78)); line.addLine(to: p(652, 0))
+        line.addArc(center: p(730, 0), radius: 78 * s,
+                    startAngle: .degrees(180), endAngle: .degrees(0), clockwise: true)
+        line.move(to: p(808, -78)); line.addLine(to: p(808, 78))
+
+        return line.strokedPath(StrokeStyle(lineWidth: 40 * s, lineCap: .round, lineJoin: .round))
+    }
+}
+
+private struct DazuDotShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        let s = min(rect.width / 828.0, rect.height / 288.0)
+        let ox = rect.midX - 414 * s
+        let oy = rect.midY - 144 * s + 190 * s
+        let r = 27 * s
+        // Punkt in der Lücke des a (−48° auf der Ringlinie)
+        let cx = ox + 374.19 * s
+        let cy = oy - 57.97 * s
+        return Path(ellipseIn: CGRect(x: cx - r, y: cy - r, width: 2 * r, height: 2 * r))
+    }
+}
+
+// MARK: - Drops Mark („Offene Runde")
+//
+// Das Zeichen aus dem App-Icon: ein offener Kreis und der Punkt, der die
+// Lücke schließt. Geometrie auf einem 256er-Raster, identisch zu den
+// SVG-Ebenen in AppIcon.icon (Ring r=78, Strich 40, Lücke bei −48°,
+// Punkt r=27 auf der Ringlinie).
+struct DropsMark: View {
+    var ringColor: Color = .white
+    var dotColor: Color = .brandOrange
+    /// Zeigt den orangen „du"-Dot in der Lücke. False = nur das offene „a"
+    /// (Empty-States: noch niemand ist dazu gekommen).
+    var showDot: Bool = true
+
+    var body: some View {
+        ZStack {
+            DropsRingShape().fill(ringColor)
+            if showDot {
+                DropsDotShape().fill(dotColor)
+            }
+        }
+        .aspectRatio(1, contentMode: .fit)
+    }
+}
+
+private struct DropsRingShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        let s = min(rect.width, rect.height) / 256.0
+        var arc = Path()
+        // Bogen läuft von kurz vor 3 Uhr über unten und links bis kurz vor
+        // 12 Uhr — die Lücke sitzt oben rechts.
+        arc.addArc(center: CGPoint(x: rect.midX, y: rect.midY),
+                   radius: 78 * s,
+                   startAngle: .degrees(-1.16), endAngle: .degrees(265.16),
+                   clockwise: false)
+        var mark = arc.strokedPath(StrokeStyle(lineWidth: 40 * s, lineCap: .round))
+        // Stamm rechts unten: macht aus dem offenen Ring das „a" der Wortmarke.
+        mark.addRoundedRect(
+            in: CGRect(x: rect.midX + 58 * s, y: rect.midY - 20 * s, width: 40 * s, height: 118 * s),
+            cornerSize: CGSize(width: 20 * s, height: 20 * s)
+        )
+        return mark
+    }
+}
+
+private struct DropsDotShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        let s = min(rect.width, rect.height) / 256.0
+        // Punkt auf der Ringlinie, Mitte der Lücke (−48°).
+        let angle = -48.0 * Double.pi / 180.0
+        let cx = rect.midX + CGFloat(cos(angle)) * 78 * s
+        let cy = rect.midY + CGFloat(sin(angle)) * 78 * s
+        let r = 27 * s
+        return Path(ellipseIn: CGRect(x: cx - r, y: cy - r, width: 2 * r, height: 2 * r))
     }
 }
 
@@ -1203,12 +1345,9 @@ struct DropsLogo: View {
 //
 // SwiftUI-Replik des App-Icons als Login/Welcome-Hero. Spiegelt die
 // Komposition aus icon.json wider:
-//   - Orange→Grün Gradient (vertikal) als Hintergrund
-//   - Hohler "D"-Buchstabe weiß zentriert
-//   - Radar-Punkt + zwei pulsierende Wellen oben-rechts vom D
-//
-// Die Wellen pulsieren in 1.8s-Loops mit 0.6s Stagger — wirkt wie ein
-// aktives "Sender"-Signal, passt zur Drops-Identity ("Spontan treffen").
+//   - Violett-Gradient (hell → voll) als Hintergrund
+//   - Offener Ring in Creme, zentriert
+//   - Oranger Punkt in der Lücke oben rechts, mit sanft pulsierendem Glow
 // MARK: - Radar Pulse Divider
 //
 // Kleiner animierter Radar-Trenner für den Login: drei weiße Halbkreis-
@@ -1300,23 +1439,22 @@ private struct SemiCircleShape: Shape {
 struct DropsIconHero: View {
     var size: CGFloat = 120
 
-    @State private var wave1Animate = false
-    @State private var wave2Animate = false
+    @State private var dotPulse = false
 
     /// iOS-App-Icon-Ratio (~22.5% des kleineren Achsmaßes).
     private var cornerRadius: CGFloat { size * 0.225 }
 
     var body: some View {
         ZStack {
-            // Gradient-Background (orange oben → grün unten, wie icon.json)
+            // Gradient-Background (helles → volles Violett, wie icon.json)
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .fill(
                     LinearGradient(
-                        colors: [Color.auroraOrange, Color.auroraGreen],
-                        startPoint: .top, endPoint: .bottom
+                        colors: [Color.brandVioletLight, Color.brandViolet],
+                        startPoint: .topLeading, endPoint: .bottomTrailing
                     )
                 )
-                .shadow(color: Color.auroraOrange.opacity(0.35), radius: 30, y: 12)
+                .shadow(color: Color.brandViolet.opacity(0.35), radius: 30, y: 12)
 
             // Innerer Glanz-Stroke für Liquid-Glass-Feel
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
@@ -1328,55 +1466,21 @@ struct DropsIconHero: View {
                     lineWidth: 1.5
                 )
 
-            // Letter-D — hohler Buchstabe, eo-Fill schneidet das Innere weg.
-            // Subtle white shadow gibt einen kleinen Liquid-Glass-Glow.
-            LetterDShape()
-                .fill(Color.white, style: FillStyle(eoFill: true))
-                .frame(width: size * 0.62, height: size * 0.62)
-                .offset(x: -size * 0.04, y: 0)
-                .shadow(color: .white.opacity(0.35), radius: size * 0.04)
-
-            // Radar-Wellen + Punkt oben-rechts vom D, gestaffelt animiert.
-            ZStack {
-                // Wave 2 (außen) — größer, dezenter
-                Circle()
-                    .trim(from: 0.0, to: 0.18)
-                    .stroke(Color.white, style: StrokeStyle(lineWidth: size * 0.035, lineCap: .round))
-                    .rotationEffect(.degrees(-25))
-                    .frame(width: size * 0.36, height: size * 0.36)
-                    .opacity(wave2Animate ? 0.0 : 0.65)
-                    .scaleEffect(wave2Animate ? 1.3 : 0.85)
-
-                // Wave 1 (innen) — kleiner, kräftiger
-                Circle()
-                    .trim(from: 0.0, to: 0.18)
-                    .stroke(Color.white, style: StrokeStyle(lineWidth: size * 0.035, lineCap: .round))
-                    .rotationEffect(.degrees(-25))
-                    .frame(width: size * 0.22, height: size * 0.22)
-                    .opacity(wave1Animate ? 0.0 : 0.85)
-                    .scaleEffect(wave1Animate ? 1.4 : 0.9)
-
-                // Radar-Dot (Sender, statisch)
-                Circle()
-                    .fill(Color.white)
-                    .frame(width: size * 0.07, height: size * 0.07)
-            }
-            .offset(x: size * 0.22, y: -size * 0.02)
+            // Offene Runde: cremefarbener Ring, oranger Punkt in der Lücke.
+            DropsMark(ringColor: .brandCream, dotColor: .brandOrange)
+                .frame(width: size * 0.78, height: size * 0.78)
+                .shadow(color: Color.brandOrange.opacity(dotPulse ? 0.55 : 0.15), radius: size * 0.05)
         }
         .frame(width: size, height: size)
         .onAppear {
-            withAnimation(.easeOut(duration: 1.8).repeatForever(autoreverses: false)) {
-                wave1Animate = true
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                withAnimation(.easeOut(duration: 1.8).repeatForever(autoreverses: false)) {
-                    wave2Animate = true
-                }
+            withAnimation(.easeInOut(duration: 1.8).repeatForever(autoreverses: true)) {
+                dotPulse = true
             }
         }
     }
 }
 
+/// Nicht mehr verwendet seit dem Redesign 10/2026 (ersetzt durch `DropsMark`).
 /// Hohler D-Buchstabe als SwiftUI-Path — 1:1 Replik des LetterD-D.svg.
 /// Outer-Path + Inner-Path, beide CW gezeichnet → mit `FillStyle(eoFill: true)`
 /// bekommt der innere Pfad einen Cutout-Effekt (klassischer "donut hole").
@@ -1487,6 +1591,58 @@ struct AppleSignInButtonView: UIViewRepresentable {
 
 // MARK: - Welcome Step
 
+// MARK: - Onboarding Language Chip
+
+/// Kompaktes Sprach-Menu für den Welcome- und Login-Screen. Zeigt den
+/// 2-stelligen Kürzel + Chevron und klappt bei Tap ein Menu mit allen
+/// AppLanguage-Fällen auf. Stand-alone (kein Parent-Store nötig), nutzt
+/// `@AppStorage("appLanguage")` direkt.
+struct OnboardingLanguageChip: View {
+    @AppStorage("appLanguage") private var appLanguage = "de"
+
+    var body: some View {
+        Menu {
+            ForEach(AppLanguage.allCases, id: \.rawValue) { lang in
+                Button {
+                    if appLanguage != lang.rawValue {
+                        Haptic.selection()
+                        withAnimation(.easeInOut(duration: 0.18)) {
+                            appLanguage = lang.rawValue
+                        }
+                    }
+                } label: {
+                    HStack {
+                        Text("\(lang.flag)  \(lang.label)")
+                        if appLanguage == lang.rawValue {
+                            Spacer()
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        } label: {
+            let current = AppLanguage(rawValue: appLanguage) ?? .german
+            HStack(spacing: 6) {
+                Text(current.flag).font(.system(size: 14))
+                Text(current.shortCode)
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .foregroundColor(.brandNight.opacity(0.7))
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundColor(.brandNight.opacity(0.5))
+            }
+            .padding(.vertical, 7)
+            .padding(.horizontal, 12)
+            .background(
+                Capsule().fill(Color.white.opacity(0.6))
+            )
+            .overlay(
+                Capsule().stroke(Color.brandNight.opacity(0.08), lineWidth: 1)
+            )
+        }
+    }
+}
+
 struct WelcomeStep: View {
     let onPhone: () -> Void
     let onApple: (Bool, String?) -> Void  // isNewUser, appleEmail
@@ -1508,6 +1664,7 @@ struct WelcomeStep: View {
     // als X"-Button mit Avatar + Name. Tap löst sofort Apple Sign In aus
     // (Face ID übernimmt in ~1-2s, keine weitere Eingabe nötig).
     @State private var showAlternativeLogin = false
+    @State private var isLinkingApple = false
     private var lastLoginName: String {
         UserDefaults.standard.string(forKey: "ud_lastLoginName") ?? ""
     }
@@ -1538,8 +1695,10 @@ struct WelcomeStep: View {
     }
 
     // MARK: Farbsystem je Variante
-    private var textPrimary: Color   { isLight ? Color(hex: "1C1C1E")             : .white }
-    private var textSecondary: Color { isLight ? Color(hex: "1C1C1E").opacity(0.45) : .white.opacity(0.5) }
+    // WelcomeStep läuft wie LoginView auf tiefviolettem Launch-Hintergrund —
+    // alle Texte fix auf weiß invertiert.
+    private var textPrimary: Color   { .white }
+    private var textSecondary: Color { .white.opacity(0.75) }
     private var overlayColor: Color  { isLight ? .white : .black }
     private var overlayOpacity: Double { isLight ? 0.60 : 0.72 }
     private var mapBlur: CGFloat     { isLight ? 9 : 16 }
@@ -1551,10 +1710,20 @@ struct WelcomeStep: View {
     private var logoSize: CGFloat { screenH < 700 ? 64 : 82 }
     private var buttonPadV: CGFloat { screenH < 700 ? 12 : screenH < 850 ? 14 : 16 }
 
+    @State private var blobPhase: CGFloat = 0
+
     var body: some View {
-        ZStack {
-            // ── Aurora Hintergrund ────────────────────────────────────
-            AppAuroraBackground(isLight: isLight)
+        // `.id(appLanguage)` zwingt SwiftUI den View-Tree komplett neu zu
+        // bauen, wenn der Sprach-Chip die Sprache wechselt — sonst bleiben
+        // die mit `tr(...)` aufgelösten Strings auf dem alten Wert cached.
+        welcomeBody.id(appLanguage)
+    }
+
+    @ViewBuilder
+    private var welcomeBody: some View {
+        ZStack(alignment: .topTrailing) {
+            // Launch-Screen-Violet, konsistent zum SplashView und LoginView.
+            Color("LaunchBackground").ignoresSafeArea()
 
             // ── Inhalt ───────────────────────────────────────────────
             VStack(spacing: 0) {
@@ -1574,21 +1743,6 @@ struct WelcomeStep: View {
                         // herum zu busy. Auf User-Wunsch ein einheitlicher
                         // Look mit dem Login-Screen.
                         DropsLogo(fontSize: logoSize, textColor: textPrimary)
-                            .background {
-                                ZStack {
-                                    Circle()
-                                        .fill(Color.auroraOrange.opacity(isLight ? 0.14 : 0.20))
-                                        .frame(width: 240, height: 240)
-                                        .blur(radius: 48)
-                                        .offset(x: -20, y: -30)
-                                    Circle()
-                                        .fill(Color.auroraGreen.opacity(isLight ? 0.10 : 0.14))
-                                        .frame(width: 180, height: 180)
-                                        .blur(radius: 38)
-                                        .offset(x: 30, y: 30)
-                                }
-                                .allowsHitTesting(false)
-                            }
 
                         // Hauptbotschaft — knüpft an den App-Store-Untertitel
                         // ("Drops — Triff Leute") an. Erste Zeile = Brand-Anker
@@ -1626,11 +1780,11 @@ struct WelcomeStep: View {
                                     }
                                 }) {
                                     Text(tr("onboard.use_different_account"))
-                                        .font(.system(size: 13))
-                                        .foregroundColor(textSecondary.opacity(0.7))
+                                        .font(.system(size: 13, weight: .medium))
+                                        .foregroundColor(.white.opacity(0.9))
                                         .underline()
                                 }
-                                .buttonStyle(.plain)
+                                .dropsPressable()
                                 .padding(.top, 6)
                             } else {
                                 // Sichtbarer Trenner zwischen Quick-Login und Alternativ-Flow
@@ -1661,14 +1815,14 @@ struct WelcomeStep: View {
                                     RoundedRectangle(cornerRadius: screenH < 700 ? 22 : 25)
                                         .fill(appleButtonStyle == .black ? Color.black : Color.white)
                                     if appleAuth.isLoading {
-                                        ProgressView()
+                                        DazuLoader()
                                             .tint(appleButtonStyle == .black ? .white : .black)
                                     } else {
                                         HStack(spacing: 10) {
-                                            Image(systemName: "apple.logo")
+                                            DazuIcon("apple.logo")
                                                 .font(.system(size: 20, weight: .medium))
                                                 .foregroundColor(appleButtonStyle == .black ? .white : .black)
-                                            Text(isLoginMode ? "Mit Apple anmelden" : "Mit Apple registrieren")
+                                            Text(tr(isLoginMode ? "onboard.apple_signin" : "onboard.apple_signup"))
                                                 .font(.system(size: 16, weight: .semibold))
                                                 .foregroundColor(appleButtonStyle == .black ? .white : .black)
                                         }
@@ -1676,7 +1830,7 @@ struct WelcomeStep: View {
                                 }
                             }
                             .frame(maxWidth: .infinity, minHeight: screenH < 700 ? 50 : 56, maxHeight: screenH < 700 ? 50 : 56)
-                            .buttonStyle(.plain)
+                            .dropsPressable()
                             .disabled(appleAuth.isLoading)
 
                             // ── Google Sign In ──────────────────────────────
@@ -1690,11 +1844,11 @@ struct WelcomeStep: View {
                                         .fill(Color.white)
                                         .shadow(color: .black.opacity(isLight ? 0.10 : 0.20), radius: 4, x: 0, y: 2)
                                     if googleAuth.isLoading {
-                                        ProgressView().tint(Color(hex: "1F1F1F"))
+                                        DazuLoader().tint(Color(hex: "1F1F1F"))
                                     } else {
                                         HStack(spacing: 10) {
                                             GoogleGLogo(size: 22)
-                                            Text("Mit Google fortfahren")
+                                            Text(tr("onboard.google_continue"))
                                                 .font(.system(size: 16, weight: .semibold))
                                                 .foregroundColor(Color(hex: "1F1F1F"))
                                         }
@@ -1702,24 +1856,62 @@ struct WelcomeStep: View {
                                 }
                             }
                             .frame(maxWidth: .infinity, minHeight: screenH < 700 ? 50 : 56, maxHeight: screenH < 700 ? 50 : 56)
-                            .buttonStyle(.plain)
+                            .dropsPressable()
                             .disabled(googleAuth.isLoading || appleAuth.isLoading)
 
-                            // Toggle Login ↔ Registrieren
+                            // ── Phone (SMS-Code) ────────────────────────────
+                            // Dritte Option neben Apple/Google. Delegiert den
+                            // Phone-Auth-Flow ans Parent-View (OnboardingView),
+                            // das die LoginView als fullScreenCover öffnet und
+                            // Zugriff auf den `store` hat.
+                            Button {
+                                onPhone()
+                            } label: {
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: screenH < 700 ? 22 : 25)
+                                        // Kräftigeres Lavendel als der Seitenhintergrund (#E9E3FF), sonst
+                                        // verschwindet der Button darin. Fest, auch im Dark Mode.
+                                        .fill(Color(red: 0.835, green: 0.800, blue: 1.000)) // #D5CCFF
+                                        .shadow(color: .black.opacity(isLight ? 0.10 : 0.20), radius: 4, x: 0, y: 2)
+                                    HStack(spacing: 10) {
+                                        DazuIcon("phone.fill")
+                                            .font(.system(size: 18, weight: .semibold))
+                                            .foregroundColor(.brandVioletFixed)
+                                        Text(tr(isLoginMode
+                                                ? "onboard.phone_signin"
+                                                : "onboard.phone_signup"))
+                                            .font(.system(size: 16, weight: .semibold))
+                                            .foregroundColor(.brandVioletFixed)
+                                    }
+                                }
+                            }
+                            .frame(maxWidth: .infinity, minHeight: screenH < 700 ? 50 : 56, maxHeight: screenH < 700 ? 50 : 56)
+                            .dropsPressable()
+
+                            // Toggle Login ↔ Registrieren — Button nimmt volle Breite,
+                            // Label innen zentriert. Ohne .frame(maxWidth:.infinity)
+                            // sitzt der Button mit natural width linksbündig.
                             Button(action: {
                                 withAnimation(.easeInOut(duration: 0.2)) { isLoginMode.toggle() }
                             }) {
-                                HStack(spacing: 4) {
+                                (
                                     Text(isLoginMode ? tr("onboard.no_account_question") : tr("onboard.already_registered"))
-                                        .foregroundColor(textSecondary.opacity(0.7))
-                                    Text(isLoginMode ? tr("onboard.register_now") : tr("common.sign_in"))
-                                        .foregroundColor(Color.brand)
-                                        .fontWeight(.semibold)
-                                }
-                                .font(.system(size: 13))
+                                        .foregroundColor(.white.opacity(0.72))
+                                    + Text(" ")
+                                    // Akzent-Text: Orange statt Brand-Violett — sonst
+                                    // auf dem violetten Welcome-Hintergrund unsichtbar.
+                                    + Text(isLoginMode ? tr("onboard.register_now") : tr("common.sign_in"))
+                                        .foregroundColor(.accentOrange)
+                                        .fontWeight(.bold)
+                                )
+                                .font(.system(size: 14))
+                                .multilineTextAlignment(.center)
+                                .frame(maxWidth: .infinity)
                             }
-                            .buttonStyle(.plain)
-                            .padding(.top, 4)
+                            .frame(maxWidth: .infinity)
+                            .dropsPressable()
+                            .padding(.top, 10)
+                            .padding(.bottom, 6)
                         }
 
                         // Fehler anzeigen (Apple + Google)
@@ -1740,9 +1932,11 @@ struct WelcomeStep: View {
 
                         // AGB nur bei Registrierung — opacity statt if, verhindert Layout-Shift
                         Text(tr("onboard.tos_notice"))
-                            .font(.system(size: 11))
-                            .foregroundColor(textSecondary.opacity(0.5))
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.white.opacity(0.7))
                             .multilineTextAlignment(.center)
+                            .lineSpacing(2)
+                            .padding(.top, 8)
                             .opacity(isLoginMode ? 0 : 1)
                             .animation(.easeInOut(duration: 0.2), value: isLoginMode)
                     }
@@ -1757,6 +1951,31 @@ struct WelcomeStep: View {
         }
         .onAppear {
             appeared = true
+        }
+        // ── Account-Linking Alert ─────────────────────────────────────────────
+        .alert(
+            "Konto bereits vorhanden",
+            isPresented: Binding(
+                get: { googleAuth.pendingLinkEmail != nil },
+                set: { if !$0 { googleAuth.cancelLinking() } }
+            )
+        ) {
+            Button("Mit Apple verbinden") { isLinkingApple = true }
+            Button("Abbrechen", role: .cancel) { googleAuth.cancelLinking() }
+        } message: {
+            if let email = googleAuth.pendingLinkEmail {
+                Text(tr("auth.link_apple_body").replacingOccurrences(of: "{email}", with: email))
+            }
+        }
+        .onChange(of: isLinkingApple) { _, linking in
+            guard linking else { return }
+            isLinkingApple = false
+            appleAuth.signIn { success, _ in
+                guard success else { return }
+                googleAuth.completeLinkingAfterAppleSignIn { linked in
+                    if linked { onGoogle(false, googleAuth.lastGoogleEmail) }
+                }
+            }
         }
     }
 
@@ -1778,21 +1997,14 @@ struct WelcomeStep: View {
             }
         }) {
             HStack(spacing: 14) {
-                // Avatar mit Gradient-Ring
+                // Avatar mit halb-offenem Orange-Ring (dazu-Logo-Signatur) —
+                // Lücke oben rechts (zwischen 12 und 3 Uhr).
                 ZStack {
                     Circle()
-                        .stroke(
-                            LinearGradient(
-                                colors: [Color.auroraOrange.opacity(0.8), Color.auroraGreen.opacity(0.7)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: 2
-                        )
-                        .frame(width: 48, height: 48)
-                    Circle()
-                        .fill(isLight ? Color.white : Color.black.opacity(0.25))
-                        .frame(width: 43, height: 43)
+                        .trim(from: 0.0, to: 0.75)
+                        .stroke(Color.brandOrangeFixed,
+                                style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                        .frame(width: 50, height: 50)
                     if let urlStr = lastLoginImageURL {
                         RemoteProfileImage(
                             url: urlStr,
@@ -1802,18 +2014,24 @@ struct WelcomeStep: View {
                         )
                         .clipShape(Circle())
                     } else {
-                        Text("👋").font(.system(size: 24))
+                        ZStack {
+                            Circle().fill(Color.brandLavender).frame(width: 43, height: 43)
+                            DazuProfileIcon(size: 26)
+                        }
                     }
                 }
 
                 VStack(alignment: .leading, spacing: 2) {
+                    // Text-Farben hier fix dunkel (brandNight) — der Button-
+                    // Hintergrund ist eine weiße Capsule auf tiefviolettem
+                    // Launch-Bg; weiße Texte wären unlesbar.
                     Text(tr("onboard.continue_as"))
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(textSecondary.opacity(0.55))
+                        .foregroundColor(.brandNight.opacity(0.55))
                         .tracking(0.3)
                     Text(lastLoginName)
                         .font(.system(size: 18, weight: .bold, design: .rounded))
-                        .foregroundColor(textPrimary)
+                        .foregroundColor(.brandNight)
                         .lineLimit(1)
                 }
 
@@ -1822,28 +2040,28 @@ struct WelcomeStep: View {
                 // Arrow-Circle statt Apple-Logo — provider-agnostisch
                 ZStack {
                     Circle()
-                        .fill(isLight ? Color.black.opacity(0.07) : Color.white.opacity(0.12))
+                        .fill(Color.brandNight.opacity(0.07))
                         .frame(width: 32, height: 32)
-                    Image(systemName: "arrow.right")
+                    DazuIcon("arrow.right")
                         .font(.system(size: 12, weight: .bold))
-                        .foregroundColor(textPrimary.opacity(0.55))
+                        .foregroundColor(.brandNight.opacity(0.55))
                 }
             }
             .padding(.horizontal, 16)
             .frame(height: screenH < 700 ? 64 : 70)
             .background(
                 Capsule()
-                    .fill(isLight ? Color.white.opacity(0.82) : Color.white.opacity(0.09))
-                    .shadow(color: .black.opacity(isLight ? 0.08 : 0), radius: 14, x: 0, y: 5)
+                    .fill(Color.white)
+                    .shadow(color: .black.opacity(0.15), radius: 14, x: 0, y: 5)
             )
         }
-        .buttonStyle(.plain)
+        .dropsPressable()
         .disabled(appleAuth.isLoading)
         .overlay(
             Group {
                 if appleAuth.isLoading {
                     Capsule().fill(.black.opacity(0.3))
-                    ProgressView().tint(.white)
+                    DazuLoader().tint(.white)
                 }
             }
         )
@@ -1895,6 +2113,10 @@ struct SimpleNameStep: View {
 
     var body: some View {
         ZStack {
+            // Markenviolett als Vollflächen-Hintergrund (statt neutralem
+            // Lavendel), damit der Register-Screen klar als dazu-Flow lesbar
+            // ist. OnboardingStepBackground legt noch die Blobs/Noise drüber.
+            Color("LaunchBackground").ignoresSafeArea()
             OnboardingStepBackground(color: stepColor)
 
             VStack(spacing: 0) {
@@ -1939,7 +2161,7 @@ struct SimpleNameStep: View {
                             if filtered != newValue { name = filtered }
                         }
                 }
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: Radius.lg))
+                .background(RoundedRectangle(cornerRadius: Radius.lg).fill(Color.white.opacity(0.75)))
                 .overlay(RoundedRectangle(cornerRadius: Radius.lg).stroke(stepColor.opacity(0.3), lineWidth: 1))
                 .padding(.horizontal, 28)
 
@@ -1957,7 +2179,7 @@ struct SimpleNameStep: View {
                                           ? Color.brand.opacity(0.4) : Color.brand)
                         )
                 }
-                .buttonStyle(.plain)
+                .dropsPressable()
                 .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
                 .padding(.horizontal, 28)
                 .padding(.bottom, 48)
@@ -1968,6 +2190,24 @@ struct SimpleNameStep: View {
         }
         .onAppear {
             appeared = true
+            // Apple-/Google-Name übernehmen falls Feld noch leer. In jedem
+            // Fall NUR das erste Wort (= Vorname). Nachname nie ins Feld —
+            // selbst wenn ud_appleGivenName fälschlich einen vollen Namen
+            // enthält (Legacy-Installs), hier auf firstWord trimmen.
+            if name.trimmingCharacters(in: .whitespaces).isEmpty {
+                func firstName(from raw: String) -> String? {
+                    let w = raw.split(separator: " ").first.map(String.init) ?? ""
+                    return w.isEmpty ? nil : w
+                }
+                if let given = UserDefaults.standard.string(forKey: "ud_appleGivenName"),
+                   let first = firstName(from: given) {
+                    name = first
+                } else if let display = Auth.auth().currentUser?.displayName,
+                          let first = firstName(from: display) {
+                    name = first
+                    UserDefaults.standard.set(first, forKey: "ud_appleGivenName")
+                }
+            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { focused = true }
         }
     }
@@ -1993,12 +2233,12 @@ struct BirthdayStep: View {
                 if let back = onBack {
                     HStack {
                         Button(action: back) {
-                            Image(systemName: "chevron.left")
+                            DazuIcon("chevron.left")
                                 .font(.system(size: 16, weight: .semibold))
                                 .foregroundColor(.textSecondary)
                                 .padding(12)
                         }
-                        .buttonStyle(.plain)
+                        .dropsPressable()
                         Spacer()
                     }
                     .padding(.horizontal, 12)
@@ -2043,7 +2283,7 @@ struct BirthdayStep: View {
                         .padding(.vertical, 17)
                         .background(Capsule().fill(Color.brand))
                 }
-                .buttonStyle(.plain)
+                .dropsPressable()
                 .padding(.horizontal, 28)
                 .padding(.bottom, 48)
                 .opacity(appeared ? 1 : 0)
@@ -2082,12 +2322,12 @@ struct GenderStep: View {
                 if let back = onBack {
                     HStack {
                         Button(action: back) {
-                            Image(systemName: "chevron.left")
+                            DazuIcon("chevron.left")
                                 .font(.system(size: 16, weight: .semibold))
                                 .foregroundColor(.textSecondary)
                                 .padding(12)
                         }
-                        .buttonStyle(.plain)
+                        .dropsPressable()
                         Spacer()
                     }
                     .padding(.horizontal, 12)
@@ -2118,7 +2358,7 @@ struct GenderStep: View {
                         Button(action: { selected = label }) {
                             HStack(spacing: 14) {
                                 if isSFSymbol {
-                                    Image(systemName: symbol)
+                                    DazuIcon(symbol, accent: false)
                                         .font(.system(size: 22, weight: .medium))
                                         .frame(width: 28)
                                 } else {
@@ -2131,7 +2371,7 @@ struct GenderStep: View {
                                     .foregroundColor(isSelected ? .white : .textPrimary)
                                 Spacer()
                                 if isSelected {
-                                    Image(systemName: "checkmark.circle.fill")
+                                    DazuIcon("checkmark.circle.fill")
                                         .font(.system(size: 20))
                                         .foregroundColor(.white)
                                 }
@@ -2146,9 +2386,9 @@ struct GenderStep: View {
                                             .stroke(isSelected ? Color.clear : Color.primary.opacity(0.15), lineWidth: 1)
                                     )
                             )
-                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: Radius.lg))
+                            .background(RoundedRectangle(cornerRadius: Radius.lg).fill(Color.white.opacity(0.75)))
                         }
-                        .buttonStyle(.plain)
+                        .dropsPressable()
                         .animation(.spring(response: 0.3), value: isSelected)
                     }
                 }
@@ -2166,7 +2406,7 @@ struct GenderStep: View {
                             Capsule().fill(selected.isEmpty ? Color.brand.opacity(0.4) : Color.brand)
                         )
                 }
-                .buttonStyle(.plain)
+                .dropsPressable()
                 .disabled(selected.isEmpty)
                 .padding(.horizontal, 28)
                 .padding(.bottom, 48)
@@ -2267,11 +2507,11 @@ struct ProfileSetupStep: View {
                     if let back = onBack {
                         HStack {
                             Button(action: back) {
-                                Image(systemName: "chevron.left")
+                                DazuIcon("chevron.left")
                                     .font(.system(size: 16, weight: .semibold))
                                     .foregroundColor(.textSecondary).padding(12)
                             }
-                            .buttonStyle(.plain)
+                            .dropsPressable()
                             Spacer()
                         }
                         .padding(.horizontal, 12).padding(.top, 8)
@@ -2289,7 +2529,7 @@ struct ProfileSetupStep: View {
                                     .frame(width: 88, height: 88)
                                     .clipShape(Circle())
                             } else {
-                                Image(systemName: "person.fill")
+                                DazuIcon("person.fill", accent: false)
                                     .font(.system(size: 34))
                                     .foregroundColor(.textTertiary)
                             }
@@ -2297,12 +2537,12 @@ struct ProfileSetupStep: View {
                             Circle()
                                 .fill(stepColor)
                                 .frame(width: 26, height: 26)
-                                .overlay(Image(systemName: "camera.fill")
+                                .overlay(DazuIcon("camera.fill", accent: false)
                                     .font(.system(size: 12)).foregroundColor(.white))
                                 .offset(x: 30, y: 30)
                         }
                     }
-                    .buttonStyle(.plain)
+                    .dropsPressable()
                     .padding(.top, 24).padding(.bottom, 16)
 
                     VStack(spacing: 6) {
@@ -2319,7 +2559,7 @@ struct ProfileSetupStep: View {
 
                         // ── Name ──────────────────────────────────────
                         VStack(alignment: .leading, spacing: 6) {
-                            Label(tr("onboard.first_name"), systemImage: "person.fill")
+                            Label { Text(tr("onboard.first_name")) } icon: { DazuIcon("person.fill") }
                                 .font(.system(size: 13, weight: .semibold))
                                 .foregroundColor(.textSecondary)
                             ZStack(alignment: .leading) {
@@ -2340,10 +2580,10 @@ struct ProfileSetupStep: View {
                                         if f != v { name = f }
                                     }
                             }
-                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: Radius.card))
+                            .background(RoundedRectangle(cornerRadius: Radius.card).fill(Color.white.opacity(0.75)))
                             .overlay(RoundedRectangle(cornerRadius: Radius.card).stroke(stepColor.opacity(0.3), lineWidth: 1))
                             HStack(spacing: 4) {
-                                Image(systemName: "lock.fill").font(.system(size: 10))
+                                DazuIcon("lock.fill", accent: false).font(.system(size: 10))
                                 Text(tr("onboard.cant_change_later"))
                                     .font(.system(size: 11))
                             }
@@ -2352,7 +2592,7 @@ struct ProfileSetupStep: View {
 
                         // ── Geburtstag (Zahleneingabe) ────────────────
                         VStack(alignment: .leading, spacing: 6) {
-                            Label(tr("onboard.birthday"), systemImage: "calendar")
+                            Label { Text(tr("onboard.birthday")) } icon: { DazuIcon("calendar") }
                                 .font(.system(size: 13, weight: .semibold))
                                 .foregroundColor(.textSecondary)
                             ZStack(alignment: .leading) {
@@ -2373,12 +2613,12 @@ struct ProfileSetupStep: View {
                                         parsedBirthdate = parseBirthdate(birthdateText)
                                     }
                             }
-                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: Radius.card))
+                            .background(RoundedRectangle(cornerRadius: Radius.card).fill(Color.white.opacity(0.75)))
                             .overlay(RoundedRectangle(cornerRadius: Radius.card)
                                 .stroke(birthdateText.count == 10 && !dateIsValid
                                         ? Color.red.opacity(0.5) : stepColor.opacity(0.3), lineWidth: 1))
                             HStack(spacing: 4) {
-                                Image(systemName: "lock.fill").font(.system(size: 10))
+                                DazuIcon("lock.fill", accent: false).font(.system(size: 10))
                                 Text(tr("onboard.cant_change_later"))
                                     .font(.system(size: 11))
                             }
@@ -2387,7 +2627,7 @@ struct ProfileSetupStep: View {
 
                         // ── Geschlecht ────────────────────────────────
                         VStack(alignment: .leading, spacing: 6) {
-                            Label(tr("onboard.gender_label"), systemImage: "person.2.fill")
+                            Label { Text(tr("onboard.gender_label")) } icon: { DazuIcon("person.2.fill") }
                                 .font(.system(size: 13, weight: .semibold))
                                 .foregroundColor(.textSecondary)
                             HStack(spacing: 10) {
@@ -2396,7 +2636,7 @@ struct ProfileSetupStep: View {
                                     Button { gender = opt.label } label: {
                                         VStack(spacing: 4) {
                                             if opt.isSF {
-                                                Image(systemName: opt.symbol)
+                                                DazuIcon(opt.symbol, accent: false)
                                                     .font(.system(size: 18)).frame(height: 22)
                                             } else {
                                                 Text(opt.symbol).font(.system(size: 20)).frame(height: 22)
@@ -2407,62 +2647,26 @@ struct ProfileSetupStep: View {
                                         .foregroundColor(isSelected ? .white : .textPrimary)
                                         .background(RoundedRectangle(cornerRadius: Radius.card)
                                             .fill(isSelected ? stepColor : Color.clear))
-                                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: Radius.card))
+                                        .background(RoundedRectangle(cornerRadius: Radius.card).fill(Color.white.opacity(0.75)))
                                         .overlay(RoundedRectangle(cornerRadius: Radius.card)
                                             .stroke(isSelected ? Color.clear : Color.primary.opacity(0.15), lineWidth: 1))
                                     }
-                                    .buttonStyle(.plain)
+                                    .dropsPressable()
                                     .animation(.spring(response: 0.25), value: isSelected)
                                 }
                             }
                             HStack(spacing: 4) {
-                                Image(systemName: "lock.fill").font(.system(size: 10))
+                                DazuIcon("lock.fill", accent: false).font(.system(size: 10))
                                 Text(tr("onboard.cant_change_later"))
                                     .font(.system(size: 11))
                             }
                             .foregroundColor(.textTertiary)
                         }
 
-                        // ── Telefonnummer (optional) ─────────────────
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack(spacing: 6) {
-                                Label(tr("onboard.mobile_number"), systemImage: "phone.fill")
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundColor(.textSecondary)
-                                Text(tr("onboard.optional"))
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.textTertiary)
-                            }
-                            ZStack(alignment: .leading) {
-                                if phone.isEmpty {
-                                    Text("+49 ...")
-                                        .foregroundColor(.textTertiary).font(.system(size: 16))
-                                        .padding(.leading, 16)
-                                }
-                                TextField("", text: $phone)
-                                    .font(.system(size: 16))
-                                    .foregroundColor(.textPrimary)
-                                    .keyboardType(.phonePad)
-                                    .textContentType(.telephoneNumber)
-                                    .padding(.horizontal, 16).padding(.vertical, 14)
-                            }
-                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: Radius.card))
-                            .overlay(RoundedRectangle(cornerRadius: Radius.card).stroke(Color.primary.opacity(0.1), lineWidth: 1))
-                            if phone.filter({ $0.isNumber }).count == 0 {
-                                HStack(alignment: .top, spacing: 6) {
-                                    Image(systemName: "exclamationmark.triangle.fill")
-                                        .font(.system(size: 11))
-                                        .foregroundColor(.accentOrange)
-                                    Text(tr("onboard.contacts_cant_find"))
-                                        .font(.system(size: 11)).foregroundColor(.accentOrange)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                }
-                            } else {
-                                Text(tr("onboard.not_public"))
-                                    .font(.system(size: 11)).foregroundColor(.textTertiary)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                        }
+                        // Telefonnummer-Block raus — die wird jetzt
+                        // ausschließlich im Profil später hinterlegt (nicht
+                        // beim Registrieren). Vermeidet Konflikte mit
+                        // bestehenden Phone-Account-Verknüpfungen.
                     }
                     .padding(.horizontal, 24)
 
@@ -2482,7 +2686,7 @@ struct ProfileSetupStep: View {
                             .frame(maxWidth: .infinity).padding(.vertical, 17)
                             .background(Capsule().fill(canContinue ? stepColor : stepColor.opacity(0.4)))
                     }
-                    .buttonStyle(.plain)
+                    .dropsPressable()
                     .disabled(!canContinue)
                     .padding(.horizontal, 24)
                     .padding(.top, 28).padding(.bottom, 48)
@@ -2517,33 +2721,19 @@ struct CountryCode: Identifiable, Equatable {
     let dial: String
 }
 
+// Nur Länder deren Vorwahl in der Firebase-SMS-Region-Policy auf whitelist
+// steht (DACH + die 5 App-Sprachen). Vorher: 25 Länder — davon konnten die
+// meisten eh keine SMS empfangen weil Firebase sie blockiert.
 private var countryCodes: [CountryCode] {
     [
-        CountryCode(flag: "🇩🇪", name: tr("country.germany"),               dial: "+49"),
-        CountryCode(flag: "🇦🇹", name: tr("onboard.country_austria"),       dial: "+43"),
-        CountryCode(flag: "🇨🇭", name: tr("country.switzerland"),           dial: "+41"),
-        CountryCode(flag: "🇺🇸", name: tr("country.usa"),                   dial: "+1"),
-        CountryCode(flag: "🇬🇧", name: tr("onboard.country_uk"),            dial: "+44"),
-        CountryCode(flag: "🇫🇷", name: tr("country.france"),                dial: "+33"),
-        CountryCode(flag: "🇮🇹", name: tr("country.italy"),                 dial: "+39"),
-        CountryCode(flag: "🇪🇸", name: tr("country.spain"),                 dial: "+34"),
-        CountryCode(flag: "🇳🇱", name: tr("country.netherlands"),           dial: "+31"),
-        CountryCode(flag: "🇧🇪", name: tr("country.belgium"),               dial: "+32"),
-        CountryCode(flag: "🇵🇱", name: tr("country.poland"),                dial: "+48"),
-        CountryCode(flag: "🇸🇪", name: tr("country.sweden"),                dial: "+46"),
-        CountryCode(flag: "🇳🇴", name: tr("country.norway"),                dial: "+47"),
-        CountryCode(flag: "🇩🇰", name: tr("onboard.country_denmark"),       dial: "+45"),
-        CountryCode(flag: "🇹🇷", name: tr("onboard.country_turkey"),        dial: "+90"),
-        CountryCode(flag: "🇷🇺", name: tr("country.russia"),                dial: "+7"),
-        CountryCode(flag: "🇯🇵", name: tr("country.japan"),                 dial: "+81"),
-        CountryCode(flag: "🇨🇳", name: tr("country.china"),                 dial: "+86"),
-        CountryCode(flag: "🇮🇳", name: tr("country.india"),                 dial: "+91"),
-        CountryCode(flag: "🇧🇷", name: tr("country.brazil"),                dial: "+55"),
-        CountryCode(flag: "🇦🇺", name: tr("country.australia"),             dial: "+61"),
-        CountryCode(flag: "🇨🇦", name: tr("country.canada"),                dial: "+1"),
-        CountryCode(flag: "🇲🇽", name: tr("country.mexico"),                dial: "+52"),
-        CountryCode(flag: "🇰🇷", name: tr("onboard.country_skorea"),        dial: "+82"),
-        CountryCode(flag: "🇿🇦", name: tr("onboard.country_safrica"),       dial: "+27"),
+        CountryCode(flag: "🇩🇪", name: tr("country.germany"),         dial: "+49"),
+        CountryCode(flag: "🇦🇹", name: tr("onboard.country_austria"), dial: "+43"),
+        CountryCode(flag: "🇨🇭", name: tr("country.switzerland"),     dial: "+41"),
+        CountryCode(flag: "🇮🇹", name: tr("country.italy"),           dial: "+39"),
+        CountryCode(flag: "🇫🇷", name: tr("country.france"),          dial: "+33"),
+        CountryCode(flag: "🇪🇸", name: tr("country.spain"),           dial: "+34"),
+        CountryCode(flag: "🇬🇧", name: tr("onboard.country_uk"),      dial: "+44"),
+        CountryCode(flag: "🇺🇸", name: tr("country.usa"),             dial: "+1"),
     ]
 }
 
@@ -2562,32 +2752,98 @@ struct CountryPickerSheet: View {
 
     var body: some View {
         NavigationStack {
-            List(filtered) { cc in
-                Button {
-                    selected = cc
-                    dismiss()
-                } label: {
-                    HStack(spacing: 12) {
-                        Text(cc.flag).font(.system(size: 22))
-                        Text(cc.name)
-                            .font(.system(size: 15))
-                            .foregroundColor(.textPrimary)
-                        Spacer()
-                        Text(cc.dial)
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(.textSecondary)
-                        if cc == selected {
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundColor(.brand)
+            ZStack {
+                Color.brandCream.ignoresSafeArea()
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        // Header
+                        Text(tr("onboard.country_dial_title"))
+                            .font(.system(size: 24, weight: .heavy, design: .rounded))
+                            .foregroundColor(.brandNight)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 20)
+                            .padding(.top, 8)
+                            .padding(.bottom, 16)
+
+                        // Suchfeld — rounded Chip auf Lavendel
+                        HStack(spacing: 10) {
+                            Image(systemName: "magnifyingglass")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(.textTertiary)
+                            TextField(tr("onboard.search_country"), text: $search)
+                                .font(.system(size: 15))
+                                .foregroundColor(.textPrimary)
+                            if !search.isEmpty {
+                                Button {
+                                    search = ""
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.system(size: 15))
+                                        .foregroundColor(.textTertiary)
+                                }
+                            }
                         }
+                        .padding(.horizontal, 14).padding(.vertical, 12)
+                        .background(Capsule().fill(Color.brandLavender))
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 16)
+
+                        // Länder-Liste als liquidGlass-Card
+                        VStack(spacing: 0) {
+                            ForEach(Array(filtered.enumerated()), id: \.element.id) { idx, cc in
+                                Button {
+                                    selected = cc
+                                    dismiss()
+                                } label: {
+                                    HStack(spacing: 14) {
+                                        // Flagge als rund-Chip auf Creme
+                                        ZStack {
+                                            Circle()
+                                                .fill(Color.brandCream)
+                                                .frame(width: 36, height: 36)
+                                            Text(cc.flag).font(.system(size: 22))
+                                        }
+                                        Text(cc.name)
+                                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                                            .foregroundColor(.brandNight)
+                                        Spacer()
+                                        Text(cc.dial)
+                                            .font(.system(size: 15, weight: .heavy, design: .rounded))
+                                            .foregroundColor(.brandViolet)
+                                            .monospacedDigit()
+                                        if cc == selected {
+                                            Image(systemName: "checkmark.circle.fill")
+                                                .font(.system(size: 18, weight: .semibold))
+                                                .foregroundColor(.brandOrange)
+                                        }
+                                    }
+                                    .padding(.horizontal, 16).padding(.vertical, 14)
+                                }
+                                .dropsPressable()
+                                if idx < filtered.count - 1 {
+                                    Divider().padding(.leading, 68)
+                                }
+                            }
+                        }
+                        .liquidGlass(cornerRadius: 20)
+                        .padding(.horizontal, 16)
+
+                        if filtered.isEmpty {
+                            VStack(spacing: 8) {
+                                Image(systemName: "magnifyingglass")
+                                    .font(.system(size: 28))
+                                    .foregroundColor(.textTertiary)
+                                Text(tr("onboard.search_country"))
+                                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                                    .foregroundColor(.textSecondary)
+                            }
+                            .frame(maxWidth: .infinity).padding(.vertical, 40)
+                        }
+
+                        Spacer(minLength: 24)
                     }
                 }
-                .listRowBackground(Color.bgPrimary)
             }
-            .listStyle(.plain)
-            .searchable(text: $search, prompt: tr("onboard.search_country"))
-            .navigationTitle(tr("onboard.country_dial_title"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -2602,6 +2858,20 @@ struct CountryPickerSheet: View {
 // MARK: - Login View (für bereits registrierte Nutzer)
 
 struct LoginView: View {
+    /// Wird nach erfolgreichem SMS-Verify aufgerufen. Parameter:
+    /// `needsProfileSetup = true` → Phone-Nummer gehört zu einem frischen
+    /// Account (oder einem Account ohne RTDB-Profil); der Parent muss ins
+    /// Onboarding-Profile-Step routen und darf `isAuthenticated` NICHT
+    /// setzen, sonst landet der User ohne Namen/Alter in der Hauptapp.
+    /// `needsProfileSetup = false` → bestehender Account, direkt in die App.
+    /// Default `nil` → LoginView übernimmt selbst (`isAuthenticated=true`).
+    var onCompleted: ((_ needsProfileSetup: Bool) -> Void)? = nil
+    /// Mode-Hint vom Caller — steuert nur Welcome-Text + CTA-Label.
+    /// Default `false` = Signup-Flow (Registrierung); Caller aus Login-
+    /// Button setzt es auf `true`.
+    var isLoginMode: Bool = false
+
+    @Environment(\.dismiss) private var dismiss
     @AppStorage("appLanguage") private var appLanguage = "de"
     @EnvironmentObject var store: AppStore
     @AppStorage("hasOnboarded") private var hasOnboarded = false
@@ -2628,13 +2898,17 @@ struct LoginView: View {
         default:     return !isNightTime()
         }
     }
-    private var textPrimaryColor: Color   { isLight ? Color(hex: "1C1C1E") : .white }
-    private var textSecondaryColor: Color { isLight ? Color(hex: "1C1C1E").opacity(0.45) : .white.opacity(0.5) }
-    private var overlayColor: Color  { isLight ? .white : .black }
-    private var overlayOpacity: Double { isLight ? 0.60 : 0.72 }
-    private var mapBlur: CGFloat     { isLight ? 9 : 16 }
-    private var fieldTint: Color     { isLight ? Color(hex: "1C1C1E").opacity(0.06) : Color.white.opacity(0.1) }
-    private var fieldStroke: Color   { isLight ? Color.black.opacity(0.12) : Color.white.opacity(0.14) }
+    // LoginView läuft auf tiefviolettem Hintergrund — alle Text- und
+    // Field-Farben sind fix hell (invertiert), unabhängig von System-
+    // Dark/Light-Mode. `isLight` bleibt für Legacy-Properties nutzbar,
+    // beeinflusst aber die Haupt-UI nicht mehr.
+    private var textPrimaryColor: Color   { .white }
+    private var textSecondaryColor: Color { .white.opacity(0.75) }
+    private var overlayColor: Color  { .white }
+    private var overlayOpacity: Double { 0.18 }
+    private var mapBlur: CGFloat     { 0 }
+    private var fieldTint: Color     { .white.opacity(0.14) }
+    private var fieldStroke: Color   { .white.opacity(0.22) }
 
     // ── Adaptive Größen je Gerät ──────────────────────────────────────────
     private var screenH: CGFloat { UIScreen.main.bounds.height }
@@ -2645,42 +2919,59 @@ struct LoginView: View {
     private var logoSize: CGFloat { screenH < 700 ? 52 : 68 }
 
     var body: some View {
-        ZStack {
-            // ── Aurora Hintergrund ────────────────────────────────────
-            AppAuroraBackground(isLight: isLight)
+        // `.id(appLanguage)` zwingt den View-Tree bei Sprachwechsel neu zu
+        // bauen, damit `tr(...)` die neuen Strings auflöst (siehe
+        // WelcomeStep.body für denselben Trick).
+        loginBody.id(appLanguage)
+    }
+
+    @ViewBuilder
+    private var loginBody: some View {
+        ZStack(alignment: .topLeading) {
+            // ── Launch-Screen-Violet-Hintergrund — identisch zum SplashView
+            // damit der SMS-Flow sich direkt wie eine Fortsetzung des App-
+            // Launches anfühlt. Alle Texte invertiert (weiß auf violett).
+            Color("LaunchBackground").ignoresSafeArea()
+
+            // Floating Zurück-Button — kein NavigationStack-Wrap nötig,
+            // deshalb als eigenes Overlay oben links. Dismissed den
+            // fullScreenCover zurück zum WelcomeStep.
+            Button(action: { dismiss() }) {
+                HStack(spacing: 4) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 15, weight: .bold))
+                    Text(tr("onboard.cancel"))
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                }
+                .foregroundColor(.white)
+                .padding(.horizontal, 14).padding(.vertical, 8)
+                .background(Capsule().fill(Color.white.opacity(0.18)))
+            }
+            .padding(.top, 12)
+            .padding(.leading, 16)
+            .zIndex(10)
 
             VStack(spacing: 0) {
                     Spacer()
 
                     // ── Logo-Block ────────────────────────────────────────
-                    // Aurora-Glow im Stil des App-Icons: Orange + Grün
-                    // statt einfarbig brand-grün — ergibt warme Sunset-
-                    // Begrüßung passend zum Icon.
+                    // Reine Wordmark auf Lavendel — die alten Aurora-Glow-
+                    // Circles (Orange + Grün) sind weg, sie liefen auf dem
+                    // Lavendel-Hintergrund optisch warm/creme und brachen
+                    // die Markenfarbe. Welcome-Text ist jetzt mode-abhängig.
                     VStack(spacing: 0) {
-                        ZStack {
-                            Circle()
-                                .fill(Color.auroraOrange.opacity(isLight ? 0.10 : 0.14))
-                                .frame(width: 200, height: 200)
-                                .blur(radius: 40)
-                                .offset(x: -15, y: -20)
-                            Circle()
-                                .fill(Color.auroraGreen.opacity(isLight ? 0.08 : 0.10))
-                                .frame(width: 160, height: 160)
-                                .blur(radius: 36)
-                                .offset(x: 25, y: 25)
+                        DropsLogo(fontSize: logoSize, textColor: textPrimaryColor)
+                            .padding(.bottom, 18)
 
-                            // Normale SF-Rounded-Heavy-Wordmark (kein Custom-D
-                            // mit LetterDShape). Auf User-Wunsch — die Icon-D-
-                            // Variante wirkte auf dem Login-Screen too busy
-                            // neben dem Aurora-Glow.
-                            DropsLogo(fontSize: logoSize, textColor: textPrimaryColor)
-                        }
-                        .padding(.bottom, 18)
-
-                        Text(tr("onboard.welcome_back"))
+                        Text(isLoginMode
+                             ? tr("onboard.welcome_back")
+                             : tr("onboard.phone_signup_subtitle"))
                             .font(.system(size: 17, weight: .medium, design: .rounded))
                             .foregroundColor(textSecondaryColor)
                             .kerning(0.3)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 32)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     .frame(maxWidth: .infinity)
 
@@ -2693,11 +2984,10 @@ struct LoginView: View {
                             HStack(spacing: 8) {
                                 Button { showCountryPicker = true } label: {
                                     HStack(spacing: 6) {
-                                        Text(selectedCountry.flag).font(.system(size: 17))
                                         Text(selectedCountry.dial)
                                             .font(.system(size: 14, weight: .semibold))
                                             .foregroundColor(textPrimaryColor)
-                                        Image(systemName: "chevron.down")
+                                        DazuIcon("chevron.down")
                                             .font(.system(size: 9, weight: .semibold))
                                             .foregroundColor(textSecondaryColor)
                                     }
@@ -2706,7 +2996,7 @@ struct LoginView: View {
                                     .overlay(RoundedRectangle(cornerRadius: Radius.card)
                                         .stroke(fieldStroke, lineWidth: 1))
                                 }
-                                .buttonStyle(.plain)
+                                .dropsPressable()
 
                                 TextField("", text: $phoneNumber)
                                     .placeholder(when: phoneNumber.isEmpty) {
@@ -2726,7 +3016,7 @@ struct LoginView: View {
 
                             Button(action: { sendLoginSMS() }) {
                                 HStack {
-                                    if isLoading { ProgressView().tint(phoneNumber.count >= 6 ? .white : textPrimaryColor) }
+                                    if isLoading { DazuLoader().tint(phoneNumber.count >= 6 ? .white : textPrimaryColor) }
                                     else { Text(tr("onboard.send_code_arrow")).font(.system(size: 16, weight: .semibold)) }
                                 }
                                 .foregroundColor(phoneNumber.count >= 6 ? .white : textSecondaryColor)
@@ -2738,7 +3028,7 @@ struct LoginView: View {
                                                 radius: 14, y: 6)
                                 )
                             }
-                            .buttonStyle(.plain)
+                            .dropsPressable()
                             .disabled(phoneNumber.count < 6 || isLoading)
                             .animation(.easeInOut(duration: 0.2), value: phoneNumber.count >= 6)
                             .transition(.opacity.combined(with: .scale(scale: 0.98)))
@@ -2773,7 +3063,7 @@ struct LoginView: View {
 
                             Button(action: { verifyLoginCode() }) {
                                 HStack {
-                                    if isLoading { ProgressView().tint(enteredCode.count == 6 ? .white : textPrimaryColor) }
+                                    if isLoading { DazuLoader().tint(enteredCode.count == 6 ? .white : textPrimaryColor) }
                                     else { Text(tr("onboard.sign_in_arrow")).font(.system(size: 16, weight: .semibold)) }
                                 }
                                 .foregroundColor(enteredCode.count == 6 ? .white : textSecondaryColor)
@@ -2785,7 +3075,7 @@ struct LoginView: View {
                                                 radius: 14, y: 6)
                                 )
                             }
-                            .buttonStyle(.plain)
+                            .dropsPressable()
                             .disabled(enteredCode.count < 6 || isLoading)
                             .animation(.easeInOut(duration: 0.2), value: enteredCode.count == 6)
                             .transition(.opacity.combined(with: .scale(scale: 0.98)))
@@ -2811,8 +3101,15 @@ struct LoginView: View {
                     .offset(y: appeared ? 0 : 30)
                     .animation(.spring(response: 0.55, dampingFraction: 0.8).delay(0.25), value: appeared)
 
-                    Button(action: { hasOnboarded = false }) {
-                        Text(tr("onboard.no_account_register"))
+                    // Bottom-Link ist mode-abhängig: im Signup-Flow weisen
+                    // wir zurück auf „Schon registriert? Anmelden", im
+                    // Login-Flow auf „Noch kein Account? Registrieren".
+                    // Tap dismissed den Sheet — der User kann im WelcomeStep
+                    // dann die andere Variante wählen.
+                    Button(action: { dismiss() }) {
+                        Text(isLoginMode
+                             ? tr("onboard.no_account_register")
+                             : tr("onboard.already_registered_login"))
                             .font(.system(size: 13))
                             .foregroundColor(textSecondaryColor.opacity(0.6))
                     }
@@ -2822,7 +3119,9 @@ struct LoginView: View {
                 }
             .padding(.top, 12)
         }
-        .ignoresSafeArea(.keyboard, edges: .bottom)
+        // Kein `.ignoresSafeArea(.keyboard)` mehr: iOS schiebt das Formular
+        // jetzt automatisch über die Tastatur, so dass das Nummer- und Code-
+        // Feld sichtbar bleiben.
         .onTapGesture { fieldFocused = false }
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
@@ -2863,12 +3162,72 @@ struct LoginView: View {
     private func verifyLoginCode() {
         isLoading = true; errorMessage = nil
         Task {
-            let ok = await auth.verifyCode(enteredCode)
+            let result = await auth.verifyCode(enteredCode)
+            if !result.success {
+                isLoading = false
+                if case .error(let msg) = auth.state { errorMessage = msg }
+                return
+            }
+
+            // ── Dupe-Account-Prevention ───────────────────────────────
+            // Firebase legt bei jedem SMS-Login einen eigenständigen Phone-
+            // UID an. Wenn diese Nummer schon zu einem Apple-/Google-
+            // Konto gehört, bekäme der User zwei getrennte Accounts →
+            // Dialog + Signout + Orphan-UID aufräumen.
+            guard let currentUser = Auth.auth().currentUser else {
+                isLoading = false; return
+            }
+            let currentUID = currentUser.uid
+            let fullPhone = currentUser.phoneNumber ?? "\(selectedCountry.dial)\(phoneNumber)"
+            let existingUID: String? = await withCheckedContinuation { cont in
+                RealtimeDBManager.shared.findUserByPhone(fullPhone, excluding: currentUID) { uid in
+                    cont.resume(returning: uid)
+                }
+            }
+            if existingUID != nil {
+                // Orphan-UID sofort wieder aufräumen damit nicht beim nächsten
+                // Login dieselbe stub-UID eingeloggt wird.
+                try? Auth.auth().signOut()
+                try? await currentUser.delete()
+                isLoading = false
+                errorMessage = tr("auth.phone_belongs_to_other")
+                return
+            }
+
+            // Prüfen ob dieser Firebase-User schon ein RTDB-Profil hat.
+            // Firebase meldet `isNewUser` nur, wenn der Auth-Account frisch
+            // angelegt wurde — ein Resurrection-Case (Konto gelöscht und
+            // neu registriert) kann `isNewUser=false` sein, obwohl kein
+            // Profil mehr existiert. Beide Fälle brauchen Profile-Setup.
+            let profileExists: Bool = await withCheckedContinuation { cont in
+                RealtimeDBManager.shared.hasExistingProfile { exists in
+                    cont.resume(returning: exists)
+                }
+            }
+            let needsSetup = result.isNewUser || !profileExists
+
+            // Phone-Index aktualisieren (eigene UID beansprucht die Nummer).
+            RealtimeDBManager.shared.claimPhoneIndex(fullPhone)
+
             isLoading = false
-            if ok {
-                store.isAuthenticated = true
-            } else if case .error(let msg) = auth.state {
-                errorMessage = msg
+
+            if let onCompleted = onCompleted {
+                // Parent übernimmt Routing (OnboardingView). WICHTIG: hier
+                // NICHT `isAuthenticated = true` setzen — sonst mountet
+                // LinkUpApp die MainTabView und das Onboarding-Profile-
+                // Step geht verloren.
+                onCompleted(needsSetup)
+            } else {
+                // Stand-alone-Fallback (kein Parent-Callback): nur bei
+                // bestehendem Profil in die App; neue User sehen eine
+                // Fehlermeldung mit Hinweis zur Registrierung.
+                if needsSetup {
+                    errorMessage = tr("auth.phone_no_account")
+                    try? Auth.auth().signOut()
+                } else {
+                    store.syncReliabilityFromFirestore()
+                    store.isAuthenticated = true
+                }
             }
         }
     }
@@ -2930,9 +3289,9 @@ struct AppIntroStep: View {
 
                 // ── App-Icon-Replik + Titel ───────────────────────────────
                 VStack(spacing: 16) {
-                    // Stylisierte App-Icon-Tile mit Sunset-Gradient + Custom-D
-                    // (LetterDShape) — visuell deckungsgleich zum echten
-                    // App-Icon ohne Asset-Referenz. Plus Sunset-Glow.
+                    // Stylisierte App-Icon-Tile mit Violett-Gradient + Zeichen
+                    // (DropsMark) — visuell deckungsgleich zum echten
+                    // App-Icon ohne Asset-Referenz. Plus Glow.
                     ZStack {
                         Circle()
                             .fill(orange.opacity(0.18))
@@ -2948,9 +3307,8 @@ struct AppIntroStep: View {
                             .frame(width: 88, height: 88)
                             .shadow(color: orange.opacity(0.35), radius: 14, y: 6)
                             .overlay(
-                                LetterDShape()
-                                    .fill(Color.white)
-                                    .frame(width: 48, height: 48)
+                                DropsMark(ringColor: .brandCream, dotColor: .brandOrange)
+                                    .frame(width: 68, height: 68)
                             )
                             .overlay(
                                 RoundedRectangle(cornerRadius: 22, style: .continuous)
@@ -2988,7 +3346,7 @@ struct AppIntroStep: View {
                                 RoundedRectangle(cornerRadius: Radius.md)
                                     .fill(f.tint.opacity(0.14))
                                     .frame(width: 48, height: 48)
-                                Image(systemName: f.icon)
+                                DazuIcon(f.icon)
                                     .font(.system(size: 22, weight: .semibold))
                                     .foregroundStyle(f.tint)
                             }
@@ -3018,7 +3376,7 @@ struct AppIntroStep: View {
                         }
                     }
                 }
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
+                .background(RoundedRectangle(cornerRadius: 20).fill(Color.white.opacity(0.75)))
                 .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.primary.opacity(0.07), lineWidth: 1))
                 .padding(.horizontal, 20)
                 .opacity(appeared ? 1 : 0)
@@ -3034,7 +3392,7 @@ struct AppIntroStep: View {
                     HStack(spacing: 8) {
                         Text(tr("onboard.lets_go"))
                             .font(.system(size: 17, weight: .bold, design: .rounded))
-                        Image(systemName: "arrow.right")
+                        DazuIcon("arrow.right")
                             .font(.system(size: 14, weight: .bold))
                     }
                     .foregroundColor(.white)
@@ -3043,7 +3401,7 @@ struct AppIntroStep: View {
                     .background(brandGradient, in: RoundedRectangle(cornerRadius: Radius.lg))
                     .shadow(color: orange.opacity(0.35), radius: 14, y: 5)
                 }
-                .buttonStyle(.plain)
+                .dropsPressable()
                 .padding(.horizontal, 24)
                 .padding(.bottom, 52)
                 .opacity(appeared ? 1 : 0)
@@ -3056,3 +3414,386 @@ struct AppIntroStep: View {
     }
 }
 
+
+// MARK: - Pre-Sign-up Intro Slides
+//
+// 3 Slides mit den dazu-Core-Features. Beim ersten App-Start zu sehen,
+// dann via `hasSeenIntro` ausgeblendet und der User landet direkt im
+// Welcome/Sign-up-Step.
+private struct IntroSlidesView: View {
+    let onFinish: () -> Void
+    @State private var currentIndex = 0
+
+    private let slides: [IntroSlide] = [
+        IntroSlide(
+            title: "Spontan treffen.",
+            subtitle: "Kein Chat, kein Smalltalk. Wer Bock hat, kommt dazu.",
+            kind: .joinDemo
+        ),
+        IntroSlide(
+            title: "In deiner Nähe.",
+            subtitle: "Freunde und offene Runden siehst du live — ohne Umwege.",
+            kind: .mapDemo
+        ),
+        IntroSlide(
+            title: "Dein Standort bleibt deins.",
+            subtitle: "Freunde sehen dich live. Fremde nur zeitversetzt und ungefähr.",
+            kind: .privacyDemo
+        ),
+    ]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                DazuWordmark(color: .brandNight, dotColor: .brandOrange)
+                    .frame(height: 24)
+                Spacer()
+                Button(action: onFinish) {
+                    Text(tr("common.skip"))
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                        .foregroundColor(.brandNight.opacity(0.55))
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 16)
+
+            Spacer(minLength: 0)
+
+            TabView(selection: $currentIndex) {
+                ForEach(Array(slides.enumerated()), id: \.offset) { idx, slide in
+                    IntroSlideCard(slide: slide, isActive: currentIndex == idx)
+                        .tag(idx)
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .onChange(of: currentIndex) { _, _ in
+                Haptic.selection()
+            }
+
+            // Rondesignlab-Dot-Indicator: aktive Pille ist orange, inaktive Lavendel
+            HStack(spacing: 8) {
+                ForEach(slides.indices, id: \.self) { i in
+                    Capsule()
+                        .fill(i == currentIndex ? Color.brandOrange : Color.brandLavender)
+                        .frame(width: i == currentIndex ? 24 : 8, height: 8)
+                        .animation(.spring(response: 0.35, dampingFraction: 0.75), value: currentIndex)
+                }
+            }
+            .padding(.vertical, 16)
+
+            Spacer(minLength: 0)
+
+            Button {
+                Haptic.selection()
+                if currentIndex < slides.count - 1 {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                        currentIndex += 1
+                    }
+                } else {
+                    onFinish()
+                }
+            } label: {
+                Text(currentIndex < slides.count - 1 ? "Weiter" : "Loslegen")
+                    .dropsPrimaryButton()
+            }
+            .dropsPressable()
+            .padding(.horizontal, 24)
+            .padding(.bottom, 36)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(
+            ZStack {
+                Color.brandCream.ignoresSafeArea()
+                AppAuroraBackground().ignoresSafeArea()
+            }
+        )
+    }
+}
+
+private enum IntroSlideKind {
+    case joinDemo       // Dot kommt zum Ring
+    case mapDemo        // Pulsierende Ring-Pins auf Mini-Karte
+    case privacyDemo    // Fuzzy-Lavendel-Zone über scharfem Dot
+}
+
+private struct IntroSlide {
+    let title: String
+    let subtitle: String
+    let kind: IntroSlideKind
+}
+
+/// Jeder Slide hat eine eigene animierte Visual-Demo statt eines
+/// statischen Icons — macht das Onboarding lebendig und zeigt direkt
+/// wie das Feature wirkt.
+private struct IntroSlideCard: View {
+    let slide: IntroSlide
+    let isActive: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 28) {
+            Spacer(minLength: 0)
+            // Animiertes Hero-Visual (per Slide-Kind)
+            Group {
+                switch slide.kind {
+                case .joinDemo:    JoinDotDemo(active: isActive)
+                case .mapDemo:     MapPulseDemo(active: isActive)
+                case .privacyDemo: PrivacyFuzzDemo(active: isActive)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .center)
+            .frame(height: 240)
+
+            VStack(alignment: .leading, spacing: 12) {
+                (Text(slide.title.dropLast()).foregroundColor(.brandViolet)
+                 + Text(".").foregroundColor(.brandOrange))
+                    .font(.system(size: 36, weight: .heavy, design: .rounded))
+
+                Text(slide.subtitle)
+                    .font(.system(size: 17, weight: .medium, design: .rounded))
+                    .foregroundColor(.brandNight.opacity(0.65))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 32)
+    }
+}
+
+/// Slide 1: Oranger Dot kreist außen um offenen Ring und dockt in der
+/// Lücke oben rechts an — Signatur-Animation vom dazu-Logo.
+private struct JoinDotDemo: View {
+    let active: Bool
+    @State private var phase: Int = 0
+
+    // Dock-Position: Lücke oben rechts beim offenen Ring. Ring hat Radius
+    // ca. 60pt in 160x160 Frame; Dot sitzt bei (-45°) = oben rechts.
+    private let dockAngle: Double = -45
+    private let orbitRadius: CGFloat = 95
+    private let dockRadius: CGFloat = 60
+
+    var body: some View {
+        ZStack {
+            // Offener Ring in Violett.
+            OpenRingShape()
+                .fill(Color.brandViolet)
+                .frame(width: 160, height: 160)
+                .shadow(color: Color.brandViolet.opacity(0.25), radius: 24, y: 8)
+
+            // Oranger Dot der um den Ring kreist und dann in die Lücke dockt.
+            ZStack {
+                Circle()
+                    .fill(Color.brandOrange.opacity(0.4))
+                    .frame(width: 36, height: 36)
+                    .blur(radius: 8)
+                Circle()
+                    .fill(Color.brandOrange)
+                    .frame(width: 24, height: 24)
+            }
+            .offset(x: phase == 2 ? dockRadius : orbitRadius)
+            .rotationEffect(.degrees(phase == 0 ? dockAngle - 360 : dockAngle))
+            .scaleEffect(phase == 2 ? 1.15 : 1.0)
+            .animation(phase == 0
+                       ? nil
+                       : phase == 1
+                            ? .easeInOut(duration: 1.6)
+                            : .spring(response: 0.5, dampingFraction: 0.6),
+                       value: phase)
+        }
+        .onAppear { if active { runLoop() } }
+        .onChange(of: active) { _, new in if new { runLoop() } }
+    }
+
+    private func runLoop() {
+        // 0: Reset (snap zu Start ohne Animation) → 1: orbit → 2: dock
+        phase = 0
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            phase = 1
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.75) {
+            phase = 2
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) {
+            if active { runLoop() }
+        }
+    }
+}
+
+/// Slide 2: Drei Mini-Ring-Pins pulsieren versetzt auf einer leeren
+/// Karten-Fläche — zeigt „offene Runden in der Nähe".
+private struct MapPulseDemo: View {
+    let active: Bool
+    @State private var pulses: [Bool] = [false, false, false]
+
+    var body: some View {
+        ZStack {
+            // Karten-Simulacrum: weißer Container mit Lavendel-Flächen die
+            // wie Stadtblöcke wirken.
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .fill(Color.white)
+                .frame(width: 280, height: 220)
+                .shadow(color: Color(red: 0.357, green: 0.239, blue: 0.961).opacity(0.1), radius: 12, y: 6)
+
+            // Städte-"Blocks" als Deko
+            Group {
+                RoundedRectangle(cornerRadius: 6).fill(Color(red: 0.95, green: 0.93, blue: 1.0))
+                    .frame(width: 60, height: 42).offset(x: -75, y: -55)
+                RoundedRectangle(cornerRadius: 6).fill(Color(red: 0.95, green: 0.93, blue: 1.0))
+                    .frame(width: 50, height: 36).offset(x: 70, y: -62)
+                RoundedRectangle(cornerRadius: 6).fill(Color(red: 0.95, green: 0.93, blue: 1.0))
+                    .frame(width: 70, height: 40).offset(x: 65, y: 45)
+                // Straßen-Linien
+                Rectangle().fill(Color(red: 0.95, green: 0.93, blue: 1.0))
+                    .frame(width: 240, height: 4).offset(y: -10)
+                Rectangle().fill(Color(red: 0.95, green: 0.93, blue: 1.0))
+                    .frame(width: 4, height: 180).offset(x: 10)
+            }
+
+            // Drei Pins an versetzten Positionen
+            miniPin(0).offset(x: -60, y: -40)
+            miniPin(1).offset(x: 50, y: -10)
+            miniPin(2).offset(x: -20, y: 60)
+        }
+        .onAppear { if active { runPulses() } }
+        .onChange(of: active) { _, new in if new { runPulses() } }
+    }
+
+    private func miniPin(_ idx: Int) -> some View {
+        ZStack {
+            // Pulse-Ring in Orange (nicht violett) damit Puls klar sichtbar.
+            Circle()
+                .stroke(Color(red: 1.0, green: 0.627, blue: 0.180).opacity(0.6), lineWidth: 2)
+                .frame(width: 42, height: 42)
+                .scaleEffect(pulses[idx] ? 1.8 : 0.9)
+                .opacity(pulses[idx] ? 0.0 : 0.9)
+
+            // Pin: Weißer Kreis mit orangenem Ring (wie Friend-Pin auf Karte)
+            Circle()
+                .fill(Color.white)
+                .frame(width: 36, height: 36)
+                .overlay(Circle().stroke(Color(red: 1.0, green: 0.627, blue: 0.180), lineWidth: 3))
+                .shadow(color: Color(red: 1.0, green: 0.627, blue: 0.180).opacity(0.3), radius: 6, y: 2)
+
+            // DazuProfileIcon mittig
+            DazuProfileIcon(size: 20)
+        }
+    }
+
+    private func runPulses() {
+        for i in pulses.indices {
+            pulses[i] = false
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.4) {
+                withAnimation(.easeOut(duration: 1.6).repeatForever(autoreverses: false)) {
+                    pulses[i] = true
+                }
+            }
+        }
+    }
+}
+
+/// Slide 3: Ein scharfer orangener Dot (echter Standort) wird von einem
+/// weichen Lavendel-Blur (die „ungefähre" Sichtbarkeit) überdeckt — zeigt
+/// den Privacy-Schutz direkt visuell.
+private struct PrivacyFuzzDemo: View {
+    let active: Bool
+    @State private var showFuzz: Bool = false
+
+    var body: some View {
+        // Zwei Karten nebeneinander: "Du siehst dich scharf" (links) vs.
+        // "Andere sehen dich unscharf" (rechts). Die rechte Karte animiert
+        // ihre Fuzz-Blur-Welle und zeigt damit das 500m-Rounding.
+        HStack(spacing: 16) {
+            privacyCard(
+                title: "Freunde",
+                tint: Color.brandOrange,
+                showPrecise: true
+            )
+            privacyCard(
+                title: "Fremde",
+                tint: Color.brandViolet,
+                showPrecise: false
+            )
+        }
+        .onAppear { if active { startAnimation() } }
+        .onChange(of: active) { _, new in if new { startAnimation() } else { showFuzz = false } }
+    }
+
+    private func startAnimation() {
+        showFuzz = false
+        withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) {
+            showFuzz = true
+        }
+    }
+
+    @ViewBuilder
+    private func privacyCard(title: String, tint: Color, showPrecise: Bool) -> some View {
+        VStack(spacing: 10) {
+            ZStack {
+                // Karten-Card
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(Color.white)
+                    .frame(width: 140, height: 160)
+                    .shadow(color: Color.brandViolet.opacity(0.1), radius: 8, y: 4)
+
+                // Mini Stadt-Blöcke
+                Group {
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color(red: 0.95, green: 0.93, blue: 1.0))
+                        .frame(width: 36, height: 24)
+                        .offset(x: -36, y: -42)
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color(red: 0.95, green: 0.93, blue: 1.0))
+                        .frame(width: 28, height: 20)
+                        .offset(x: 36, y: -45)
+                    Rectangle()
+                        .fill(Color(red: 0.95, green: 0.93, blue: 1.0))
+                        .frame(width: 110, height: 2.5)
+                        .offset(y: -15)
+                }
+
+                if showPrecise {
+                    // Links: scharfer oranger Pin mit kleinem Ring
+                    ZStack {
+                        Circle()
+                            .fill(Color.brandOrange.opacity(0.3))
+                            .frame(width: 32, height: 32)
+                            .blur(radius: 4)
+                        Circle()
+                            .fill(Color.brandOrange)
+                            .frame(width: 14, height: 14)
+                            .overlay(Circle().stroke(Color.white, lineWidth: 2))
+                            .shadow(color: Color.brandOrange.opacity(0.5), radius: 4)
+                    }
+                    .offset(y: 10)
+                } else {
+                    // Rechts: unscharfer Blob (so sehen andere dich).
+                    // Animiert zwischen zwei Blur-Zuständen und bewegt sich
+                    // leicht, um das "ungefähr" visuell zu machen.
+                    Circle()
+                        .fill(
+                            RadialGradient(
+                                colors: [Color.brandViolet.opacity(0.55),
+                                         Color.brandViolet.opacity(0.0)],
+                                center: .center, startRadius: 4, endRadius: 60
+                            )
+                        )
+                        .frame(width: 110, height: 110)
+                        .blur(radius: showFuzz ? 14 : 8)
+                        .scaleEffect(showFuzz ? 1.1 : 0.9)
+                        .offset(x: showFuzz ? 8 : -6,
+                                y: showFuzz ? -4 : 14)
+                }
+            }
+            // Caption-Chip — Freunde (Person-Icon) vs. Fremde (Eye-Icon).
+            HStack(spacing: 4) {
+                Image(systemName: showPrecise ? "person.2.fill" : "eye.fill")
+                    .font(.system(size: 9, weight: .bold))
+                Text(title)
+                    .font(.system(size: 11, weight: .heavy, design: .rounded))
+            }
+            .foregroundColor(tint)
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .background(Capsule().fill(tint.opacity(0.15)))
+        }
+    }
+}

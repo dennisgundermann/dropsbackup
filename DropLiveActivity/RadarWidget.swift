@@ -16,15 +16,19 @@ struct RadarWidget: Widget {
         }
         .configurationDisplayName("Pläne in der Nähe")
         .description("Zeigt wie viele Pläne gerade in deinem Radius laufen.")
-        .supportedFamilies([.systemSmall, .systemMedium])
+        .supportedFamilies([
+            .systemSmall, .systemMedium, .systemLarge,
+            .accessoryCircular, .accessoryRectangular, .accessoryInline
+        ])
     }
 }
 
 // MARK: - Background helper (iOS 16 fallback)
 
 private extension View {
-    /// containerBackground gibt's erst ab iOS 17. Auf iOS 16 (das minimum
-    /// dieser Extension) fallen wir auf einen normalen background zurück.
+    /// Home-Screen-Widgets: Violet-Gradient. Lock-Screen-Accessory-Widgets
+    /// bekommen keinen eigenen Hintergrund (iOS rendert sie auf das Wallpaper
+    /// mit AccessoryWidget-Tint).
     @ViewBuilder
     func radarContainerBackground() -> some View {
         let gradient = LinearGradient(
@@ -32,9 +36,41 @@ private extension View {
             startPoint: .topLeading, endPoint: .bottomTrailing
         )
         if #available(iOS 17.0, *) {
-            self.containerBackground(for: .widget) { gradient }
+            self.containerBackground(for: .widget) {
+                // Für Accessory-Familien transparent, sonst Gradient.
+                AccessoryAwareBackground(gradient: gradient)
+            }
         } else {
             self.background(gradient)
+        }
+    }
+}
+
+@available(iOS 17.0, *)
+private struct AccessoryAwareBackground: View {
+    @Environment(\.widgetFamily) private var family
+    let gradient: LinearGradient
+    var body: some View {
+        if family == .accessoryCircular
+            || family == .accessoryRectangular
+            || family == .accessoryInline {
+            Color.clear
+        } else {
+            gradient
+        }
+    }
+}
+
+private extension View {
+    /// Lock-Screen-Accessory-Hintergrund: iOS rendert ein getöntes Milchglas
+    /// hinter dem Inhalt (`AccessoryWidgetBackground()`). Nicht auf Inline-
+    /// Family — die ist textbasiert und wird vom System selbst getönt.
+    @ViewBuilder
+    func widgetAccessoryBackground() -> some View {
+        if #available(iOS 16.0, *) {
+            self.background(AccessoryWidgetBackground())
+        } else {
+            self
         }
     }
 }
@@ -106,12 +142,140 @@ struct RadarWidgetView: View {
     }
 
     var body: some View {
-        Link(destination: URL(string: "drops://map")!) {
+        Link(destination: URL(string: "dazu://map")!) {
             switch family {
-            case .systemSmall:  smallLayout
-            default:            mediumLayout
+            case .systemSmall:          smallLayout
+            case .systemLarge:          largeLayout
+            case .accessoryCircular:    circularAccessory
+            case .accessoryRectangular: rectangularAccessory
+            case .accessoryInline:      inlineAccessory
+            default:                    mediumLayout
             }
         }
+    }
+
+    // MARK: Lock-Screen-Accessories
+
+    @ViewBuilder
+    private var circularAccessory: some View {
+        // Ringanzeige: Count groß in der Mitte, umlaufender Fortschritts-
+        // Ring als visueller Dot-Platzhalter (iOS tönt alles weiß).
+        ZStack {
+            Circle()
+                .stroke(.white.opacity(0.25), lineWidth: 2)
+            Circle()
+                .trim(from: 0, to: 0.74)
+                .stroke(.white, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                .rotationEffect(.degrees(-48))
+            VStack(spacing: 0) {
+                Text("\(entry.state.nearbyCount)")
+                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                Text("nah")
+                    .font(.system(size: 8, weight: .semibold))
+            }
+        }
+        .widgetAccessoryBackground()
+    }
+
+    @ViewBuilder
+    private var rectangularAccessory: some View {
+        HStack(spacing: 6) {
+            DropsMarkGlyph(size: 16, ringColor: .white, dotColor: .white)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("\(entry.state.nearbyCount) in der Nähe")
+                    .font(.system(size: 13, weight: .semibold))
+                if let ends = entry.state.nextEndsAt, ends > Date() {
+                    Text("Nächster endet \(ends, style: .timer)")
+                        .font(.system(size: 10, weight: .medium))
+                        .monospacedDigit()
+                        .lineLimit(1)
+                } else {
+                    Text("Tippen → öffnen")
+                        .font(.system(size: 10, weight: .medium))
+                        .opacity(0.75)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .widgetAccessoryBackground()
+    }
+
+    @ViewBuilder
+    private var inlineAccessory: some View {
+        if entry.state.nearbyCount > 0 {
+            Text("dazu · \(entry.state.nearbyCount) in der Nähe")
+        } else {
+            Text("dazu · grad still")
+        }
+    }
+
+    // MARK: Large
+
+    @ViewBuilder
+    private var largeLayout: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 6) {
+                DropsMarkGlyph(size: 18)
+                Text("Pläne in der Nähe")
+                    .font(.system(size: 15, weight: .semibold))
+            }
+            .foregroundStyle(.white.opacity(0.9))
+
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text("\(entry.state.nearbyCount)")
+                    .font(.system(size: 92, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .monospacedDigit()
+                Text(entry.state.nearbyCount == 1 ? "läuft" : "laufen")
+                    .font(.system(size: 20, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.85))
+            }
+
+            if let ends = entry.state.nextEndsAt, ends > Date() {
+                HStack(spacing: 6) {
+                    Image(systemName: "clock.fill")
+                        .font(.system(size: 11, weight: .semibold))
+                    Text("Nächster endet \(ends, style: .timer)")
+                        .font(.system(size: 13, weight: .semibold))
+                        .monospacedDigit()
+                        .lineLimit(1)
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 10).padding(.vertical, 6)
+                .background(.white.opacity(0.14), in: Capsule())
+            }
+
+            Spacer(minLength: 0)
+
+            HStack(spacing: 8) {
+                Link(destination: URL(string: "dazu://create")!) {
+                    tileCTA(icon: "plus", title: "Jetzt dazu")
+                }
+                Link(destination: URL(string: "dazu://feed")!) {
+                    tileCTA(icon: "magnifyingglass", title: "Umgebung")
+                }
+            }
+
+            if isStale {
+                Text("Daten älter als 15 Min — öffne die App")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.7))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func tileCTA(icon: String, title: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon).font(.system(size: 12, weight: .semibold))
+            Text(title).font(.system(size: 13, weight: .semibold))
+        }
+        .foregroundStyle(.white)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 10)
+        .background(.white.opacity(0.14), in: Capsule())
+        .overlay(Capsule().stroke(.white.opacity(0.22), lineWidth: 1))
     }
 
     // MARK: Small

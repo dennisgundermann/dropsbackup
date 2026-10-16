@@ -149,7 +149,7 @@ struct FirstDropCoachOverlay: View {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .fill(Color.brand.opacity(0.12))
                         .frame(width: 48, height: 48)
-                    Image(systemName: stepIcon(step))
+                    DazuIcon(stepIcon(step))
                         .font(.system(size: 22, weight: .semibold))
                         .foregroundColor(.brand)
                 }
@@ -173,7 +173,7 @@ struct FirstDropCoachOverlay: View {
                     Text(step.isLast ? tr("coach.start_drop") : tr("coach.next"))
                         .font(.system(size: 16, weight: .bold))
                         .foregroundColor(.white)
-                    Image(systemName: step.isLast ? "bolt.fill" : "arrow.right")
+                    DazuIcon(step.isLast ? "bolt.fill" : "arrow.right")
                         .font(.system(size: 14, weight: .bold))
                         .foregroundColor(.white)
                     Spacer()
@@ -189,13 +189,13 @@ struct FirstDropCoachOverlay: View {
                 )
                 .shadow(color: Color.brand.opacity(0.25), radius: 8, y: 3)
             }
-            .buttonStyle(.plain)
+            .dropsPressable()
             .disabled(isAnimating)
         }
         .padding(22)
         .background(
             RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(Color(UIColor.systemBackground))
+                .fill(Color.bgPrimary)
                 .shadow(color: .black.opacity(0.15), radius: 28, x: 0, y: -6)
         )
     }

@@ -27,6 +27,8 @@ final class ProfileImageCache {
 
 struct RemoteProfileImage: View {
     let url: String?
+    /// Legacy-Parameter — Emojis werden nicht mehr als Fallback gezeigt,
+    /// stattdessen rendern wir das dazu-Logo-Zeichen (offener Ring).
     let fallbackEmoji: String
     let size: CGFloat
     var strokeColor: Color = Color.white.opacity(0.25)
@@ -42,11 +44,15 @@ struct RemoteProfileImage: View {
                     .clipShape(Circle())
                     .overlay(Circle().stroke(strokeColor, lineWidth: 1.5))
             } else {
-                Circle()
-                    .fill(Color.brand.opacity(0.12))
-                    .frame(width: size, height: size)
-                    .overlay(Text(fallbackEmoji).font(.system(size: size * 0.48)))
-                    .overlay(Circle().stroke(strokeColor, lineWidth: 1.5))
+                // Fallback: Lavendel-Kreis mit dem Zwei-Ton dazu-Profil-Icon
+                // (Schulter-Arc violett, Kopf orange — wie das dazu-Logo).
+                ZStack {
+                    Circle()
+                        .fill(Color.brandLavender)
+                        .frame(width: size, height: size)
+                    DazuProfileIcon(size: size * 0.6)
+                }
+                .overlay(Circle().stroke(strokeColor, lineWidth: 1.5))
             }
         }
         .onAppear { loadImage() }
@@ -150,7 +156,7 @@ struct PushPermissionBanner: View {
                         )
                     )
                     .frame(width: 36, height: 36)
-                Image(systemName: "bell.badge.fill")
+                DazuIcon("bell.badge.fill", accent: false)
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(.white)
             }
@@ -171,7 +177,7 @@ struct PushPermissionBanner: View {
             Button {
                 withAnimation(.easeOut(duration: 0.25)) { dismissed = true }
             } label: {
-                Image(systemName: "xmark")
+                DazuIcon("xmark")
                     .font(.system(size: 11, weight: .bold))
                     .foregroundColor(.textTertiary)
                     .frame(width: 22, height: 22)
@@ -257,7 +263,7 @@ struct RadarPulseHero: View {
                         )
                     )
                     .frame(width: 72 * scale, height: 72 * scale)
-                Image(systemName: icon)
+                DazuIcon(icon, accent: false)
                     .font(.system(size: 28 * scale, weight: .semibold))
                     .foregroundStyle(
                         LinearGradient(
@@ -346,7 +352,7 @@ struct DynamicIslandMock: View {
     private var compactContent: some View {
         HStack {
             HStack(spacing: 3) {
-                Text("☕️").font(.system(size: 14))
+                DazuIcon("runde").font(.system(size: 14)).foregroundColor(.white)
                 Text("2/4")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(.white)
@@ -365,8 +371,9 @@ struct DynamicIslandMock: View {
         HStack(alignment: .center, spacing: 0) {
             // Leading
             HStack(spacing: 8) {
-                Text("☕️")
+                DazuIcon("runde")
                     .font(.system(size: 28))
+                    .foregroundColor(.white)
                     .frame(width: 46, height: 46)
                     .background(Color.white.opacity(0.1),
                                 in: RoundedRectangle(cornerRadius: 12))
@@ -385,7 +392,7 @@ struct DynamicIslandMock: View {
 
             // Trailing — Personen-Capsule
             HStack(spacing: 3) {
-                Image(systemName: "person.2.fill")
+                DazuIcon("person.2.fill", accent: false)
                     .font(.system(size: 11))
                 Text("2/4")
                     .font(.system(size: 14, weight: .bold))
@@ -418,72 +425,41 @@ struct DropsEmptyState: View {
     @AppStorage("appLanguage") private var appLanguage = "de"
 
     var body: some View {
-        VStack(spacing: 28) {
-            // Rotierendes Drops-Mark (echtes App-Icon-Zeichen, ohne „du"-Dot
-            // — niemand ist da, der Ring dreht sich und wartet).
-            RotatingDropsMark(size: 92)
-                .padding(.top, 8)
-
-            VStack(spacing: 12) {
-                Text(tr("shared.feed_empty_title"))
-                    .font(.system(size: 28, weight: .bold, design: .rounded))
-                    .foregroundColor(.brandNight)
-                    .multilineTextAlignment(.center)
-                Text(tr("shared.feed_empty_body"))
-                    .font(.system(size: 15, weight: .medium, design: .rounded))
-                    .foregroundColor(.brandNight.opacity(0.55))
-                    .multilineTextAlignment(.center)
-                    .lineSpacing(4)
-                    .padding(.horizontal, 40)
-
-                // Boost-Bonus-Zeile — sichtbar wenn Boost-Phase aktiv ist.
-                // Schmale Capsule mit Bolt-Icon + Hinweis auf die +15
-                // Punkte. Belohnung statt eigener Werbe-Banner — die
-                // Botschaft "sei der erste" oben bleibt der primäre CTA,
-                // der Bonus untermauert ihn nur.
-                if boostActive {
-                    HStack(spacing: 6) {
-                        Image(systemName: "bolt.fill")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundColor(.accentOrange)
-                        Text(isPowerHour
-                             ? tr("shared.power_hour_bonus_amount").replacingOccurrences(of: "{bonus}", with: "\(boostBonus)")
-                             : tr("shared.boost_bonus_amount").replacingOccurrences(of: "{bonus}", with: "\(boostBonus)"))
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(.accentOrange)
+        VStack(spacing: 10) {
+            // Animiert (DazuBranding.swift); Vorlage war das Bild „LeerTreffen".
+            DazuNearbyEmptyArt()
+                .frame(height: 150)
+                .padding(.bottom, 6)
+                .accessibilityHidden(true)
+            Text(tr("shared.empty_nothing"))
+                .font(.system(size: 22, weight: .bold, design: .rounded))
+                .foregroundColor(.brandNight)
+                .multilineTextAlignment(.center)
+            Text(tr("shared.empty_hint"))
+                .font(.system(size: 14, weight: .medium, design: .rounded))
+                .foregroundColor(.brandNight.opacity(0.55))
+                .multilineTextAlignment(.center)
+                .lineSpacing(3)
+                .padding(.horizontal, 32)
+            // Solange in der Nähe nichts los ist: dazu auf Instagram folgen.
+            if let url = AppLinks.instagramURL {
+                Button { UIApplication.shared.open(url) } label: {
+                    HStack(spacing: 8) {
+                        DazuAssetIcon(asset: "SetInstagram")
+                            .frame(width: 18, height: 18)
+                        Text(tr("shared.follow_instagram"))
+                            .font(.system(size: 14, weight: .bold, design: .rounded))
                     }
-                    .padding(.horizontal, 12).padding(.vertical, 6)
-                    .background(
-                        Capsule().fill(Color.accentOrange.opacity(0.12))
-                    )
-                    .overlay(
-                        Capsule().stroke(Color.accentOrange.opacity(0.30), lineWidth: 1)
-                    )
-                    .padding(.top, 8)
-                }
-            }
-
-            if let action = onCreateTap {
-                Button(action: action) {
-                    HStack(spacing: 10) {
-                        // „du"-Dot aus dem Logo — Orange Signal links.
-                        Circle()
-                            .fill(Color.brandOrange)
-                            .frame(width: 10, height: 10)
-                            .shadow(color: Color.brandOrange.opacity(0.6), radius: 4)
-                        Text("Starte eine Runde")
-                            .font(.system(size: 16, weight: .bold, design: .rounded))
-                        Image(systemName: "arrow.right")
-                            .font(.system(size: 13, weight: .heavy))
-                    }
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 22).padding(.vertical, 15)
-                    .background(Capsule().fill(Color.brandViolet))
+                    .foregroundColor(.brandViolet)
+                    .padding(.horizontal, 18).padding(.vertical, 10)
+                    .background(Capsule().fill(Color.brandViolet.opacity(0.10)))
                 }
                 .dropsPressable()
-                .padding(.top, 6)
+                .padding(.top, 8)
             }
         }
+        .padding(.vertical, 20)
+        .padding(.horizontal, 20)
     }
 }
 
@@ -555,9 +531,9 @@ struct SwipeToConfirm: View {
                 // Hint-Pfeile rechts (zwei, wie bei iOS „slide to unlock")
                 HStack(spacing: 2) {
                     Spacer()
-                    Image(systemName: "chevron.right")
+                    DazuIcon("chevron.right")
                         .foregroundColor(.white.opacity(0.55 * (1.0 - progress)))
-                    Image(systemName: "chevron.right")
+                    DazuIcon("chevron.right")
                         .foregroundColor(.white.opacity(0.85 * (1.0 - progress)))
                 }
                 .font(.system(size: 14, weight: .heavy))
@@ -654,15 +630,14 @@ private struct RotatingDropsMark: View {
                 .fill(Color.brandViolet)
                 .frame(width: size, height: size)
 
-            // Oranger Dot auf Kreisbahn: Dot sitzt rechts vom Zentrum
-            // (.offset.x = Radius), der ganze Container rotiert um die
-            // Mitte — so wandert der Dot sauber um den Ring.
+            // Oranger Dot auf Kreisbahn — klarer Abstand vom Ring außen.
+            // Vorher 0.46 (fast am Ring), jetzt 0.62 (deutlich außen).
             ZStack {
                 Circle()
                     .fill(Color.brandOrange)
                     .frame(width: size * 0.21, height: size * 0.21)
                     .shadow(color: Color.brandOrange.opacity(0.5), radius: 6, y: 2)
-                    .offset(x: size * 0.46)
+                    .offset(x: size * 0.62)
             }
             .frame(width: size, height: size)
             .rotationEffect(.degrees(spin))
@@ -677,7 +652,7 @@ private struct RotatingDropsMark: View {
 }
 
 /// Nur der offene Ring aus dem AppIcon — ohne den „a"-Stamm.
-private struct OpenRingShape: Shape {
+struct OpenRingShape: Shape {
     func path(in rect: CGRect) -> Path {
         let s = min(rect.width, rect.height) / 256.0
         var arc = Path()
@@ -686,6 +661,41 @@ private struct OpenRingShape: Shape {
                    startAngle: .degrees(-1.16), endAngle: .degrees(265.16),
                    clockwise: false)
         return arc.strokedPath(StrokeStyle(lineWidth: 40 * s, lineCap: .round))
+    }
+}
+
+/// Zwei-Ton-Variante vom dazu-Profil-Icon: Schulter-Arc violett, Kopf
+/// orange — genau wie beim dazu-Logo (Ring + Dot). Wird als Avatar-Fallback
+/// genutzt wenn kein Foto hochgeladen ist.
+/// Das SVG-Layout matched exakt `TabProfil.imageset/tab-profil.svg`
+/// (viewBox 14 14 228 228) → selbe Proportionen wie das Tab-Bar-Icon.
+struct DazuProfileIcon: View {
+    var size: CGFloat = 32
+
+    var body: some View {
+        // Nutze direkt das Tab-Bar-Icon-Asset als template → so sind die
+        // Proportionen 1:1 identisch zum Icon unten in der Tab-Bar.
+        // Dann overlayen wir an der Head-Position einen orangen Kreis um
+        // den Zwei-Ton-Look zu bekommen (Arc violett, Kopf orange).
+        //
+        // Tab-Bar-SVG: viewBox 14-242 (228 nutzbar), Head center (128,82)
+        // r=36 → relative Position (0.5, 0.299) im Icon-Rect, Radius 0.158.
+        Image("TabProfil")
+            .renderingMode(.template)
+            .resizable()
+            .scaledToFit()
+            .foregroundColor(.brandVioletFixed)
+            .frame(width: size, height: size)
+            .overlay {
+                GeometryReader { geo in
+                    let dim = min(geo.size.width, geo.size.height)
+                    Circle()
+                        .fill(Color.brandOrangeFixed)
+                        .frame(width: dim * 0.316, height: dim * 0.316) // 2*r/228
+                        .position(x: geo.size.width * 0.5,
+                                  y: geo.size.height * 0.299)
+                }
+            }
     }
 }
 
@@ -703,7 +713,11 @@ struct FreundeEmptyState: View {
 
     var body: some View {
         VStack(spacing: 28) {
-            RadarPulseHero(icon: "person.2.fill", ringCount: 2)
+            Image("LeerFreunde")
+                .resizable()
+                .scaledToFit()
+                .frame(height: 170)
+                .accessibilityHidden(true)
 
             VStack(spacing: 12) {
                 Text(tr("shared.no_friends_title"))
@@ -728,7 +742,7 @@ struct FreundeEmptyState: View {
                             HStack(spacing: 8) {
                                 Text(tr("shared.add_from_contacts"))
                                     .font(.system(size: 16, weight: .bold, design: .rounded))
-                                Image(systemName: "arrow.right")
+                                DazuIcon("arrow.right")
                                     .font(.system(size: 13, weight: .heavy))
                             }
                             .foregroundColor(.white)
@@ -740,7 +754,7 @@ struct FreundeEmptyState: View {
                     if let share = onShareInvite {
                         Button(action: share) {
                             HStack(spacing: 6) {
-                                Image(systemName: "square.and.arrow.up")
+                                DazuIcon("square.and.arrow.up")
                                     .font(.system(size: 12, weight: .semibold))
                                 Text(tr("shared.share_invite_link"))
                                     .font(.system(size: 13, weight: .semibold))
@@ -768,7 +782,7 @@ struct DropShareButton: View {
         Button {
             shareDrops()
         } label: {
-            Image(systemName: "square.and.arrow.up")
+            DazuIcon("square.and.arrow.up")
                 .font(.system(size: 15, weight: .medium))
                 .foregroundColor(.textSecondary)
                 .padding(8)
@@ -782,7 +796,7 @@ struct DropShareButton: View {
         // Links akzeptieren keine Redirects (siehe LiveMapView).
         let deepLink = AppLinks.dropShareURL(dropID: item.id.uuidString)
         let location = item.locationTitle.isEmpty ? "" : " · \(item.locationTitle)"
-        let text = "\(item.emoji) \(item.activity)\(location) — komm vorbei. Spontan, vor Ort, kein Smalltalk. 👋"
+        let text = "\(item.activity)\(location) — komm vorbei. Spontan, vor Ort, kein Smalltalk."
         // Text + URL als EIN String — sonst kopiert iOS „In Zwischenablage"
         // nur den Text und verliert die URL. Apps wie iMessage/WhatsApp
         // parsen die URL eh automatisch raus und zeigen Link-Preview.
@@ -903,7 +917,7 @@ struct EmojiScatterBackground: View {
         GeometryReader { geo in
             ZStack {
                 ForEach(Array(placements.enumerated()), id: \.offset) { i, p in
-                    Text(emoji)
+                    DazuActivityIcon(emoji)
                         .font(.system(size: 26))
                         .scaleEffect(p.3)
                         .rotationEffect(.degrees(p.2))
@@ -1037,7 +1051,7 @@ struct ProfileHeroPickerSheet: View {
                                             // Exklusiv-Marker für Tester-Variante
                                             if tpl.isExclusive {
                                                 HStack(spacing: 3) {
-                                                    Image(systemName: "sparkle")
+                                                    DazuIcon("sparkle")
                                                         .font(.system(size: 7, weight: .bold))
                                                     Text(tr("shared.beta"))
                                                         .font(.system(size: 8, weight: .bold))
@@ -1060,7 +1074,7 @@ struct ProfileHeroPickerSheet: View {
                                         .shadow(color: tpl.colors.first?.opacity(0.35) ?? .clear, radius: 8, y: 4)
                                     HStack(spacing: 5) {
                                         if selection == tpl {
-                                            Image(systemName: "checkmark.circle.fill")
+                                            DazuIcon("checkmark.circle.fill")
                                                 .font(.system(size: 12))
                                                 .foregroundColor(.brand)
                                         }
@@ -1097,7 +1111,7 @@ struct ProfileHeroPickerSheet: View {
 struct BetaBadge: View {
     var body: some View {
         HStack(spacing: 3) {
-            Image(systemName: "sparkle")
+            DazuIcon("sparkle", solid: true)
                 .font(.system(size: 8, weight: .bold))
             Text(tr("shared.beta"))
                 .font(.system(size: 9, weight: .bold, design: .rounded))
@@ -1185,7 +1199,7 @@ struct EmojiPickerSheet: View {
                             withAnimation(.spring(response: 0.25)) { selectedCategory = i }
                         } label: {
                             HStack(spacing: 5) {
-                                Image(systemName: cat.icon)
+                                DazuIcon(cat.icon, accent: false)
                                     .font(.system(size: 11, weight: .semibold))
                                 Text(cat.name)
                                     .font(.system(size: 12, weight: .medium))
@@ -1242,46 +1256,7 @@ struct EmojiPickerSheet: View {
     }
 }
 
-// MARK: - Power-Hour Countdown Pill
-//
-// Wird sowohl im LiveMapView als auch im FeedView angezeigt — extrahiert
-// damit beide Tabs konsistent dieselbe Pille rendern. Sichtbar ≤60 Min vor
-// einem Window-Start oder ≤60 Min vor Ende eines aktiven Slots; sonst nil.
-//
-// Hostende Views wickeln den Aufruf in eine TimelineView, damit der
-// Countdown jede Minute neu berechnet wird.
-struct PowerHourCountdownPill: View {
-    let countdown: AppStore.PowerHourCountdown
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "bolt.fill")
-                .font(.system(size: 11, weight: .bold))
-                .foregroundColor(.white)
-            Text(label)
-                .font(.system(size: 12, weight: .bold, design: .rounded))
-                .foregroundColor(.white)
-        }
-        .padding(.horizontal, 12).padding(.vertical, 6)
-        .background(Capsule().fill(Color.brandOrange))
-    }
-
-    private var label: String {
-        let mins = formatMinutes(countdown.minutesRemaining)
-        switch countdown.phase {
-        case .startingSoon: return tr("shared.ph_starting_in").replacingOccurrences(of: "{time}", with: mins)
-        case .running:      return tr("shared.power_hour_running").replacingOccurrences(of: "{time}", with: mins)
-        case .endingSoon:   return tr("shared.ph_ending_in").replacingOccurrences(of: "{time}", with: mins)
-        }
-    }
-
-    private func formatMinutes(_ minutes: Int) -> String {
-        if minutes < 60 { return "\(minutes) Min" }
-        let h = minutes / 60
-        let m = minutes % 60
-        return m == 0 ? "\(h)h" : "\(h)h \(m)min"
-    }
-}
+// Power-Hour Countdown Pill wurde entfernt (Feature eingestampft).
 
 // MARK: - App Version Gate (Force-Update + Recommend-Banner)
 //
@@ -1356,16 +1331,16 @@ private struct ForceUpdateSheet: View {
                         .fill(Color.brandLavender.opacity(0.9))
                         .frame(width: 96, height: 96)
                         .scaleEffect(iconBeat ? 1.05 : 0.98)
-                    Image(systemName: "arrow.up.circle.fill")
+                    DazuIcon("arrow.up.circle.fill")
                         .font(.system(size: 46, weight: .heavy))
                         .foregroundColor(.brandOrange)
                 }
                 .frame(maxWidth: .infinity, alignment: .center)
 
                 VStack(alignment: .leading, spacing: -2) {
-                    Text("Update")
+                    Text(tr("shared.update"))
                         .foregroundColor(.brandNight)
-                    Text("ist nötig.")
+                    Text(tr("shared.update_needed"))
                         .foregroundColor(.brandViolet)
                 }
                 .font(.system(size: 36, weight: .heavy, design: .rounded))
@@ -1378,7 +1353,7 @@ private struct ForceUpdateSheet: View {
                     .padding(.horizontal, 28)
 
                 HStack(spacing: 6) {
-                    Image(systemName: "iphone")
+                    DazuIcon("iphone")
                         .font(.system(size: 11, weight: .bold))
                         .foregroundColor(.brandViolet)
                     Text(tr("shared.using_version").replacingOccurrences(of: "{ver}", with: store.currentAppVersion))
@@ -1429,7 +1404,7 @@ private struct RecommendUpdateBanner: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: "arrow.up.circle.fill")
+            DazuIcon("arrow.up.circle.fill")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundColor(.white)
             VStack(alignment: .leading, spacing: 1) {
@@ -1450,7 +1425,7 @@ private struct RecommendUpdateBanner: View {
             }
             .dropsPressable()
             Button(action: onDismiss) {
-                Image(systemName: "xmark")
+                DazuIcon("xmark")
                     .font(.system(size: 11, weight: .bold))
                     .foregroundColor(.white.opacity(0.85))
                     .padding(6)
@@ -1504,13 +1479,14 @@ struct HomeZoneWarningSheet: View {
             VStack(spacing: 0) {
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 22) {
-                        // Großes Haus-Icon in Orange-Lavendel-Kreis (flat).
+                        // Shield-Icon in Lavendel-Kreis — passt zur Privatsphäre-
+                        // Warnung besser als ein Haus (Standort-Schutz-Signal).
                         ZStack {
                             Circle()
-                                .fill(Color.brandLavender.opacity(0.9))
+                                .fill(Color.brandLavender)
                                 .frame(width: 92, height: 92)
                                 .scaleEffect(pulse ? 1.05 : 0.98)
-                            Image(systemName: "house.fill")
+                            DazuIcon("exclamationmark.shield.fill")
                                 .font(.system(size: 40, weight: .heavy))
                                 .foregroundColor(.brandOrange)
                         }
@@ -1519,16 +1495,16 @@ struct HomeZoneWarningSheet: View {
 
                         // Big headline im Rondesignlab-Rhythmus: Nacht + Violett.
                         VStack(alignment: .leading, spacing: -2) {
-                            Text("Das ist")
+                            Text(tr("shared.homezone_title"))
                                 .foregroundColor(.brandNight)
-                            Text("deine Heimzone.")
+                            Text(tr("shared.homezone_title_2"))
                                 .foregroundColor(.brandViolet)
                         }
                         .font(.system(size: 32, weight: .heavy, design: .rounded))
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 24)
 
-                        Text("Wenn du hier startest, sehen Fremde ungefähr, wo du wohnst.")
+                        Text(tr("shared.homezone_body"))
                             .font(.system(size: 16, weight: .medium, design: .rounded))
                             .foregroundColor(.brandNight.opacity(0.65))
                             .multilineTextAlignment(.leading)
@@ -1550,13 +1526,13 @@ struct HomeZoneWarningSheet: View {
                 // Aktionen — fester Footer
                 VStack(spacing: 10) {
                     Button(action: onCancel) {
-                        Text("Anderen Ort wählen")
+                        Text(tr("shared.homezone_pick_other"))
                             .dropsPrimaryButton()
                     }
                     .dropsPressable()
 
                     Button(action: onProceed) {
-                        Text("Trotzdem hier starten")
+                        Text(tr("shared.homezone_still_start"))
                             .font(.system(size: 15, weight: .semibold, design: .rounded))
                             .foregroundColor(.brandNight.opacity(0.55))
                             .frame(maxWidth: .infinity)
@@ -1579,7 +1555,7 @@ struct HomeZoneWarningSheet: View {
     @ViewBuilder
     private func warningRow(icon: String, text: String) -> some View {
         HStack(alignment: .center, spacing: 14) {
-            Image(systemName: icon)
+            DazuIcon(icon)
                 .font(.system(size: 15, weight: .bold))
                 .foregroundColor(.brandViolet)
                 .frame(width: 36, height: 36)
@@ -1609,7 +1585,7 @@ struct AdminNoticeSheet: View {
 
     private var headline: String {
         switch notice.type {
-        case "drop_removed": return "Dein Plan wurde entfernt"
+        case "drop_removed": return "Deine Runde wurde entfernt"
         default:             return "Hinweis"
         }
     }
@@ -1634,7 +1610,7 @@ struct AdminNoticeSheet: View {
                             Circle()
                                 .fill(Color.brandLavender.opacity(0.9))
                                 .frame(width: 92, height: 92)
-                            Image(systemName: "exclamationmark.shield.fill")
+                            DazuIcon("exclamationmark.shield.fill")
                                 .font(.system(size: 40, weight: .heavy))
                                 .foregroundColor(.brandOrange)
                         }
@@ -1692,87 +1668,6 @@ struct AdminNoticeSheet: View {
     }
 }
 
-// MARK: - Power-Hour Intro Sheet
-//
-// Einmaliger Hinweis nach App-Update, gezeigt beim ersten Map-Open.
-// Erklärt Power-Hour kurz mit Bonus-Wert und den drei Slots — danach
-// wird der Hinweis via @AppStorage("hasSeenPowerHourIntro") nicht mehr
-// angezeigt. Auch ohne nochmal in die Settings zu gehen, weiß der User
-// dann was Power-Hour ist und wann.
-struct PowerHourIntroSheet: View {
-    let onDismiss: () -> Void
-
-    var body: some View {
-        ZStack {
-            Color.brandCream.ignoresSafeArea()
-
-            VStack(spacing: 0) {
-                ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 20) {
-                        ZStack {
-                            Circle()
-                                .fill(Color.brandLavender.opacity(0.9))
-                                .frame(width: 92, height: 92)
-                            Image(systemName: "bolt.fill")
-                                .font(.system(size: 40, weight: .heavy))
-                                .foregroundColor(.brandOrange)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.top, 20)
-
-                        VStack(alignment: .leading, spacing: -2) {
-                            Text("Power-Hour.")
-                                .foregroundColor(.brandNight)
-                            Text("Mehr Punkte.")
-                                .foregroundColor(.brandViolet)
-                        }
-                        .font(.system(size: 30, weight: .heavy, design: .rounded))
-                        .padding(.horizontal, 24)
-
-                        Text(tr("shared.power_hour_explainer")
-                            .replacingOccurrences(of: "{bonus}", with: "\(AppStore.powerHourBonus)")
-                            .replacingOccurrences(of: "{base}", with: "\(AppStore.boostBonus)"))
-                            .font(.system(size: 15, weight: .medium, design: .rounded))
-                            .foregroundColor(.brandNight.opacity(0.65))
-                            .fixedSize(horizontal: false, vertical: true)
-                            .padding(.horizontal, 24)
-
-                        VStack(spacing: 8) {
-                            ForEach(Array(AppStore.powerHourWindows.enumerated()), id: \.offset) { _, window in
-                                HStack {
-                                    Text(window.label)
-                                        .font(.system(size: 15, weight: .bold, design: .rounded))
-                                        .foregroundColor(.brandNight)
-                                    Spacer()
-                                    Text(formatWindow(window))
-                                        .font(.system(size: 14, weight: .medium, design: .rounded))
-                                        .foregroundColor(.brandViolet)
-                                }
-                                .padding(.horizontal, 16).padding(.vertical, 14)
-                                .liquidGlass(cornerRadius: 18)
-                            }
-                        }
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, 8)
-                    }
-                }
-
-                Button(action: onDismiss) {
-                    Text(tr("shared.understood"))
-                        .dropsPrimaryButton()
-                }
-                .dropsPressable()
-                .padding(.horizontal, 20)
-                .padding(.bottom, 22)
-                .padding(.top, 6)
-            }
-        }
-    }
-
-    private func formatWindow(_ w: AppStore.PowerHourWindow) -> String {
-        "\(w.daysLabel) · \(w.timeRangeLabel)"
-    }
-}
 
 // MARK: - Points Toast
 //
@@ -1865,7 +1760,7 @@ struct PendingJoinRequestPill: View {
                         Circle()
                             .fill(Color.auroraOrange.opacity(0.15))
                             .frame(width: 32, height: 32)
-                        Text(dropEmoji)
+                        DazuActivityIcon(dropEmoji)
                             .font(.system(size: 18))
                     }
 
@@ -1949,7 +1844,7 @@ struct PointsToastView: View {
         // die Punkte kommen, ohne dass die Pille überfüllt wirkt.
         VStack(spacing: 2) {
             HStack(spacing: 8) {
-                Image(systemName: toast.isPowerHour ? "bolt.fill" : "sparkles")
+                DazuIcon(toast.isPowerHour ? "bolt.fill" : "sparkles", accent: false)
                     .font(.system(size: 14, weight: .bold))
                     .foregroundColor(.white)
                 Text(tr("shared.points_plus").replacingOccurrences(of: "{delta}", with: "\(toast.delta)"))
@@ -2015,7 +1910,7 @@ struct InfoToastView: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: toast.icon)
+            DazuIcon(toast.icon, accent: false)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(.white)
             Text(toast.message)
@@ -2080,7 +1975,7 @@ struct LeaveDropSheet: View {
                                 .fill(Color.brandLavender.opacity(0.9))
                                 .frame(width: 92, height: 92)
                                 .scaleEffect(pulse ? 1.04 : 0.98)
-                            Image(systemName: "door.left.hand.open")
+                            DazuIcon("door.left.hand.open")
                                 .font(.system(size: 40, weight: .heavy))
                                 .foregroundColor(hasScoreRisk ? .brandOrange : .brandViolet)
                         }
@@ -2088,15 +1983,15 @@ struct LeaveDropSheet: View {
                         .padding(.top, 20)
 
                         VStack(alignment: .leading, spacing: -2) {
-                            Text("Runde")
+                            Text(tr("shared.round"))
                                 .foregroundColor(.brandNight)
-                            Text("wirklich verlassen?")
+                            Text(tr("shared.really_leave"))
                                 .foregroundColor(.brandViolet)
                         }
                         .font(.system(size: 30, weight: .heavy, design: .rounded))
                         .padding(.horizontal, 24)
 
-                        Text("\(activityEmoji) \(activityName)")
+                        Text(activityName)
                             .font(.system(size: 16, weight: .medium, design: .rounded))
                             .foregroundColor(.brandNight.opacity(0.65))
                             .padding(.horizontal, 24)
@@ -2121,14 +2016,14 @@ struct LeaveDropSheet: View {
                 }
 
                 VStack(spacing: 10) {
-                    Button(action: onCancel) {
-                        Text("Dabei bleiben")
+                    Button(action: onLeave) {
+                        Text(tr("shared.leave_round"))
                             .dropsPrimaryButton()
                     }
                     .dropsPressable()
 
-                    Button(action: onLeave) {
-                        Text("Runde verlassen")
+                    Button(action: onCancel) {
+                        Text(tr("shared.stay"))
                             .font(.system(size: 15, weight: .semibold, design: .rounded))
                             .foregroundColor(.brandNight.opacity(0.55))
                             .frame(maxWidth: .infinity)
@@ -2151,7 +2046,7 @@ struct LeaveDropSheet: View {
     @ViewBuilder
     private func infoRow(icon: String, text: String) -> some View {
         HStack(alignment: .center, spacing: 14) {
-            Image(systemName: icon)
+            DazuIcon(icon)
                 .font(.system(size: 15, weight: .bold))
                 .foregroundColor(.brandViolet)
                 .frame(width: 36, height: 36)
@@ -2199,7 +2094,7 @@ struct EndDropSheet: View {
                                 .fill(Color.brandLavender.opacity(0.9))
                                 .frame(width: 92, height: 92)
                                 .scaleEffect(iconBeat ? 1.04 : 0.98)
-                            Image(systemName: "flag.checkered")
+                            DazuIcon("flag.checkered")
                                 .font(.system(size: 38, weight: .heavy))
                                 .foregroundColor(.brandOrange)
                         }
@@ -2207,15 +2102,15 @@ struct EndDropSheet: View {
                         .padding(.top, 20)
 
                         VStack(alignment: .leading, spacing: -2) {
-                            Text("Runde")
+                            Text(tr("shared.round"))
                                 .foregroundColor(.brandNight)
-                            Text("beenden?")
+                            Text(tr("shared.end_q"))
                                 .foregroundColor(.brandViolet)
                         }
                         .font(.system(size: 30, weight: .heavy, design: .rounded))
                         .padding(.horizontal, 24)
 
-                        Text("\(activityEmoji) \(activityName)")
+                        Text(activityName)
                             .font(.system(size: 16, weight: .medium, design: .rounded))
                             .foregroundColor(.brandNight.opacity(0.65))
                             .padding(.horizontal, 24)
@@ -2246,15 +2141,17 @@ struct EndDropSheet: View {
                     .frame(maxWidth: .infinity)
                 }
 
+                // Primary = die eröffnete Aktion (Beenden). Cancel als
+                // Text-Link darunter — der User kam her weil er beenden will.
                 VStack(spacing: 10) {
-                    Button(action: onCancel) {
-                        Text(tr("shared.keep_running"))
+                    Button(action: onEnd) {
+                        Text(tr("shared.end_drop"))
                             .dropsPrimaryButton()
                     }
                     .dropsPressable()
 
-                    Button(action: onEnd) {
-                        Text(tr("shared.end_drop"))
+                    Button(action: onCancel) {
+                        Text(tr("shared.keep_running"))
                             .font(.system(size: 15, weight: .semibold, design: .rounded))
                             .foregroundColor(.brandNight.opacity(0.55))
                             .frame(maxWidth: .infinity)
@@ -2277,7 +2174,7 @@ struct EndDropSheet: View {
     @ViewBuilder
     private func infoRow(icon: String, text: String) -> some View {
         HStack(alignment: .center, spacing: 14) {
-            Image(systemName: icon)
+            DazuIcon(icon)
                 .font(.system(size: 15, weight: .bold))
                 .foregroundColor(.brandViolet)
                 .frame(width: 36, height: 36)
@@ -2313,7 +2210,7 @@ struct DropFeedbackSheet: View {
     }
 
     private var subline: String {
-        "\(prompt.dropEmoji) \(prompt.dropActivity)"
+        prompt.dropActivity
     }
 
     var body: some View {
@@ -2364,7 +2261,7 @@ struct DropFeedbackSheet: View {
                     Button { submitAll() } label: {
                         HStack(spacing: 6) {
                             if submitted {
-                                Image(systemName: "checkmark.circle.fill")
+                                DazuIcon("checkmark.circle.fill")
                                     .font(.system(size: 15, weight: .bold))
                             }
                             Text(submitted ? "Danke!" : "Senden")
@@ -2398,7 +2295,7 @@ struct DropFeedbackSheet: View {
                 Circle()
                     .fill(Color.brandLavender)
                     .frame(width: 44, height: 44)
-                    .overlay(Text(target.emoji).font(.system(size: 22)))
+                    .overlay(DazuPersonIcon().font(.system(size: 22)))
             }
 
             VStack(alignment: .leading, spacing: 2) {
@@ -2407,7 +2304,7 @@ struct DropFeedbackSheet: View {
                         .font(.system(size: 15, weight: .bold, design: .rounded))
                         .foregroundColor(.brandNight)
                     if target.wasHost {
-                        Image(systemName: "crown.fill")
+                        DazuIcon("crown.fill")
                             .font(.system(size: 10))
                             .foregroundColor(.brandOrange)
                     }
@@ -2440,7 +2337,7 @@ struct DropFeedbackSheet: View {
     private func voteButton(systemImage: String, selected: Bool,
                             tint: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: systemImage)
+            DazuIcon(systemImage, accent: false)
                 .font(.system(size: 16, weight: .bold))
                 .foregroundColor(selected ? .white : tint.opacity(0.8))
                 .frame(width: 40, height: 40)
@@ -2498,7 +2395,7 @@ struct DropSuccessShareSheet: View {
                     renderAndShare()
                 } label: {
                     HStack(spacing: 10) {
-                        Image(systemName: "square.and.arrow.up")
+                        DazuIcon("square.and.arrow.up")
                             .font(.system(size: 16, weight: .semibold))
                         Text(tr("shared.share_story"))
                             .font(.system(size: 16, weight: .semibold))
@@ -2568,7 +2465,7 @@ struct DropShareCardView: View {
     let data: AppStore.DropSuccessShareData
 
     private var headline: String {
-        data.wasHost ? "Ich hab's gedropt! 🎉" : "Ich war dabei! 🎉"
+        data.wasHost ? "Ich hab's gedropt!" : "Ich war dabei!"
     }
     private var sub: String {
         data.wasHost ? "Heute spontan jemanden getroffen" : "Spontan zugesagt — und hingegangen"
@@ -2598,7 +2495,7 @@ struct DropShareCardView: View {
                 Spacer()
 
                 // Emoji
-                Text(data.activityEmoji)
+                DazuActivityIcon(data.activityEmoji, tint: .white, dotColor: .brandOrangeFixed)
                     .font(.system(size: 80))
                     .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
 
@@ -2632,7 +2529,7 @@ struct DropShareCardView: View {
                                            startPoint: .topLeading, endPoint: .bottomTrailing)
                         )
                         .frame(width: 20, height: 20)
-                    Text("Dazu · drops-app.de")
+                    Text(tr("shared.dazu_url"))
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(.white.opacity(0.5))
                 }
@@ -2683,26 +2580,27 @@ struct ActivityCategory {
         ),
         ActivityCategory(
             key: "Sport", icon: "figure.run", emoji: "🏃",
-            dropEmojis: ["🏃", "🏃‍♂️", "🏃‍♀️", "🏋️", "🧘", "⚽️", "🎾", "🏀", "🚴"],
+            dropEmojis: ["🏃", "🏃‍♂️", "🏃‍♀️", "🏋️", "🧘", "⚽️", "🎾", "🏀", "🚴", "💪", "🏊", "🧗", "🏐", "⛳", "⛷️", "🏄", "🥋", "🛹", "💃", "🥾"],
             keywords: ["sport", "fitness", "gym", "laufen", "run", "joggen",
                        "jog", "fußball", "tennis", "basketball", "yoga", "fahrrad", "bike"]
         ),
         ActivityCategory(
             key: "Essen", icon: "fork.knife", emoji: "🍕",
-            dropEmojis: ["🍕", "🍔", "🍣", "🍱", "🍜", "🌮", "🥗"],
+            dropEmojis: ["🍕", "🍔", "🍣", "🍱", "🍜", "🌮", "🥗", "🍽️", "🍦", "🎂", "👨‍🍳", "🧺"],
             keywords: ["essen", "food", "lunch", "dinner", "pizza", "burger",
                        "restaurant", "brunch", "sushi", "dönner"]
         ),
         ActivityCategory(
             key: "Zocken", icon: "gamecontroller.fill", emoji: "🎮",
-            dropEmojis: ["🎮", "🕹️"],
+            dropEmojis: ["🎮", "🕹️", "🎲"],
             keywords: ["zocken", "zock", "gaming", "game", "games", "spielen",
                        "xbox", "playstation"]
         )
     ]
 
     func matches(emoji dropEmoji: String, activity: String) -> Bool {
-        if dropEmojis.contains(dropEmoji) { return true }
+        let wanted = DazuActivity.normalize(dropEmoji)
+        if dropEmojis.contains(where: { DazuActivity.normalize($0) == wanted }) { return true }
         let lower = activity.lowercased()
         return keywords.contains(where: { lower.contains($0) })
     }
@@ -2749,7 +2647,7 @@ struct ActivityFilterChipsView: View {
                       action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 7) {
-                Image(systemName: icon)
+                DazuIcon(icon, accent: false)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(selected ? .white : .brand)
                 Text(title)

@@ -40,7 +40,7 @@ struct OfflineBanner: View {
     var body: some View {
         if !network.isConnected || network.justReconnected {
             HStack(spacing: 10) {
-                Image(systemName: network.isConnected ? "wifi" : "wifi.slash")
+                DazuIcon(network.isConnected ? "wifi" : "wifi.slash", accent: false)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(.white)
                 Text(network.isConnected ? "Wieder verbunden" : "Keine Verbindung")

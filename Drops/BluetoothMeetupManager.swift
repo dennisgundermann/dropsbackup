@@ -35,8 +35,12 @@ final class BluetoothMeetupManager: NSObject, ObservableObject {
     static let proximityRSSI: Int        = -72
     /// Wie lange muss der Partner in Reichweite sein, um zu bestätigen
     static let proximityDuration: TimeInterval = 20
-    /// Mindestzeit im Drop, bevor eine BLE-Bestätigung möglich ist
-    static let minDropDuration: TimeInterval   = 5 * 60   // 5 Minuten
+    /// Mindestzeit im Drop, bevor eine BLE-Bestätigung möglich ist.
+    /// Vorher 5 Min — fühlte sich träge an („jemand ist da aber nix passiert
+    /// in der UI"). 20 s fühlen sich live an: Joiner trifft ein → kurz drauf
+    /// „Vor Ort". Die anderen zwei Abuse-Schichten (Partner-Cooldown 6h,
+    /// Tages-Cap 4) bleiben scharf und verhindern Farming.
+    static let minDropDuration: TimeInterval   = 20
     /// Cooldown zwischen zwei Bestätigungen desselben Partner-Paares
     static let partnerCooldown: TimeInterval   = 6 * 60 * 60  // 6 Stunden
     /// Maximale BLE-Bestätigungen pro Kalendertag

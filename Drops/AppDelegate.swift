@@ -1,4 +1,5 @@
 import UIKit
+import SwiftUI
 import FirebaseCore
 import FirebaseAuth
 import FirebaseMessaging
@@ -28,6 +29,9 @@ class AppDelegate: NSObject, UIApplicationDelegate, MessagingDelegate, UNUserNot
 
         // Firebase so früh wie möglich konfigurieren – vor dem ersten SwiftUI-Frame.
         FirebaseApp.configure()
+
+        // Globales App-Theme — matcht Drops Design-System (Violett + Creme).
+        configureGlobalAppearance()
 
         // Remote Feature Flags aus RTDB ziehen (z.B. cityRestrictionEnabled).
         // Default-Werte in BetaConfig sind so gewählt, dass App-Store-Reviewer
@@ -157,9 +161,39 @@ class AppDelegate: NSObject, UIApplicationDelegate, MessagingDelegate, UNUserNot
             completionHandler([])
             return
         }
-        // Standard: Banner + Sound im Vordergrund (für SOS, DropIn-Alerts,
-        // Re-Engagement etc.). KEIN .badge mehr — sonst addiert iOS auf 1.
-        completionHandler([.banner, .sound])
+        // Alle anderen Pushs: statt iOS-Banner spielen wir unseren eigenen
+        // In-App-Toast (DynamicToast) — konsistenter mit dem App-Look,
+        // dismissable per Swipe/Tap, keine Duplikate mit Lockscreen-Push.
+        let title = notification.request.content.title
+        let body  = notification.request.content.body
+        let (symbol, accent, route) = toastStyleForPushType(type)
+        Task { @MainActor in
+            ToastCenter.shared.show(ToastItem(
+                title: title.isEmpty ? "dazu" : title,
+                message: body.isEmpty ? nil : body,
+                symbol: symbol,
+                accent: accent,
+                route: route
+            ))
+        }
+        completionHandler([.sound])
+    }
+
+    /// Symbol + Akzent + Tap-Route für einen Push-Typ. Steuert Aussehen UND
+    /// wohin der Tap auf den In-App-Toast navigiert.
+    private func toastStyleForPushType(_ type: String) -> (String, Color, ToastRoute) {
+        switch type {
+        case "friend_request",
+             "friend_added":      return ("person.fill.badge.plus", .brandViolet, .friends)
+        case "drop_nearby",
+             "drop_created":      return ("mappin.and.ellipse",     .brandViolet, .nearby)
+        case "drop_ended":        return ("flag.checkered",         .brandOrange, .live)
+        case "drop_start_reminder": return ("alarm.fill",           .accentOrange, .live)
+        case "community_push",
+             "community_joined":  return ("person.3.fill",          .cleroGreen,  .map)
+        case "sos":               return ("exclamationmark.triangle.fill", .accentRed, .map)
+        default:                  return ("bell.fill",              .brandViolet, .none)
+        }
     }
 
     // MARK: - applicationDidBecomeActive: Badge clearen
@@ -319,4 +353,69 @@ class DropsSceneDelegate: NSObject, UIWindowSceneDelegate {
     func sceneDidBecomeActive(_ scene: UIScene) {
         AppDelegate.clearBadge()
     }
+}
+
+// MARK: - Global Appearance (UIKit tint-through für SwiftUI)
+
+private func configureGlobalAppearance() {
+    // Brand-Farben als UIColors (für UIKit-Appearance)
+    let violet = UIColor(red: 0.357, green: 0.239, blue: 0.961, alpha: 1.0)   // #5B3DF5
+    let cream  = UIColor(red: 1.000, green: 0.965, blue: 0.918, alpha: 1.0)   // #FFF6EA
+    let night  = UIColor(red: 0.090, green: 0.067, blue: 0.180, alpha: 1.0)   // #17112E
+    // Adaptive Tab-Bar-Fläche: cream in Light-Mode, dunkles Nacht-Violett in
+    // Dark-Mode, damit die Tab Bar in beiden Modi lesbar bleibt.
+    let tabSurface = UIColor { trait in
+        trait.userInterfaceStyle == .dark
+            ? UIColor(red: 0.098, green: 0.078, blue: 0.165, alpha: 1.0)      // #19142A
+            : cream
+    }
+    let tabIdleIcon = UIColor { trait in
+        trait.userInterfaceStyle == .dark
+            ? UIColor.white.withAlphaComponent(0.55)
+            : night.withAlphaComponent(0.4)
+    }
+    let tabIdleText = UIColor { trait in
+        trait.userInterfaceStyle == .dark
+            ? UIColor.white.withAlphaComponent(0.65)
+            : night.withAlphaComponent(0.5)
+    }
+
+    // ── Tab Bar ──────────────────────────────────────────────
+    // Opak Cream, damit die Tab Bar in Dark Mode / iOS 26 Liquid-Glass nicht
+    // schwarz wird. Material-Blur bringt wenig, weil die App ohnehin ein helles
+    // Cream-Design fährt.
+    let tabAppearance = UITabBarAppearance()
+    tabAppearance.configureWithOpaqueBackground()
+    tabAppearance.backgroundColor = tabSurface
+    tabAppearance.backgroundEffect = nil
+    tabAppearance.shadowColor = .clear
+    // Selected-iconColor nicht setzen: die Aktiv-Icons sind original-rendered
+    // (Markenfarben inkl. Dark-Mode-Variante). Würde Appearance hier einfärben,
+    // würde Violett das Original übermalen.
+    tabAppearance.stackedLayoutAppearance.selected.titleTextAttributes = [
+        .foregroundColor: violet,
+        .font: UIFont.systemFont(ofSize: 10, weight: .semibold)
+    ]
+    tabAppearance.stackedLayoutAppearance.normal.iconColor = tabIdleIcon
+    tabAppearance.stackedLayoutAppearance.normal.titleTextAttributes = [
+        .foregroundColor: tabIdleText,
+        .font: UIFont.systemFont(ofSize: 10, weight: .medium)
+    ]
+    UITabBar.appearance().standardAppearance = tabAppearance
+    UITabBar.appearance().scrollEdgeAppearance = tabAppearance
+
+    // ── Navigation Bar ───────────────────────────────────────
+    let navAppearance = UINavigationBarAppearance()
+    navAppearance.configureWithTransparentBackground()
+    navAppearance.titleTextAttributes = [
+        .foregroundColor: night,
+        .font: UIFont.systemFont(ofSize: 17, weight: .bold)
+    ]
+    navAppearance.largeTitleTextAttributes = [
+        .foregroundColor: night,
+        .font: UIFont.systemFont(ofSize: 34, weight: .bold)
+    ]
+    UINavigationBar.appearance().standardAppearance = navAppearance
+    UINavigationBar.appearance().scrollEdgeAppearance = navAppearance
+    UINavigationBar.appearance().tintColor = violet
 }

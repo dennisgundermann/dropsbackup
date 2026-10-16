@@ -29,6 +29,10 @@ struct AdminPanelView: View {
     // Demo-Drops Toggle: spiegelt /config/demoDropsEnabled in RTDB.
     // Schreibt direkt zurück bei Toggle-Änderung (admin-only via security rule).
     @State private var demoDropsEnabled: Bool = true
+    /// Für App-Store-Screenshots: Tap auf eine Demo-Live-Runde (isDemoLive)
+    /// überspringt das Join-Compose-Sheet und tritt sofort bei. Lokaler
+    /// Flag, nicht in Firebase geschrieben.
+    @AppStorage("demoAutoJoin") private var demoAutoJoin: Bool = false
     @State private var demoDropsConfigLoaded: Bool = false
 
     enum UserFilter { case all, banned, active, plus }
@@ -409,6 +413,38 @@ struct AdminPanelView: View {
                                     demoDropsConfigLoaded = true
                                 }
                         }
+
+                        // Demo-Autojoin — Tap auf „Komm dazu" bei Live-Mock-
+                        // Drops überspringt das Compose-Sheet und tritt direkt
+                        // bei (nur für isDemoLive-Drops). Nützlich für
+                        // App-Store-Screenshots.
+                        HStack(spacing: 12) {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: Radius.md)
+                                    .fill(Color.accentOrange.opacity(0.15))
+                                    .frame(width: 40, height: 40)
+                                DazuIcon("bolt.fill")
+                                    .font(.system(size: 18, weight: .semibold))
+                                    .foregroundColor(.accentOrange)
+                            }
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Demo-Autojoin")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundColor(.textPrimary)
+                                Text(demoAutoJoin
+                                     ? "Tap auf Demo-Runde → sofort beigetreten"
+                                     : "Normaler Join-Flow (Compose-Sheet)")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.textSecondary)
+                            }
+                            Spacer()
+                            Toggle("", isOn: $demoAutoJoin)
+                                .tint(.accentOrange)
+                                .labelsHidden()
+                        }
+                        .padding(12)
+                        .liquidGlass(cornerRadius: 14)
+                        .padding(.horizontal, 20)
 
 
                         // Live Drops Monitor — öffnet Sheet
@@ -1078,21 +1114,27 @@ struct AdminPanelView: View {
                 db.child("friends").child(m.id).child(myUID).setValue(true)
             }
 
-            // 12 PastDrops seeden — gemischt Host/Joiner, über 6 Wochen verteilt.
+            // Vor dem Neu-Schreiben alle alten pastDrops löschen, sonst
+            // akkumuliert sich jeder Seed-Rerun auf 70+ Runden.
+            //  1) RTDB-Node leeren
+            //  2) UserDefaults-Cache (`ud_pastDrops`) leeren — pastDrops wird
+            //     aus UD geladen, nicht nur aus RTDB. Ohne (2) zählt das
+            //     Profil weiter die alten Runden.
+            //  3) In-Memory @Published-Array leeren damit die UI sofort auf 0
+            //     springt (statt erst nach App-Neustart).
+            db.child("users").child(myUID).child("pastDrops").removeValue()
+            UserDefaults.standard.removeObject(forKey: "ud_pastDrops")
+            store.pastDrops = []
+
+            // 6 PastDrops seeden — gemischt Host/Joiner, über 3 Wochen verteilt.
             let now = Date()
             let samples: [(String, String, String, Bool, Int)] = [
                 ("☕️", "Kaffee",       "Café Katz & Maus",      true,  3),
                 ("🏃", "Lauftreff",    "Englischer Garten",     false, 5),
                 ("🍻", "Afterwork",    "Augustiner Keller",     false, 4),
                 ("🧘", "Yoga",         "Luitpoldpark",          true,  4),
-                ("🍕", "Pizza",        "L'Osteria Schwabing",   false, 3),
                 ("🎾", "Padel",        "MTTC Iphitos",          true,  2),
-                ("🚶", "Spaziergang",  "Isar-Ufer",             false, 4),
-                ("🎬", "Kino",         "Mathäser Filmpalast",   false, 3),
-                ("🧗", "Bouldern",     "Boulderwelt Ost",       true,  2),
                 ("🥐", "Brunch",       "Rotkehlchen",           false, 5),
-                ("🚴", "Fahrrad",      "Olympiapark",           true,  3),
-                ("🍵", "Matcha",       "Man Versus Machine",    false, 2),
             ]
             let myName = store.currentUser.name.isEmpty ? "Du" : store.currentUser.name
 
@@ -1141,7 +1183,18 @@ struct AdminPanelView: View {
             }
 
             let avatarsOK = urls.count
-            debugResetToast = "11 Freunde + 12 Runden geseedet (Avatars: \(avatarsOK)/11). App neu starten."
+
+            // RTDB-Writes brauchen ~500ms bis sie remote confirmed sind.
+            // Danach einmalig nachladen, damit die 6 Runden direkt im Profil
+            // auftauchen — ohne App-Neustart.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                RealtimeDBManager.shared.fetchPastDrops { remoteDrops in
+                    store.pastDrops = remoteDrops.sorted { $0.date > $1.date }
+                    store.saveAll()
+                }
+            }
+
+            debugResetToast = "11 Freunde + 6 Runden geseedet (Avatars: \(avatarsOK)/11)."
         }
     }
 
@@ -1181,38 +1234,50 @@ struct AdminPanelView: View {
             let lat: Double; let lng: Double
             let currentParticipants: Int; let maxParticipants: Int
         }
-        // 3 Drops sind von Mock-Freunden (werden als Freund + eigener Drop
-        // auf der Karte angezeigt → "Live-Standorte online-Freunde"), 3
-        // weitere Drops sind anonyme Stranger für Fülle.
+        // Live-Mocks dynamisch um die aktuelle User-Position platzieren.
+        // Vorher fest München-Koordinaten — Problem: wenn der User-Radius-
+        // Filter nur 2km ist, waren 3 von 4 Pins außerhalb und wurden von
+        // observeNearbyDrops rausgefiltert. Jetzt streuen wir die Pins in
+        // kleinen Offsets (~400–900m) um die User-Coord → immer sichtbar.
+        let base = store.currentUser.coordinate
+        // ~0.001° ≈ 110m lat / ~70m lng (bei Breitengrad 48°). Offsets in
+        // Grad: ~400–900m je nach Richtung.
         let liveMocks: [LiveMock] = [
-            // ── 3 Freund-Drops ─────────────────────────────────────────────
+            // ── 2 Freund-Drops ─────────────────────────────────────────────
             .init(userID: "mock_max",   hostName: "Max",    hostAge: 34, hostGender: "männlich", avatarPath: "random-person.jpeg",
                   emoji: "☕️", activity: "Kaffee", location: "Café Katz & Maus",
-                  lat: 48.1446, lng: 11.5641, currentParticipants: 3, maxParticipants: 6),
+                  lat: base.latitude + 0.004, lng: base.longitude + 0.006, currentParticipants: 3, maxParticipants: 6),
             .init(userID: "mock_lea",   hostName: "Lea",    hostAge: 28, hostGender: "weiblich", avatarPath: "random-person-2.jpeg",
                   emoji: "🧘", activity: "Yoga", location: "Luitpoldpark",
-                  lat: 48.1878, lng: 11.5681, currentParticipants: 4, maxParticipants: 8),
-            .init(userID: "mock_lisa",  hostName: "Lisa",   hostAge: 24, hostGender: "weiblich", avatarPath: "random-person-10.jpeg",
-                  emoji: "🍻", activity: "Afterwork", location: "Augustiner Keller",
-                  lat: 48.1430, lng: 11.5540, currentParticipants: 4, maxParticipants: 10),
-            // ── 3 Stranger-Drops ────────────────────────────────────────────
-            .init(userID: "demo_live_jana",  hostName: "Jana",   hostAge: 26, hostGender: "weiblich", avatarPath: "random-person-9.jpeg",
-                  emoji: "🥐", activity: "Brunch", location: "Rotkehlchen",
-                  lat: 48.1659, lng: 11.5820, currentParticipants: 5, maxParticipants: 8),
+                  lat: base.latitude - 0.005, lng: base.longitude + 0.003, currentParticipants: 4, maxParticipants: 8),
+            // ── 2 Stranger-Drops ────────────────────────────────────────────
             .init(userID: "demo_live_finn",  hostName: "Finn",   hostAge: 25, hostGender: "männlich", avatarPath: "random-person-7.jpeg",
                   emoji: "🏃", activity: "Lauftreff", location: "Englischer Garten",
-                  lat: 48.1631, lng: 11.6050, currentParticipants: 6, maxParticipants: 12),
+                  lat: base.latitude + 0.003, lng: base.longitude - 0.007, currentParticipants: 6, maxParticipants: 12),
             .init(userID: "demo_live_tim",   hostName: "Tim",    hostAge: 30, hostGender: "männlich", avatarPath: "random-person-4.jpeg",
                   emoji: "🎾", activity: "Padel", location: "MTTC Iphitos",
-                  lat: 48.1529, lng: 11.5420, currentParticipants: 2, maxParticipants: 4),
+                  lat: base.latitude - 0.006, lng: base.longitude - 0.004, currentParticipants: 2, maxParticipants: 4),
         ]
 
         let db = Database.database().reference()
         let group = DispatchGroup()
         var urls: [String: String] = [:]   // userID → avatarURL
 
-        // Monogramm-Avatare (keine KI-Portraits mehr) – dieselbe Logik wie
-        // in seedDemoData, aber unter demoavatars/mono_<userID>.png.
+        // Joiner-Pool — Mock-Freunde die als Beitretende in Live-Drops
+        // reingezogen werden damit die Pins nicht leer aussehen.
+        struct Joiner { let id: String; let name: String; let age: Int }
+        let joinerPool: [Joiner] = [
+            .init(id: "mock_sophie", name: "Sophie", age: 27),
+            .init(id: "mock_leo",    name: "Leo",    age: 28),
+            .init(id: "mock_lisa",   name: "Lisa",   age: 24),
+            .init(id: "mock_felix",  name: "Felix",  age: 36),
+            .init(id: "mock_jana",   name: "Jana",   age: 26),
+            .init(id: "mock_mia",    name: "Mia",    age: 25),
+            .init(id: "mock_jonas",  name: "Jonas",  age: 27),
+        ]
+
+        // Monogramm-Avatare generieren — für die 4 Live-Hosts UND für die
+        // Joiner-Pool-Mocks (sonst haben die Joiner-Pins keine Avatare).
         for m in liveMocks {
             group.enter()
             MonogramAvatar.generateAndUpload(mockID: m.userID, name: m.hostName) { url in
@@ -1220,10 +1285,18 @@ struct AdminPanelView: View {
                 group.leave()
             }
         }
+        for j in joinerPool {
+            group.enter()
+            MonogramAvatar.generateAndUpload(mockID: j.id, name: j.name) { url in
+                if let s = url { urls[j.id] = s }
+                group.leave()
+            }
+        }
 
         group.notify(queue: .main) {
             let now = Date()
-            let expires = now.addingTimeInterval(4 * 3600)
+            // 2 Stunden statt 4 — realistisch für spontane Treffen.
+            let expires = now.addingTimeInterval(2 * 3600)
             for (idx, m) in liveMocks.enumerated() {
                 let dropID = "demolive_\(idx)_\(Int(now.timeIntervalSince1970))"
                 // isDemo bewusst FALSE — isDemo-Pins werden matter/kleiner
@@ -1249,6 +1322,7 @@ struct AdminPanelView: View {
                     "maxParticipants":         m.maxParticipants,
                     "currentParticipants":     m.currentParticipants,
                     "active":                  true,
+                    "durationMinutes":         120,   // 2 Std — matcht expires
                     "isDemoLive":              true,   // Marker für eigenen Purge
                     "hostGender":              m.hostGender,
                     "hostAge":                 m.hostAge,
@@ -1258,8 +1332,32 @@ struct AdminPanelView: View {
                     if let err = err { print("[seedLive] ✗ \(m.activity): \(err.localizedDescription)") }
                     else { print("[seedLive] ✓ \(m.activity) @ \(m.location)") }
                 }
+
+                // Mock-Joiner als dropins/{dropID}/{joinerID} schreiben —
+                // sonst sehen die Live-Pins mit "1/6" leer aus. Fix: alte
+                // Dropins-Node vorher explizit löschen (`removeValue`), sonst
+                // bleiben Ghosts von früheren Seeds mit anderen dropIDs
+                // hängen und überlagern die neuen Joiner.
+                db.child("dropins").child(dropID).removeValue()
+
+                let joinerCount = min(m.currentParticipants - 1, 3)
+                let picked = joinerPool.shuffled().prefix(joinerCount)
+                for (jIdx, j) in picked.enumerated() {
+                    let dropinPayload: [String: Any] = [
+                        "name":            j.name,
+                        "emoji":           "🙂",
+                        "age":             j.age,
+                        "lat":             m.lat + Double.random(in: -0.002...0.002),
+                        "lng":             m.lng + Double.random(in: -0.002...0.002),
+                        "locTime":         now.timeIntervalSince1970 * 1000,
+                        "timestamp":       now.timeIntervalSince1970 * 1000 - Double(jIdx * 90_000),
+                        "profileImageURL": urls[j.id] ?? "",
+                        "reliabilityPoints": Int.random(in: 180...420)
+                    ]
+                    db.child("dropins").child(dropID).child(j.id).setValue(dropinPayload)
+                }
             }
-            debugResetToast = "6 Live-Runden auf Karte (Avatars: \(urls.count)/6)"
+            debugResetToast = "4 Live-Runden + Mock-Joiner geseedet"
         }
     }
 

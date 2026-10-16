@@ -1,0 +1,27 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Profilbilder — jeder authentifizierte Nutzer darf lesen (Avatar-Anzeige
+    // in Freunde-Listen etc.), schreiben darf nur der Besitzer selbst.
+    // {file} enthält die komplette Datei (z.B. "abc123.jpg"), uid wird daraus
+    // über resource.name im write-Check gegen request.auth.uid validiert.
+    match /profileImages/{file} {
+      allow read:  if request.auth != null;
+      allow write: if request.auth != null
+                   && file.matches(request.auth.uid + "\\..*");
+    }
+
+    // Demo-Avatare für Screenshots — Public Read (nur AI-generierte Faces,
+    // keine personenbezogenen Daten). Write nur über Firebase Console / Admin.
+    match /demoavatars/{file=**} {
+      allow read:  if true;
+      allow write: if false;
+    }
+
+    // Default: alles andere braucht Auth.
+    match /{allPaths=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}

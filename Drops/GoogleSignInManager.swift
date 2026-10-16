@@ -11,6 +11,13 @@ class GoogleSignInManager: NSObject, ObservableObject {
     @Published var isLoading = false
     @Published var errorMessage: String? = nil
 
+    /// Wird gesetzt wenn die Google-E-Mail bereits unter einem anderen Provider
+    /// (z.B. Apple) existiert — UI zeigt dann den Linking-Dialog.
+    @Published var pendingLinkEmail: String? = nil
+
+    /// Gespeichertes Google-Credential, das nach dem Apple-Re-Login verknüpft wird.
+    private var pendingGoogleCredential: AuthCredential? = nil
+
     /// E-Mail des eingeloggten Google-Accounts (nur nach erfolgreichem Sign-In verfügbar)
     private(set) var lastGoogleEmail: String? = nil
 
@@ -45,7 +52,6 @@ class GoogleSignInManager: NSObject, ObservableObject {
                 let nsError = error as NSError
                 DispatchQueue.main.async {
                     self.isLoading = false
-                    // Code 1 = User hat abgebrochen — kein Fehler anzeigen
                     if nsError.code != GIDSignInError.canceled.rawValue {
                         self.errorMessage = "Google Sign-In fehlgeschlagen. Bitte nochmal versuchen."
                     }
@@ -66,7 +72,6 @@ class GoogleSignInManager: NSObject, ObservableObject {
 
             self.lastGoogleEmail = user.profile?.email
 
-            // Vornamen persistieren — für Quick-Login-Button + Profil-Pre-fill
             if let given = user.profile?.givenName, !given.isEmpty {
                 UserDefaults.standard.set(given, forKey: "ud_appleGivenName")
             }
@@ -87,15 +92,62 @@ class GoogleSignInManager: NSObject, ObservableObject {
                         self.isLoading = false
                         completion(true, isNew)
                     }
-                } catch {
-                    await MainActor.run {
-                        self.isLoading = false
-                        self.errorMessage = "Google Login fehlgeschlagen. Bitte nochmal versuchen."
-                        completion(false, false)
+                } catch let error as NSError {
+                    // ── Account-Linking: E-Mail existiert bereits unter Apple/anderem Provider ──
+                    if error.code == AuthErrorCode.accountExistsWithDifferentCredential.rawValue,
+                       let email = error.userInfo[AuthErrorUserInfoEmailKey] as? String {
+                        await MainActor.run {
+                            self.isLoading = false
+                            self.pendingGoogleCredential = credential
+                            self.pendingLinkEmail = email
+                            completion(false, false)
+                        }
+                    } else {
+                        await MainActor.run {
+                            self.isLoading = false
+                            self.errorMessage = "Google Login fehlgeschlagen. Bitte nochmal versuchen."
+                            completion(false, false)
+                        }
                     }
                 }
             }
         }
+    }
+
+    /// Wird nach erfolgreichem Apple-Sign-In aufgerufen.
+    /// Der User ist jetzt mit seinem Apple-Account eingeloggt (inklusive alter Daten).
+    /// Diese Funktion verknüpft das gespeicherte Google-Credential mit diesem Account.
+    func completeLinkingAfterAppleSignIn(completion: @escaping (Bool) -> Void) {
+        guard let googleCredential = pendingGoogleCredential else {
+            completion(false)
+            return
+        }
+        isLoading = true
+        Task {
+            do {
+                guard let user = Auth.auth().currentUser else {
+                    throw NSError(domain: "Drops.GoogleLinking", code: -1)
+                }
+                try await user.link(with: googleCredential)
+                await MainActor.run {
+                    self.isLoading = false
+                    self.pendingGoogleCredential = nil
+                    self.pendingLinkEmail = nil
+                    completion(true)
+                }
+            } catch {
+                await MainActor.run {
+                    self.isLoading = false
+                    self.errorMessage = "Verknüpfung fehlgeschlagen. Bitte nochmal versuchen."
+                    completion(false)
+                }
+            }
+        }
+    }
+
+    func cancelLinking() {
+        pendingGoogleCredential = nil
+        pendingLinkEmail = nil
     }
 
     private func topViewController() -> UIViewController? {

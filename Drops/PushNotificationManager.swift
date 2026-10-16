@@ -165,7 +165,7 @@ final class PushNotificationManager {
                 .replacingOccurrences(of: "{dist}", with: distStr)
         } else {
             let closest = nearby.sorted { $0.distance(from: userLocation) < $1.distance(from: userLocation) }
-            let top = closest.prefix(2).map { "\($0.emoji) \($0.activity)" }.joined(separator: ", ")
+            let top = closest.prefix(2).map { $0.activity }.joined(separator: ", ")
             content.title = tr("push.nearby_multi_title")
                 .replacingOccurrences(of: "{count}", with: "\(nearby.count)")
             content.body = tr("push.nearby_multi_body")
@@ -196,94 +196,9 @@ final class PushNotificationManager {
     //
     // Texte sind variabel ausgewählt aus einem kleinen Pool, damit der
     // User nicht jede Woche exakt denselben Wortlaut sieht (Push-Müdigkeit).
-    func schedulePowerHourNotifications() {
-        let center = UNUserNotificationCenter.current()
-        Task { @MainActor in
-            // 1. Alte Power-Hour-Requests entfernen (Prefix-basiert)
-            let pending = await center.pendingNotificationRequests()
-            let staleIDs = pending
-                .map { $0.identifier }
-                .filter { $0.hasPrefix(ID.powerHourPrefix) }
-            if !staleIDs.isEmpty {
-                center.removePendingNotificationRequests(withIdentifiers: staleIDs)
-            }
-
-            // 2. Drei Notification-Typen pro Window + Weekday:
-            //    a) "Pre" — 1h vor Start ("Power-Hour startet bald")
-            //    b) "Start" — exakt zum Start
-            //    c) "End-Warn" — 1h vor Ende ("letzte Chance")
-            //
-            // Texte sind variabel ausgewählt aus einem kleinen Pool, damit der
-            // User nicht jede Woche exakt denselben Wortlaut sieht.
-            let startMessages: [(title: String, body: String)] = [
-                (tr("push.ph_start.1_title"), tr("push.ph_start.1_body")),
-                (tr("push.ph_start.2_title"), tr("push.ph_start.2_body")),
-                (tr("push.ph_start.3_title"), tr("push.ph_start.3_body")),
-            ]
-            let preMessages: [(title: String, body: String)] = [
-                (tr("push.ph_pre.1_title"), tr("push.ph_pre.1_body")),
-                (tr("push.ph_pre.2_title"), tr("push.ph_pre.2_body")),
-                (tr("push.ph_pre.3_title"), tr("push.ph_pre.3_body")),
-            ]
-            let endMessages: [(title: String, body: String)] = [
-                (tr("push.ph_end.1_title"), tr("push.ph_end.1_body")),
-                (tr("push.ph_end.2_title"), tr("push.ph_end.2_body")),
-                (tr("push.ph_end.3_title"), tr("push.ph_end.3_body")),
-            ]
-
-            for window in AppStore.powerHourWindows {
-                for weekday in window.weekdays {
-                    // a) Pre-Notification 1h vor Start
-                    let preHour = window.startHour - 1
-                    if preHour >= 0 {
-                        do {
-                            try await scheduleRecurring(
-                                on: center,
-                                id: "\(ID.powerHourPrefix)\(weekday)_\(window.startHour)_pre",
-                                weekday: weekday, hour: preHour, minute: 0,
-                                messages: preMessages,
-                                type: "powerhour_pre",
-                                windowLabel: window.label
-                            )
-                        } catch {
-                            print("[powerHour] ⚠️ pre wd=\(weekday) h=\(preHour) failed: \(error.localizedDescription)")
-                        }
-                    }
-
-                    // b) Start-Notification
-                    do {
-                        try await scheduleRecurring(
-                            on: center,
-                            id: "\(ID.powerHourPrefix)\(weekday)_\(window.startHour)_start",
-                            weekday: weekday, hour: window.startHour, minute: 0,
-                            messages: startMessages,
-                            type: "powerhour_start",
-                            windowLabel: window.label
-                        )
-                    } catch {
-                        print("[powerHour] ⚠️ start wd=\(weekday) h=\(window.startHour) failed: \(error.localizedDescription)")
-                    }
-
-                    // c) End-Warn-Notification 1h vor Ende
-                    let endWarnHour = window.endHour - 1
-                    if endWarnHour > window.startHour {
-                        do {
-                            try await scheduleRecurring(
-                                on: center,
-                                id: "\(ID.powerHourPrefix)\(weekday)_\(window.startHour)_endwarn",
-                                weekday: weekday, hour: endWarnHour, minute: 0,
-                                messages: endMessages,
-                                type: "powerhour_endwarn",
-                                windowLabel: window.label
-                            )
-                        } catch {
-                            print("[powerHour] ⚠️ endwarn wd=\(weekday) h=\(endWarnHour) failed: \(error.localizedDescription)")
-                        }
-                    }
-                }
-            }
-        }
-    }
+    // Power-Hour wurde entfernt — die Funktion bleibt nur als no-op in
+    // Form von `cancelAllPowerHourNotifications()` erhalten, damit alte
+    // Scheduled-Requests nach dem Update einmal weggeräumt werden.
 
     /// Helper: legt einen wiederkehrenden Calendar-Trigger an.
     private func scheduleRecurring(
@@ -334,11 +249,7 @@ final class PushNotificationManager {
                 center.removePendingNotificationRequests(withIdentifiers: staleIDs)
             }
 
-            // Power-Hour-Weekdays bestimmen — auf diesen Tagen NICHT zusätzlich
-            // pushen, sonst Doppelung mit den `powerhour_pre`-Notifications.
-            let phWeekdays = Set(AppStore.powerHourWindows.flatMap { $0.weekdays })
-
-            // Nachrichten-Pool — Marketing-Copy, casual + curiosity
+            // Nachrichten-Pool — casual + curiosity, dazu-Voice.
             let messages: [(title: String, body: String)] = [
                 (tr("push.evening.1_title"), tr("push.evening.1_body")),
                 (tr("push.evening.2_title"), tr("push.evening.2_body")),
@@ -347,11 +258,9 @@ final class PushNotificationManager {
                 (tr("push.evening.5_title"), tr("push.evening.5_body")),
             ]
 
-            // Mo (2), Di (3), Do (5) — Wochentage ohne Power-Hour bevorzugt.
-            // Sonntag ist eher ruhig, Sa/Fr läuft Power-Hour. Wenn Power-Hour-
-            // Schema sich ändert, schließt phWeekdays-Filter automatisch aus.
-            let candidateWeekdays = [2, 3, 5]
-            let activeWeekdays = candidateWeekdays.filter { !phWeekdays.contains($0) }
+            // Mo (2), Di (3), Mi (4), Do (5), Fr (6) — alle Wochentage außer
+            // Wochenende. Power-Hour-Filter ist entfallen.
+            let activeWeekdays = [2, 3, 4, 5, 6]
 
             for weekday in activeWeekdays {
                 var comps = DateComponents()

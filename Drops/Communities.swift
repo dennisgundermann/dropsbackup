@@ -17,10 +17,10 @@ struct CommunityCreatorBadge: View {
 
     var body: some View {
         HStack(spacing: 3) {
-            Image(systemName: "checkmark.seal.fill")
+            DazuIcon("checkmark.seal.fill")
                 .font(.system(size: compact ? 8 : 11, weight: .bold))
             if let c = community, !compact {
-                Image(systemName: c.icon)
+                DazuIcon(c.icon, accent: false)
                     .font(.system(size: 11, weight: .semibold))
                 Text(c.displayName)
                     .font(.system(size: 11, weight: .semibold))
@@ -814,7 +814,7 @@ struct CommunityCreatorApplicationSheet: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button { dismiss() } label: {
-                        Image(systemName: "xmark.circle.fill")
+                        DazuIcon("xmark.circle.fill")
                             .font(.system(size: 22))
                             .foregroundColor(.textTertiary)
                     }
@@ -889,7 +889,7 @@ struct CommunityCreatorApplicationSheet: View {
     @ViewBuilder
     private func statusBanner(_ status: String) -> some View {
         HStack(spacing: 12) {
-            Image(systemName: status == "approved" ? "checkmark.seal.fill"
+            DazuIcon(status == "approved" ? "checkmark.seal.fill"
                               : status == "denied"  ? "xmark.circle.fill"
                                                     : "clock.fill")
                 .font(.system(size: 22))
@@ -937,7 +937,7 @@ struct CommunityCreatorApplicationSheet: View {
         let isSelected = selectedActivity == activity
         return Button { selectedActivity = activity } label: {
             VStack(spacing: 3) {
-                Image(systemName: activity.icon)
+                DazuIcon(activity.icon, accent: false)
                     .font(.system(size: 14, weight: isSelected ? .semibold : .regular))
                 Text(activity.displayName)
                     .font(.system(size: 9, weight: .semibold))
@@ -958,14 +958,14 @@ struct CommunityCreatorApplicationSheet: View {
     private var locationBlock: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
-                Image(systemName: "location.fill")
+                DazuIcon("location.fill")
                     .font(.system(size: 12))
                     .foregroundColor(.brand)
                 Text(tr("community.your_district"))
                     .font(.dsCaption)
                     .foregroundColor(.textSecondary)
                 if isGeocoding {
-                    ProgressView().scaleEffect(0.7).tint(.brand)
+                    DazuLoader().scaleEffect(0.7).tint(.brand)
                 }
                 Spacer()
                 if !city.isEmpty {
@@ -1018,7 +1018,7 @@ struct CommunityCreatorApplicationSheet: View {
     @ViewBuilder
     private func duplicateWarning(_ dup: Community) -> some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill")
+            DazuIcon("exclamationmark.triangle.fill")
                 .font(.system(size: 16))
                 .foregroundColor(.accentOrange)
             VStack(alignment: .leading, spacing: 2) {
@@ -1050,7 +1050,7 @@ struct CommunityCreatorApplicationSheet: View {
         Button { submit() } label: {
             Group {
                 if isSubmitting {
-                    ProgressView().tint(.white)
+                    DazuLoader().tint(.white)
                 } else {
                     Text(existingStatus == "denied" ? tr("community.reapply") : tr("community.send_application"))
                         .font(.system(size: 16, weight: .semibold))
@@ -1204,7 +1204,7 @@ struct CommunityCreatorDashboardSheet: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button { dismiss() } label: {
-                        Image(systemName: "xmark.circle.fill")
+                        DazuIcon("xmark.circle.fill")
                             .font(.system(size: 22))
                             .foregroundColor(.textTertiary)
                     }
@@ -1256,7 +1256,7 @@ struct CommunityCreatorDashboardSheet: View {
         if !otherMembers.isEmpty {
             Button { showLeavePicker = true } label: {
                 HStack(spacing: 10) {
-                    Image(systemName: "rectangle.portrait.and.arrow.right")
+                    DazuIcon("rectangle.portrait.and.arrow.right")
                         .font(.system(size: 14))
                     Text(tr("community.leave_handover"))
                         .font(.system(size: 14, weight: .semibold))
@@ -1303,9 +1303,9 @@ struct CommunityCreatorDashboardSheet: View {
         Button { showDeleteConfirm = true } label: {
             HStack(spacing: 10) {
                 if isDeleting {
-                    ProgressView().tint(.accentRed)
+                    DazuLoader().tint(.accentRed)
                 } else {
-                    Image(systemName: "trash.fill")
+                    DazuIcon("trash.fill")
                         .font(.system(size: 14))
                 }
                 Text(isDeleting ? tr("community.deleting") : tr("community.delete"))
@@ -1342,7 +1342,7 @@ struct CommunityCreatorDashboardSheet: View {
                 Circle()
                     .fill(Color.cleroGreen.opacity(0.18))
                     .frame(width: 84, height: 84)
-                Image(systemName: community.icon)
+                DazuIcon(community.icon, accent: false)
                     .font(.system(size: 36, weight: .semibold))
                     .foregroundColor(.cleroGreen)
             }
@@ -1362,7 +1362,7 @@ struct CommunityCreatorDashboardSheet: View {
     private var descriptionBlock: some View {
         Button { showDescriptionEdit = true } label: {
             HStack(alignment: .top, spacing: 10) {
-                Image(systemName: "text.alignleft")
+                DazuIcon("text.alignleft")
                     .font(.system(size: 13))
                     .foregroundColor(.brand)
                     .padding(.top, 2)
@@ -1385,7 +1385,7 @@ struct CommunityCreatorDashboardSheet: View {
                     }
                 }
                 Spacer()
-                Image(systemName: "pencil")
+                DazuIcon("pencil")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(.textTertiary)
             }
@@ -1410,7 +1410,7 @@ struct CommunityCreatorDashboardSheet: View {
     private var dropHistoryBlock: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Label(tr("community.last_drops"), systemImage: "clock.arrow.circlepath")
+                Label { Text(tr("community.last_drops")) } icon: { DazuIcon("clock.arrow.circlepath") }
                     .font(.dsBodySemi)
                     .foregroundColor(.textPrimary)
                 Spacer()
@@ -1433,7 +1433,7 @@ struct CommunityCreatorDashboardSheet: View {
 
     private func dropHistoryRow(_ drop: CommunityDropEntry) -> some View {
         HStack(spacing: 12) {
-            Text(drop.emoji)
+            DazuActivityIcon(drop.emoji)
                 .font(.system(size: 22))
                 .frame(width: 36, height: 36)
                 .background(
@@ -1458,7 +1458,7 @@ struct CommunityCreatorDashboardSheet: View {
                     }
                 }
                 HStack(spacing: 4) {
-                    Image(systemName: "person.2.fill")
+                    DazuIcon("person.2.fill", accent: false)
                         .font(.system(size: 9))
                     Text("\(drop.participants)/\(drop.max) · \(dropTimeLabel(drop.createdAt))")
                         .font(.system(size: 11))
@@ -1524,7 +1524,7 @@ struct CommunityCreatorDashboardSheet: View {
     private var dropBlock: some View {
         Button { showCreateDrop = true } label: {
             HStack(spacing: 12) {
-                Image(systemName: "plus.circle.fill")
+                DazuIcon("plus.circle.fill")
                     .font(.system(size: 22, weight: .semibold))
                     .foregroundColor(.white)
                 VStack(alignment: .leading, spacing: 2) {
@@ -1537,7 +1537,7 @@ struct CommunityCreatorDashboardSheet: View {
                         .foregroundColor(.white.opacity(0.92))
                 }
                 Spacer()
-                Image(systemName: "chevron.right")
+                DazuIcon("chevron.right")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(.white.opacity(0.8))
             }
@@ -1557,7 +1557,7 @@ struct CommunityCreatorDashboardSheet: View {
     private var pushBlock: some View {
         Button { showPushCompose = true } label: {
             HStack(spacing: 12) {
-                Image(systemName: "bell.badge.fill")
+                DazuIcon("bell.badge.fill", accent: false)
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundColor(.white)
                 VStack(alignment: .leading, spacing: 2) {
@@ -1569,7 +1569,7 @@ struct CommunityCreatorDashboardSheet: View {
                         .foregroundColor(.white.opacity(0.85))
                 }
                 Spacer()
-                Image(systemName: "chevron.right")
+                DazuIcon("chevron.right")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(.white.opacity(0.8))
             }
@@ -1586,13 +1586,12 @@ struct CommunityCreatorDashboardSheet: View {
     private var membersBlock: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Label("\(tr("community.members")) (\(max(community.memberCount, members.count)))",
-                      systemImage: "person.fill")
+                Label { Text("\(tr("community.members")) (\(max(community.memberCount, members.count)))") } icon: { DazuIcon("person.fill") }
                     .font(.dsBodySemi)
                     .foregroundColor(.textPrimary)
                 Spacer()
                 if isLoading {
-                    ProgressView().scaleEffect(0.8).tint(.brand)
+                    DazuLoader().scaleEffect(0.8).tint(.brand)
                 }
             }
             if members.isEmpty && !isLoading {
@@ -1625,7 +1624,7 @@ struct CommunityCreatorDashboardSheet: View {
             Spacer()
             if !member.isCreator {
                 Button { kickConfirm = member } label: {
-                    Image(systemName: "person.fill.xmark")
+                    DazuIcon("person.fill.xmark", accent: false)
                         .font(.system(size: 14))
                         .foregroundColor(.accentRed)
                         .padding(8)
@@ -1808,7 +1807,7 @@ struct CommunityPushComposeSheet: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button { dismiss() } label: {
-                        Image(systemName: "xmark.circle.fill")
+                        DazuIcon("xmark.circle.fill")
                             .font(.system(size: 22))
                             .foregroundColor(.textTertiary)
                     }
@@ -1830,7 +1829,7 @@ struct CommunityPushComposeSheet: View {
                 Circle()
                     .fill(LinearGradient.aurora.opacity(0.18))
                     .frame(width: 70, height: 70)
-                Image(systemName: "bell.badge.fill")
+                DazuIcon("bell.badge.fill")
                     .font(.system(size: 28, weight: .semibold))
                     .foregroundColor(.brand)
             }
@@ -1844,7 +1843,7 @@ struct CommunityPushComposeSheet: View {
 
     private func limitBadge(remaining: Int) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: remaining > 0 ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+            DazuIcon(remaining > 0 ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                 .foregroundColor(remaining > 0 ? .brand : .accentOrange)
             Text(remaining > 0
                  ? tr("community.push_remaining")
@@ -1902,7 +1901,7 @@ struct CommunityPushComposeSheet: View {
     private var sendButton: some View {
         Button { send() } label: {
             Group {
-                if isSending { ProgressView().tint(.white) }
+                if isSending { DazuLoader().tint(.white) }
                 else { Text(tr("community.push_send")).font(.system(size: 16, weight: .semibold)) }
             }
             .foregroundColor(.white)
@@ -1970,11 +1969,11 @@ struct CommunityMapPin: View {
                         ))
                         .frame(width: 38, height: 38)
                         .shadow(color: Color.cleroGreen.opacity(0.45), radius: 6, y: 3)
-                    Image(systemName: community.icon)
+                    DazuIcon(community.icon, accent: false)
                         .font(.system(size: 17, weight: .bold))
                         .foregroundColor(.white)
                 }
-                Image(systemName: "arrowtriangle.down.fill")
+                DazuIcon("arrowtriangle.down.fill")
                     .font(.system(size: 9))
                     .foregroundColor(.cleroGreen)
                     .offset(y: -3)
@@ -2024,7 +2023,7 @@ struct CommunityJoinSheet: View {
                 Circle()
                     .fill(Color.cleroGreen.opacity(0.18))
                     .frame(width: 76, height: 76)
-                Image(systemName: community.icon)
+                DazuIcon(community.icon, accent: false)
                     .font(.system(size: 32, weight: .semibold))
                     .foregroundColor(.cleroGreen)
             }
@@ -2056,13 +2055,13 @@ struct CommunityJoinSheet: View {
             }
 
             if isOwnCommunity {
-                Label(tr("community.your_community"), systemImage: "checkmark.seal.fill")
+                Label { Text(tr("community.your_community")) } icon: { DazuIcon("checkmark.seal.fill") }
                     .font(.dsBodySemi)
                     .foregroundColor(.cleroGreen)
                     .padding(.horizontal, 20).padding(.vertical, 12)
                     .background(Capsule().fill(Color.cleroGreen.opacity(0.16)))
             } else if alreadyMember {
-                Label(tr("community.you_are_member"), systemImage: "checkmark.circle.fill")
+                Label { Text(tr("community.you_are_member")) } icon: { DazuIcon("checkmark.circle.fill") }
                     .font(.dsBodySemi)
                     .foregroundColor(.cleroGreen)
                     .padding(.horizontal, 20).padding(.vertical, 12)
@@ -2070,7 +2069,7 @@ struct CommunityJoinSheet: View {
             } else {
                 Button { join() } label: {
                     Group {
-                        if isJoining { ProgressView().tint(.white) }
+                        if isJoining { DazuLoader().tint(.white) }
                         else { Text(tr("community.join")).font(.system(size: 16, weight: .semibold)) }
                     }
                     .foregroundColor(.white)
@@ -2162,12 +2161,12 @@ struct AdminCommunityRequestsSheet: View {
 
                 if isLoading {
                     Spacer()
-                    ProgressView().tint(.brand)
+                    DazuLoader().tint(.brand)
                     Spacer()
                 } else if filtered.isEmpty {
                     Spacer()
                     VStack(spacing: 10) {
-                        Image(systemName: "tray")
+                        DazuIcon("tray")
                             .font(.system(size: 36))
                             .foregroundColor(.textTertiary)
                         Text(filter == "pending" ? tr("community.no_pending_requests")
@@ -2194,7 +2193,7 @@ struct AdminCommunityRequestsSheet: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button { dismiss() } label: {
-                        Image(systemName: "xmark.circle.fill")
+                        DazuIcon("xmark.circle.fill")
                             .font(.system(size: 22))
                             .foregroundColor(.textTertiary)
                     }
@@ -2221,7 +2220,7 @@ struct AdminCommunityRequestsSheet: View {
                     Circle()
                         .fill(LinearGradient.aurora.opacity(0.18))
                         .frame(width: 44, height: 44)
-                    Image(systemName: req.icon)
+                    DazuIcon(req.icon)
                         .font(.system(size: 18, weight: .semibold))
                         .foregroundColor(.brand)
                 }
@@ -2285,7 +2284,7 @@ struct AdminCommunityRequestsSheet: View {
                 .dropsPressable()
             } else {
                 HStack(spacing: 6) {
-                    Image(systemName: req.status == "approved" ? "checkmark.seal.fill" : "xmark.circle.fill")
+                    DazuIcon(req.status == "approved" ? "checkmark.seal.fill" : "xmark.circle.fill")
                         .foregroundColor(req.status == "approved" ? .brand : .accentRed)
                     Text(req.status == "approved" ? tr("community.status_approved") : tr("community.status_denied"))
                         .font(.dsCaption)
@@ -2367,7 +2366,7 @@ struct TransferOwnershipSheet: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button { dismiss() } label: {
-                        Image(systemName: "xmark.circle.fill")
+                        DazuIcon("xmark.circle.fill")
                             .font(.system(size: 22))
                             .foregroundColor(.textTertiary)
                     }
@@ -2390,7 +2389,7 @@ struct TransferOwnershipSheet: View {
                 Circle()
                     .fill(LinearGradient.aurora.opacity(0.18))
                     .frame(width: 70, height: 70)
-                Image(systemName: "person.crop.circle.badge.checkmark")
+                DazuIcon("person.crop.circle.badge.checkmark")
                     .font(.system(size: 30, weight: .semibold))
                     .foregroundColor(.brand)
             }
@@ -2455,7 +2454,7 @@ struct TransferOwnershipSheet: View {
                     }
                 }
                 Spacer()
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                DazuIcon(isSelected ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 18))
                     .foregroundColor(isSelected ? .brand : .textTertiary)
             }
@@ -2476,7 +2475,7 @@ struct TransferOwnershipSheet: View {
         Button { showConfirm = true } label: {
             Group {
                 if isTransferring {
-                    ProgressView().tint(.white)
+                    DazuLoader().tint(.white)
                 } else {
                     Text(tr("community.transfer_confirm").replacingOccurrences(of: "{name}", with: member.name))
                         .font(.system(size: 16, weight: .semibold))
@@ -2535,7 +2534,7 @@ struct CommunityDescriptionEditSheet: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button { dismiss() } label: {
-                        Image(systemName: "xmark.circle.fill")
+                        DazuIcon("xmark.circle.fill")
                             .font(.system(size: 22))
                             .foregroundColor(.textTertiary)
                     }
@@ -2560,7 +2559,7 @@ struct CommunityDescriptionEditSheet: View {
                 Circle()
                     .fill(LinearGradient.aurora.opacity(0.18))
                     .frame(width: 64, height: 64)
-                Image(systemName: "text.alignleft")
+                DazuIcon("text.alignleft")
                     .font(.system(size: 24, weight: .semibold))
                     .foregroundColor(.brand)
             }
@@ -2598,7 +2597,7 @@ struct CommunityDescriptionEditSheet: View {
     private var saveButton: some View {
         Button { save() } label: {
             Group {
-                if isSaving { ProgressView().tint(.white) }
+                if isSaving { DazuLoader().tint(.white) }
                 else { Text(tr("community.save")).font(.system(size: 16, weight: .semibold)) }
             }
             .foregroundColor(.white)

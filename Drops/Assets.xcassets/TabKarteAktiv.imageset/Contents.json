@@ -1,0 +1,26 @@
+{
+  "images": [
+    {
+      "filename": "tab-karte-aktiv.svg",
+      "idiom": "universal"
+    },
+    {
+      "appearances": [
+        {
+          "appearance": "luminosity",
+          "value": "dark"
+        }
+      ],
+      "filename": "tab-karte-aktiv-dunkel.svg",
+      "idiom": "universal"
+    }
+  ],
+  "info": {
+    "author": "xcode",
+    "version": 1
+  },
+  "properties": {
+    "template-rendering-intent": "original",
+    "preserves-vector-representation": true
+  }
+}

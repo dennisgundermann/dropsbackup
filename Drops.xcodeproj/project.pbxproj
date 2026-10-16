@@ -9,6 +9,12 @@
 /* Begin PBXBuildFile section */
 		13B2973FA52749D888CC45A1 /* FeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0F5F8C8062A41CBB0CD013D /* FeedView.swift */; };
 		13CF507DAAB3456EB4F37CCF /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49AC45B58BF74488B93149C4 /* OnboardingView.swift */; };
+		16FE3ADCDF994ED9F135CA82 /* PresenceOptInSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B011CA4C814979A9120A1C1 /* PresenceOptInSheet.swift */; };
+		1F7227FE982BF09932EAB166 /* SharedRadarState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58451DDABC501B794A14C47B /* SharedRadarState.swift */; };
+		216BD6EA74BE722919AEAC1C /* PresenceOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDFEEEFE4AEBACEAC20B41E1 /* PresenceOverlay.swift */; };
+		498AC81052EF5AB0432E9E84 /* SharedRadarState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58451DDABC501B794A14C47B /* SharedRadarState.swift */; };
+		65BC777CEBDC351870645027 /* PresenceModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45ADDD3954D146939E66F725 /* PresenceModels.swift */; };
+		6805ECF14A178B669F39365D /* RadarWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86BB18EC16326D92B316E7F1 /* RadarWidget.swift */; };
 		68F466417E1B49C886649416 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B72E3A391A6F47C4B228969A /* Assets.xcassets */; };
 		6A0A7DB0FF7C4E41989E5705 /* DropTips.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57BF6787B87E4920855E711E /* DropTips.swift */; };
 		89042F9CF58F49A7AAC76CBA /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 327F542C69C2450EB363BF7F /* Preview Assets.xcassets */; };
@@ -19,6 +25,7 @@
 		AB5D31427FAF496F81E12038 /* DesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 872B2889154249B48B39C338 /* DesignSystem.swift */; };
 		B3BB3982DE3946A7B973E3C5 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ABB1429B0CC45F69697DFFE /* Models.swift */; };
 		B88A3AA80FF24A3E972ED64F /* LiveMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60F2B6D895C04241A50D2A18 /* LiveMapView.swift */; };
+		B90A871E1EAE47D4B2A3DD45 /* DynamicToast.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99369506DA0647C3A546EC0F /* DynamicToast.swift */; };
 		BB3BC38B666E419AAC69B477 /* LinkUpApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 157A9023A3B644239FDAF68F /* LinkUpApp.swift */; };
 		CC001FDC00AA4B00BC001FDC /* FirstDropCoachView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC001FDB00AA4B00BC001FDB /* FirstDropCoachView.swift */; };
 		DA00100B00000000000100B /* DropLiveActivity.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = DA001001000000000001001 /* DropLiveActivity.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -26,6 +33,7 @@
 		DA002004000000000002004 /* DropLiveActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA002003000000000002003 /* DropLiveActivityAttributes.swift */; };
 		DA002005000000000002005 /* DropLiveActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA002003000000000002003 /* DropLiveActivityAttributes.swift */; };
 		DA002007000000000002007 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DA002006000000000002006 /* Assets.xcassets */; };
+		DD82ABFDFC44B0EF700F648F /* DazuBranding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9022B4A1F49890E135C8C55F /* DazuBranding.swift */; };
 		E4155E9E2F810ED9006A5368 /* CreateDropView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4155E9D2F810EC3006A5368 /* CreateDropView.swift */; };
 		E4315F842F814CE100E60F54 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = E4315F832F814CE100E60F54 /* FirebaseAuth */; };
 		E4315F862F814CE100E60F54 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = E4315F852F814CE100E60F54 /* FirebaseCore */; };
@@ -80,15 +88,21 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		0B011CA4C814979A9120A1C1 /* PresenceOptInSheet.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PresenceOptInSheet.swift; sourceTree = "<group>"; };
 		1206E5CD6A2641AF8F3B9AFE /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		157A9023A3B644239FDAF68F /* LinkUpApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkUpApp.swift; sourceTree = "<group>"; };
 		327F542C69C2450EB363BF7F /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
+		45ADDD3954D146939E66F725 /* PresenceModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PresenceModels.swift; sourceTree = "<group>"; };
 		49AC45B58BF74488B93149C4 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		57BF6787B87E4920855E711E /* DropTips.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DropTips.swift; sourceTree = "<group>"; };
+		58451DDABC501B794A14C47B /* SharedRadarState.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SharedRadarState.swift; sourceTree = "<group>"; };
 		5ABB1429B0CC45F69697DFFE /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		60F2B6D895C04241A50D2A18 /* LiveMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveMapView.swift; sourceTree = "<group>"; };
+		86BB18EC16326D92B316E7F1 /* RadarWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RadarWidget.swift; sourceTree = "<group>"; };
 		872B2889154249B48B39C338 /* DesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem.swift; sourceTree = "<group>"; };
+		9022B4A1F49890E135C8C55F /* DazuBranding.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DazuBranding.swift; sourceTree = "<group>"; };
 		951A8B122FAE762E0003DFC3 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = AppIcon.icon; sourceTree = "<group>"; };
+		99369506DA0647C3A546EC0F /* DynamicToast.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DynamicToast.swift; sourceTree = "<group>"; };
 		9C6AE0EAF293496FAAB1180D /* ProfileAndAlertsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileAndAlertsView.swift; sourceTree = "<group>"; };
 		A070BC7CF7824527992379F9 /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
 		AA000008000000000000008 /* Drops.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Drops.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -121,6 +135,7 @@
 		FA016CF02F90000000FCF120 /* ContentFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentFilter.swift; sourceTree = "<group>"; };
 		FA019JJ02F90000000JJJ120 /* Communities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Communities.swift; sourceTree = "<group>"; };
 		FAPRIVACY0000000010000000 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		FDFEEEFE4AEBACEAC20B41E1 /* PresenceOverlay.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PresenceOverlay.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -207,6 +222,12 @@
 				FA019JJ02F90000000JJJ120 /* Communities.swift */,
 				AA000016000000000000016 /* Preview Content */,
 				E4FFB3312F952A3E004E687A /* DropsPlusView 2.swift */,
+				58451DDABC501B794A14C47B /* SharedRadarState.swift */,
+				45ADDD3954D146939E66F725 /* PresenceModels.swift */,
+				0B011CA4C814979A9120A1C1 /* PresenceOptInSheet.swift */,
+				FDFEEEFE4AEBACEAC20B41E1 /* PresenceOverlay.swift */,
+				9022B4A1F49890E135C8C55F /* DazuBranding.swift */,
+				99369506DA0647C3A546EC0F /* DynamicToast.swift */,
 			);
 			path = Drops;
 			sourceTree = "<group>";
@@ -225,6 +246,7 @@
 				E44368892F917632009530A5 /* DropLiveActivity.entitlements */,
 				DA002001000000000002001 /* DropLiveActivityWidget.swift */,
 				DA002006000000000002006 /* Assets.xcassets */,
+				86BB18EC16326D92B316E7F1 /* RadarWidget.swift */,
 			);
 			path = DropLiveActivity;
 			sourceTree = SOURCE_ROOT;
@@ -303,7 +325,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 1500;
-				LastUpgradeCheck = 2640;
+				LastUpgradeCheck = 2700;
 				TargetAttributes = {
 					AA000002000000000000002 = {
 						CreatedOnToolsVersion = 15.0;
@@ -436,6 +458,12 @@
 				FA019JJ12F90000000JJJ121 /* Communities.swift in Sources */,
 				DA002004000000000002004 /* DropLiveActivityAttributes.swift in Sources */,
 				E4FFB3322F952A3E004E687A /* DropsPlusView 2.swift in Sources */,
+				498AC81052EF5AB0432E9E84 /* SharedRadarState.swift in Sources */,
+				65BC777CEBDC351870645027 /* PresenceModels.swift in Sources */,
+				16FE3ADCDF994ED9F135CA82 /* PresenceOptInSheet.swift in Sources */,
+				216BD6EA74BE722919AEAC1C /* PresenceOverlay.swift in Sources */,
+				DD82ABFDFC44B0EF700F648F /* DazuBranding.swift in Sources */,
+				B90A871E1EAE47D4B2A3DD45 /* DynamicToast.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -445,6 +473,8 @@
 			files = (
 				DA002002000000000002002 /* DropLiveActivityWidget.swift in Sources */,
 				DA002005000000000002005 /* DropLiveActivityAttributes.swift in Sources */,
+				1F7227FE982BF09932EAB166 /* SharedRadarState.swift in Sources */,
+				6805ECF14A178B669F39365D /* RadarWidget.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -592,18 +622,18 @@
 				CODE_SIGN_ENTITLEMENTS = Drops/Drops.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 15;
 				DEVELOPMENT_ASSET_PATHS = "\"Drops/Preview Content\"";
 				DEVELOPMENT_TEAM = 63N54256Q7;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Drops/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = Drops;
+				INFOPLIST_KEY_CFBundleDisplayName = dazu;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
 				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
 				LE_SWIFT_VERSION = 5.0;
-				MARKETING_VERSION = 1.0.5;
+				MARKETING_VERSION = 2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.dennis.drops;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -627,18 +657,18 @@
 				CODE_SIGN_ENTITLEMENTS = Drops/Drops.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 15;
 				DEVELOPMENT_ASSET_PATHS = "\"Drops/Preview Content\"";
 				DEVELOPMENT_TEAM = 63N54256Q7;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Drops/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = Drops;
+				INFOPLIST_KEY_CFBundleDisplayName = dazu;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
 				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
 				LE_SWIFT_VERSION = 5.0;
-				MARKETING_VERSION = 1.0.5;
+				MARKETING_VERSION = 2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.dennis.drops;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -660,22 +690,25 @@
 				CODE_SIGN_ENTITLEMENTS = DropLiveActivity/DropLiveActivity.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 15;
 				DEVELOPMENT_TEAM = 63N54256Q7;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = DropLiveActivity/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.1;
 				LE_SWIFT_VERSION = 5.0;
-				MARKETING_VERSION = 1.0.5;
+				MARKETING_VERSION = 1.0.7;
 				PRODUCT_BUNDLE_IDENTIFIER = com.dennis.drops.DropLiveActivity;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};
@@ -686,22 +719,25 @@
 				CODE_SIGN_ENTITLEMENTS = DropLiveActivity/DropLiveActivity.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 15;
 				DEVELOPMENT_TEAM = 63N54256Q7;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = DropLiveActivity/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.1;
 				LE_SWIFT_VERSION = 5.0;
-				MARKETING_VERSION = 1.0.5;
+				MARKETING_VERSION = 1.0.7;
 				PRODUCT_BUNDLE_IDENTIFIER = com.dennis.drops.DropLiveActivity;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};

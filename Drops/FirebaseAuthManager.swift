@@ -1,5 +1,6 @@
 import FirebaseAuth
 import FirebaseCore
+import FirebaseDatabase
 import AuthenticationServices
 import CryptoKit
 import UIKit
@@ -32,6 +33,10 @@ class FirebaseAuthManager: ObservableObject {
 
     // Als Property halten damit ARC es nicht während des await freigibt
     private var uiDelegate: FirebaseUIDelegate? = nil
+    /// Zuletzt an `sendVerificationCode` übergebene Nummer. Wird in
+    /// `verifyCode` gebraucht für den phoneIndex-Check (siehe
+    /// `preCheckPhoneAlreadyLinked`).
+    private var lastPhoneNumber: String? = nil
 
     // MARK: - Beta Dev Bypass
 
@@ -54,6 +59,7 @@ class FirebaseAuthManager: ObservableObject {
     /// Sendet SMS über Firebase – erwartet vollständige Nummer z.B. "+4915771677000"
     func sendVerificationCode(to phoneNumber: String) async {
         state = .sendingSMS
+        lastPhoneNumber = phoneNumber
         guard FirebaseApp.app() != nil else {
             state = .error("Firebase nicht konfiguriert. Bitte App neu starten.")
             return
@@ -82,10 +88,33 @@ class FirebaseAuthManager: ObservableObject {
         }
     }
 
-    /// Verifiziert den 6-stelligen SMS-Code gegen Firebase
-    func verifyCode(_ code: String) async -> Bool {
-        guard case .smsSent(let verificationID) = state else { return false }
+    /// Verifiziert den 6-stelligen SMS-Code gegen Firebase.
+    /// Returnt `(success, isNewUser)` — `isNewUser = true` wenn Firebase bei
+    /// diesem Sign-In einen frischen Account angelegt hat, damit das Onboarding
+    /// zwischen „direkt in die App" (existierender Account) und „Name/Alter
+    /// erfassen" (neuer Account) unterscheiden kann.
+    func verifyCode(_ code: String) async -> (success: Bool, isNewUser: Bool) {
+        guard case .smsSent(let verificationID) = state else { return (false, false) }
         state = .verifying
+
+        // ─── Pre-signIn-Check: Dupe-Prävention ─────────────────────────
+        // Wenn die Nummer bereits einem anderen dazu-Account zugeordnet ist
+        // (phoneIndex → UID X), DARF Firebase keinen neuen Account anlegen.
+        // Sonst dupliziert sich das Profil: Apple-UID A hat Phone linked,
+        // aber Firebase-Auth kennt den Link nicht → signIn erstellt UID B.
+        // Fehlt der phoneIndex-Eintrag ganz (= frische Nummer), ist Phone-
+        // Register erlaubt — Dubletten per Google/Apple sind sowieso möglich,
+        // deshalb kein grundsätzliches Register-Verbot über Phone.
+        if let phone = lastPhoneNumber {
+            if let existingUID = await lookupPhoneIndex(phone: phone) {
+                let currentUID = Auth.auth().currentUser?.uid
+                if currentUID != existingUID {
+                    state = .error("Diese Nummer gehört bereits zu einem Account. Bitte mit Apple oder Google anmelden und die Nummer dort verknüpfen.")
+                    return (false, false)
+                }
+            }
+        }
+
         do {
             // Sicherstellen dass kein veralteter User eingeloggt ist (z.B. nach Konto-Löschung)
             if Auth.auth().currentUser != nil {
@@ -93,12 +122,49 @@ class FirebaseAuthManager: ObservableObject {
             }
             let credential = PhoneAuthProvider.provider()
                 .credential(withVerificationID: verificationID, verificationCode: code)
-            try await Auth.auth().signIn(with: credential)
+            let result = try await Auth.auth().signIn(with: credential)
+            let isNew = result.additionalUserInfo?.isNewUser ?? false
             state = .success
-            return true
+            return (true, isNew)
         } catch {
             state = .error(friendlyError(error))
-            return false
+            return (false, false)
+        }
+    }
+
+    /// Prüft `phoneIndex/{normalized}` in RTDB — gibt die UID zurück, falls
+    /// die Nummer bereits einem Account zugeordnet ist. nil = frei.
+    /// Nutzt dieselbe Normalisierung wie `RealtimeDBManager.normalizePhone`
+    /// (behält das führende `+`), sonst matcht der Lookup die Keys nicht.
+    private func lookupPhoneIndex(phone: String) async -> String? {
+        let normalized = RealtimeDBManager.normalizePhone(phone)
+        guard !normalized.isEmpty else { return nil }
+        return await withCheckedContinuation { continuation in
+            Database.database().reference()
+                .child("phoneIndex").child(normalized)
+                .observeSingleEvent(of: .value) { snap in
+                    let uid = (snap.value as? [String: Any])?["uid"] as? String
+                    continuation.resume(returning: uid)
+                }
+        }
+    }
+
+    /// Verlinkt die SMS-Credentials an den gerade eingeloggten User (statt
+    /// einen neuen Account anzulegen). Nutzt denselben `verificationID` aus
+    /// dem `.smsSent`-State. Returnt (success, phoneNumber).
+    func linkPhoneToCurrentUser(code: String) async -> (success: Bool, phone: String?) {
+        guard case .smsSent(let verificationID) = state else { return (false, nil) }
+        guard let current = Auth.auth().currentUser else { return (false, nil) }
+        state = .verifying
+        do {
+            let credential = PhoneAuthProvider.provider()
+                .credential(withVerificationID: verificationID, verificationCode: code)
+            let result = try await current.link(with: credential)
+            state = .success
+            return (true, result.user.phoneNumber)
+        } catch {
+            state = .error(friendlyError(error))
+            return (false, nil)
         }
     }
 

@@ -43,7 +43,7 @@ struct DropsPlusView: View {
 
             // ── Schließen-Button ─────────────────────────────────────────
             Button { dismiss() } label: {
-                Image(systemName: "xmark.circle.fill")
+                DazuIcon("xmark.circle.fill")
                     .font(.title2)
                     .foregroundStyle(Color.textTertiary)
             }
@@ -78,7 +78,7 @@ struct DropsPlusView: View {
                         )
                     )
                     .frame(width: 110, height: 110)
-                Image(systemName: "bolt.fill")
+                DazuIcon("bolt.fill")
                     .font(.system(size: 42))
                     .foregroundStyle(
                         LinearGradient(
@@ -130,7 +130,7 @@ struct DropsPlusView: View {
             // ── Bald verfügbar ────────────────────────────────────────────
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 6) {
-                    Image(systemName: "sparkles")
+                    DazuIcon("sparkles", accent: false)
                         .font(.system(size: 11, weight: .semibold))
                     Text(tr("plus.coming_soon"))
                         .font(.system(size: 11, weight: .bold))
@@ -170,7 +170,7 @@ struct DropsPlusView: View {
             if store.isPlusUser {
                 // Bereits gekauft
                 VStack(spacing: 10) {
-                    Image(systemName: "checkmark.seal.fill")
+                    DazuIcon("checkmark.seal.fill")
                         .font(.system(size: 40))
                         .foregroundStyle(
                             LinearGradient(
@@ -210,10 +210,10 @@ struct DropsPlusView: View {
                 } label: {
                     ZStack {
                         if store.isLoading {
-                            ProgressView().tint(.white)
+                            DazuLoader().tint(.white)
                         } else {
                             HStack(spacing: 8) {
-                                Image(systemName: "bolt.fill")
+                                DazuIcon("bolt.fill")
                                     .font(.system(size: 15, weight: .bold))
                                 Text(tr("plus.unlock_plus"))
                                     .font(.system(size: 17, weight: .bold))
@@ -295,7 +295,7 @@ struct DropsPlusSuccessView: View {
                             )
                         )
                         .frame(width: 140, height: 140)
-                    Image(systemName: "checkmark.seal.fill")
+                    DazuIcon("checkmark.seal.fill")
                         .font(.system(size: 76, weight: .semibold))
                         .foregroundStyle(
                             LinearGradient(
@@ -386,7 +386,7 @@ private struct PlusFeatureRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
             ZStack {
-                Image(systemName: icon)
+                DazuIcon(icon, accent: false)
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(
                         comingSoon
@@ -451,7 +451,7 @@ private struct SuccessFeatureLine: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: icon)
+            DazuIcon(icon, accent: false)
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(
                     LinearGradient(

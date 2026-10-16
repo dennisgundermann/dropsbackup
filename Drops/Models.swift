@@ -467,6 +467,14 @@ struct MapAnnotationItem: Identifiable {
     /// Seeder-eingefügter Demo-Drop — verschwindet nach 1h, wird auf der
     /// Map deutlich matter/kleiner gerendert als echte Ghost-Drops.
     var isDemo: Bool = false
+    /// Firebase-Storage URL des Host-Profilbilds — beim Drop-Create eingefroren
+    /// (hostProfileImageURL in RTDB). Für Avatar-Pins auf der Karte, inklusive
+    /// Ghosts (nach Drop-Ende). Nil wenn Host kein Bild hatte.
+    var hostProfileImageURL: String? = nil
+    /// Original Firebase-Key des Drops (nur für Stranger-Drops gesetzt) —
+    /// braucht das Pin-Detail-Sheet um `dropins/{firebaseDropID}` zu
+    /// observieren und live Joiner-Avatare anzuzeigen.
+    var firebaseDropID: String? = nil
     /// Effektive Teilnehmerzahl: Stranger-Drops nutzen den Live-Wert vom
     /// Host, eigene Drops die lokale `participants`-Liste.
     var effectiveParticipantCount: Int {
@@ -582,7 +590,9 @@ struct PastDropParticipant: Identifiable, Codable {
 }
 
 struct PastDrop: Identifiable, Codable {
-    let id = UUID()
+    /// `var` damit `fetchPastDrops` den Firebase-Node-Key zurück in die
+    /// lokale UUID restaurieren kann (gleiche ID → gezieltes Löschen).
+    var id = UUID()
     let activityEmoji: String
     let activityName: String
     let locationName: String
@@ -1055,7 +1065,10 @@ class AppStore: ObservableObject {
     @Published var friends: [User] = []
 
     @Published var activeDrops: [DropEvent] = []
-    @Published var selectedTab: Tab = .map
+    // Default auf den dazu-Tab: der neue User soll beim Kaltstart nicht auf
+    // einer leeren Karte landen, sondern direkt im Haupt-Feature (Create /
+    // Live-Runde). Karte und Umgebung sind einen Tap entfernt.
+    @Published var selectedTab: Tab = .create
     @Published var pendingDropID: UUID? = nil           // Universal Link → Drop direkt öffnen
     @Published var pendingInviteUsername: String? = nil // Universal Link → Freund hinzufügen
     @Published var selfieImage: UIImage? = nil
@@ -1071,6 +1084,9 @@ class AppStore: ObservableObject {
     /// Garantiert dass der Joiner „Host hat Drop beendet"-Alert auch im
     /// Live-Tab bekommt (observeNearbyDrops läuft dort nicht).
     private var joinedDropEndHandle: DatabaseHandle? = nil
+    /// Observer-Handle für Standort-Änderungen eines beigetretenen Drops —
+    /// triggert einen Toast beim Joiner wenn der Host den Treffpunkt verschiebt.
+    private var joinedDropLocationHandle: DatabaseHandle? = nil
     /// dropID → Zeitpunkt des Verlassens. Schützt vor Missbrauch durch Re-Join.
     @Published var dropLeaveTimes: [UUID: Date] = [:]
     static let joinCooldown: TimeInterval = 10 * 60   // 10 Minuten
@@ -1099,6 +1115,15 @@ class AppStore: ObservableObject {
     @Published var showDropsPlusPaywall: Bool = false
     /// Wird auf true gesetzt nach Kauf oder Admin-Freischaltung → MainTabView zeigt Success-Popup
     @Published var showDropsPlusSuccess: Bool = false
+
+    // MARK: - Admin-Badges (manuell vom Admin aktiviert)
+    /// Werden aus `users/{uid}/badges/*` geladen und im Profil-Hero + an
+    /// User-sichtbaren Stellen (DropJoinSheet, MiniProfile) gerendert.
+    @Published var hasAdminBetaBadge: Bool = false
+    @Published var hasAdminTrustedBadge: Bool = false
+    @Published var hasAdminFounderBadge: Bool = false
+    @Published var hasAdminVerifiedBadge: Bool = false
+    @Published var hasAdminHostBadge: Bool = false
 
     /// Immer aktueller Plus-Status (direkt aus StoreKit — kein Caching-Lag).
     var isDropsPlusActive: Bool {
@@ -1276,8 +1301,9 @@ class AppStore: ObservableObject {
     struct PointsToast: Identifiable, Equatable {
         let id = UUID()
         let delta: Int
-        /// Nur wahr wenn der Punkt-Push aus einer aktiven Power-Hour kam.
-        /// Steuert eine kleine Bolt-Variation in der Toast-UI.
+        /// Power-Hour-Feature wurde entfernt. Flag bleibt in der Struct,
+        /// damit alte Toast-UI-Zweige (Icon/Gradient) ohne Signatur-Umbau
+        /// weiterlaufen; wird jetzt überall mit `false` initialisiert.
         let isPowerHour: Bool
         /// Optionaler Begründungs-Text — z.B. "Drop bestätigt", "Streak-Bonus",
         /// "Host-Erfolg". Wird im Toast als kleine Subline angezeigt damit
@@ -2479,6 +2505,19 @@ class AppStore: ObservableObject {
         }
     }
 
+    // MARK: - Vergangene Runde löschen
+
+    /// Löscht einen einzelnen PastDrop aus der lokalen Liste UND aus Firebase.
+    /// Danach wird die kompakte UserDefaults-JSON neu geschrieben, damit die
+    /// Änderung Neustart-Fest ist.
+    func deletePastDrop(id: UUID) {
+        pastDrops.removeAll { $0.id == id }
+        if let data = try? JSONEncoder().encode(pastDrops) {
+            UserDefaults.standard.set(data, forKey: UDKey.pastDrops)
+        }
+        RealtimeDBManager.shared.deletePastDrop(id: id)
+    }
+
     // MARK: - Drop Expiry Timer
 
     private func startExpiryTimer() {
@@ -2787,6 +2826,14 @@ class AppStore: ObservableObject {
                 let delta = newPoints - self.lastObservedPoints
                 self.lastObservedPoints = newPoints
                 guard delta > 0 else { return }
+                // Initial-Firebase-Sync nach Login: wenn der lokale Score
+                // noch Start-Punkte (0 oder Default) hat und plötzlich mehr
+                // als 50 Punkte-Delta reinkommt, ist das kein neuer Award
+                // sondern das Hydrieren aus Firebase. Kein Toast dafür.
+                if delta >= 50 && self.lastObservedPoints == newPoints
+                    && (newPoints - delta) <= ReliabilityScore.startingPoints {
+                    return
+                }
                 // Letzter Toast wird durch neuen ersetzt — neue ID damit
                 // SwiftUI ein .transition triggert. Reason wird vom letzten
                 // Award-Pfad mitgegeben (z.B. "Drop besucht", "Host-Erfolg").
@@ -2795,7 +2842,7 @@ class AppStore: ObservableObject {
                 Haptic.pointsEarned()
                 self.pointsToast = PointsToast(
                     delta: delta,
-                    isPowerHour: self.isPowerHourActive,
+                    isPowerHour: false,
                     reason: reason
                 )
             }
@@ -2809,12 +2856,12 @@ class AppStore: ObservableObject {
     // Treffens (entweder als Joiner via confirmEncounter oder als Host via
     // recordHostSuccess).
     //
-    // Power-Hour: zu festgelegten Stoßzeiten verdoppelt sich der Boost-Bonus
-    // (von +15 auf +25). Die Logik bleibt: BOOST-Bedingung muss erfüllt sein
-    // (leere Umgebung). Power-Hour ist nur ein höherer Multiplikator on-top.
+    // Boost: wenn die Umgebung leer ist (< `boostThreshold` Drops), bekommt
+    // der nächste Drop einen Bonus (+`boostBonus` Punkte) um das Starten zu
+    // belohnen. Power-Hour (höherer Multiplikator zu festgelegten Zeiten) ist
+    // entfernt — der Boost ist jetzt der einzige Modifier.
     static let boostThreshold = 5
     static let boostBonus     = 15
-    static let powerHourBonus = 25
 
     // MARK: - Suggested Spots (Map "wo war zuletzt was los")
     //
@@ -2912,11 +2959,14 @@ class AppStore: ObservableObject {
         let now = Date().timeIntervalSince1970
         if lastTS > 0, now - lastTS < Self.presenceThrottleSeconds { return }
 
+        // profileImageURL kommt primär aus dem store.profileImageURL (nach
+        // loadProfileImageURL), currentUser.profileImageURL bleibt oft leer
+        // weil es nur beim init gesetzt wird.
         RealtimeDBManager.shared.writeMyPresence(
             uid: uid, coord: coord,
             emoji: currentUser.emoji,
             name: currentUser.name,
-            profileImageURL: currentUser.profileImageURL
+            profileImageURL: profileImageURL ?? currentUser.profileImageURL
         )
         ud.set(now, forKey: UDKey.presenceLastWrittenAt)
     }
@@ -3000,38 +3050,6 @@ class AppStore: ObservableObject {
         }
     }
 
-    /// Definition eines Power-Hour-Zeitfensters: Wochentage + Uhrzeit-Spanne.
-    /// `weekdays` nutzt die Apple-Convention (1 = Sonntag … 7 = Samstag).
-    /// `endHour` ist exklusiv (z.B. 18..<20 = 18:00 bis 19:59).
-    /// `labelKey` und `daysKey` sind Localization-Keys (siehe Localization.swift).
-    struct PowerHourWindow {
-        let weekdays: Set<Int>
-        let startHour: Int
-        let endHour: Int
-        let labelKey: String
-        let daysKey: String
-        var label: String { tr(labelKey) }
-        var daysLabel: String { tr(daysKey) }
-        /// Lokalisierte Zeitspanne, z.B. "18–20 Uhr" / "18–20".
-        var timeRangeLabel: String {
-            tr("ph.time_range")
-                .replacingOccurrences(of: "{from}", with: "\(startHour)")
-                .replacingOccurrences(of: "{to}",   with: "\(endHour)")
-        }
-    }
-
-    static let powerHourWindows: [PowerHourWindow] = [
-        // Werktag-Abend: Mo–Do 18–20 Uhr
-        PowerHourWindow(weekdays: [2, 3, 4, 5], startHour: 18, endHour: 20,
-                        labelKey: "ph.label.weekday_evening", daysKey: "ph.days.mon_thu"),
-        // Weekend Prime: Fr–Sa 19–23 Uhr
-        PowerHourWindow(weekdays: [6, 7], startHour: 19, endHour: 23,
-                        labelKey: "ph.label.weekend_prime", daysKey: "ph.days.fri_sat"),
-        // Sonntag-Brunch: So 11–14 Uhr
-        PowerHourWindow(weekdays: [1], startHour: 11, endHour: 14,
-                        labelKey: "ph.label.sunday_brunch", daysKey: "ph.days.sun"),
-    ]
-
     /// True wenn aktuell weniger als `boostThreshold` Drops in Reichweite des
     /// Users sind. Quelle: `allMapAnnotations` gefiltert auf den Radius-Filter
     /// — gleiche Logik wie die Karte/Feed sieht. Eigene Drops zählen mit (Host
@@ -3042,109 +3060,31 @@ class AppStore: ObservableObject {
         return visible.count < Self.boostThreshold
     }
 
-    /// Admin-Debug-Override: zwingt Power-Hour permanent an, unabhängig von
-    /// Wochentag/Uhrzeit. Wird im Admin-Panel umgeschaltet (debugSection)
-    /// damit Tests nicht erst auf 18 Uhr warten müssen. Persistiert
-    /// in UserDefaults, damit der Modus über App-Restarts hält.
-    @Published var debugForcePowerHour: Bool = UserDefaults.standard.bool(forKey: "ud_debugForcePowerHour") {
-        didSet {
-            UserDefaults.standard.set(debugForcePowerHour, forKey: "ud_debugForcePowerHour")
-        }
-    }
+    /// Aktueller Bonus-Wert. Nach dem Entfernen von Power-Hour gibt es nur
+    /// noch den Boost-Bonus — bleibt als Alias damit UI-Call-Sites nicht
+    /// alle umgeschrieben werden müssen.
+    var currentBoostBonus: Int { Self.boostBonus }
 
-    /// True wenn gerade ein Power-Hour-Zeitfenster läuft. Unabhängig von der
-    /// Boost-Bedingung — die UI kann beide Flags kombinieren um den richtigen
-    /// Banner-Text und Bonus-Wert anzuzeigen. Admin-Debug-Override gewinnt.
-    var isPowerHourActive: Bool {
-        if debugForcePowerHour { return true }
-        let now = Date()
-        let cal = Calendar.current
-        let weekday = cal.component(.weekday, from: now)
-        let hour = cal.component(.hour, from: now)
-        return Self.powerHourWindows.contains { window in
-            window.weekdays.contains(weekday)
-                && hour >= window.startHour
-                && hour < window.endHour
-        }
-    }
-
-    /// Aktueller Bonus-Wert (15 oder 25). UI nutzt das, der Code unten auch.
-    var currentBoostBonus: Int {
-        isPowerHourActive ? Self.powerHourBonus : Self.boostBonus
-    }
-
-    /// Countdown-Info für die Map-UI. Drei Phasen:
-    ///   - .startingSoon: ≤60 Min vor Start des nächsten Slots heute
-    ///   - .running:      mittendrin im Slot, noch >60 Min Zeit
-    ///   - .endingSoon:   in den letzten 60 Min eines aktiven Slots
-    /// Außerhalb aller Slots (oder >60 Min vor Start): nil.
-    struct PowerHourCountdown {
-        enum Phase { case startingSoon, running, endingSoon }
-        let phase: Phase
-        let minutesRemaining: Int
-        let windowLabel: String
-    }
-
-    static func powerHourCountdown(at date: Date) -> PowerHourCountdown? {
-        let cal = Calendar.current
-        let weekday = cal.component(.weekday, from: date)
-        let hour = cal.component(.hour, from: date)
-        let minute = cal.component(.minute, from: date)
-        let nowMin = hour * 60 + minute
-
-        // 1) Aktiver Slot? → immer Countdown zeigen (running oder endingSoon)
-        for w in powerHourWindows where w.weekdays.contains(weekday) {
-            if hour >= w.startHour && hour < w.endHour {
-                let endMin = w.endHour * 60
-                let remaining = endMin - nowMin
-                guard remaining > 0 else { return nil }
-                let phase: PowerHourCountdown.Phase = remaining <= 60 ? .endingSoon : .running
-                return PowerHourCountdown(
-                    phase: phase,
-                    minutesRemaining: remaining,
-                    windowLabel: w.label
-                )
-            }
-        }
-
-        // 2) Heutiger upcoming Slot in den nächsten 60 Min?
-        for w in powerHourWindows where w.weekdays.contains(weekday) {
-            if hour < w.startHour {
-                let startMin = w.startHour * 60
-                let untilStart = startMin - nowMin
-                if untilStart > 0 && untilStart <= 60 {
-                    return PowerHourCountdown(
-                        phase: .startingSoon,
-                        minutesRemaining: untilStart,
-                        windowLabel: w.label
-                    )
-                }
-            }
-        }
-
-        return nil
-    }
+    // Power-Hour wurde komplett entfernt:
+    //   - `powerHourWindows`, `PowerHourWindow`
+    //   - `isPowerHourActive`, `debugForcePowerHour`
+    //   - `powerHourCountdown(at:)`, `PowerHourCountdown`
+    // Boost bleibt als einziger Bonus-Modifier erhalten.
 
     /// Vergibt den Boost-Bonus. Zwei unabhängige Trigger:
     ///   1. Boost-Phase: Umgebung gerade leer (<5 Drops) → +15
-    ///   2. Power-Hour: konfiguriertes Zeitfenster läuft → +25
-    /// Wenn beide zutreffen gewinnt Power-Hour (höherer Wert).
-    /// Außerhalb beider Bedingungen: kein Bonus.
-    /// Wird von createDrop / confirmEncounter / recordHostSuccess aufgerufen.
-    /// Persistierung + Firestore-Push übernimmt der Aufrufer (saveAll).
+    /// Vergibt den Boost-Bonus wenn die Umgebung gerade leer ist
+    /// (<`boostThreshold` Drops in Reichweite). Power-Hour-Multiplier ist
+    /// entfallen — es gibt nur noch den einen Bonus.
     fileprivate func applyBoostBonusIfActive(reason: String) {
-        let powerHour = isPowerHourActive
-        let boost     = isBoostPhaseActive
-        guard powerHour || boost else { return }
-
-        let bonus  = powerHour ? Self.powerHourBonus : Self.boostBonus
-        let prefix = powerHour ? "Power-Hour: " : "Boost: "
+        guard isBoostPhaseActive else { return }
+        let bonus = Self.boostBonus
         reliabilityScore.boostBonusPoints += bonus
         Task { @MainActor in
             PushNotificationManager.shared.notifyPointsEarned(
                 delta: bonus,
                 totalPoints: reliabilityScore.points,
-                reason: prefix + reason
+                reason: "Boost: " + reason
             )
         }
     }
@@ -3339,7 +3279,7 @@ class AppStore: ObservableObject {
             guard let self = self else { return }
             // Nur den Host benachrichtigen — Joiner sollen keine eigene Notification bekommen
             guard !self.activeDrops.isEmpty else { return }
-            PushNotificationManager.shared.notifyDropIn(joinerName: "\(emoji) \(name)".trimmingCharacters(in: .whitespaces),
+            PushNotificationManager.shared.notifyDropIn(joinerName: name.trimmingCharacters(in: .whitespaces),
                                                          activityName: activityName)
             // Live-Activity aktualisieren damit der neue Teilnehmer erscheint
             self.refreshLiveActivityParticipants()
@@ -3402,6 +3342,17 @@ class AppStore: ObservableObject {
                         self.activeDrops[idx].participants.append(joinerUser)
                         self.refreshLiveActivityParticipants()
                         print("[joiners] safety-net added \(name) to drop.participants (was missing)")
+                        // In-App-Toast: "<Name> ist deiner Runde beigetreten"
+                        Task { @MainActor in
+                            ToastCenter.shared.show(ToastItem(
+                                title: "\(name) ist dabei",
+                                message: "kommt zu deiner \(self.activeDrops[idx].activity.name)-Runde",
+                                symbol: "person.fill.badge.plus",
+                                avatarURL: info.profileImageURL,
+                                accent: .brandOrange,
+                                route: .live
+                            ))
+                        }
                     }
 
                     if let name = info.name, !name.isEmpty {
@@ -3513,7 +3464,16 @@ class AppStore: ObservableObject {
     /// `friendRequests/{uid}` für eingehende Anfragen.
     func startObservingPresence() {
         RealtimeDBManager.shared.observeAllPresence { [weak self] entries in
-            self?.allPresences = entries
+            guard let self = self else { return }
+            self.allPresences = entries
+            // Freund-Koordinaten aus den Presence-Entries hydrieren — sonst
+            // bleiben sie bei den Random-Demo-Offsets und die Distanz zum
+            // User (Umgebung-Card „5.6 km") stimmt nicht.
+            for entry in entries {
+                if let idx = self.friends.firstIndex(where: { $0.firebaseUID == entry.uid }) {
+                    self.friends[idx].coordinate = entry.coordinate
+                }
+            }
         }
     }
 
@@ -3552,6 +3512,31 @@ class AppStore: ObservableObject {
             guard let self = self else { return }
             self.applyFriendSnapshots(snapshots)
         }
+        // Admin-Badges (BETA / Trusted / Founder / Verified / Host) —
+        // observe und synct alle Flags live aus Firebase. Beim ersten
+        // Call initial-Wert.
+        RealtimeDBManager.shared.observeMyBadges(uid: ownerUID) { [weak self] badges in
+            guard let self = self else { return }
+            self.hasAdminBetaBadge     = badges.beta
+            self.hasAdminTrustedBadge  = badges.trusted
+            self.hasAdminFounderBadge  = badges.founder
+            self.hasAdminVerifiedBadge = badges.verified
+            self.hasAdminHostBadge     = badges.host
+        }
+        // pastDrops aus Firebase hydrieren und mit lokalen mergen (dedup
+        // über Datum + Aktivitätsname). Damit tauchen die Treffen auch nach
+        // Fresh-Install / Device-Wechsel auf.
+        RealtimeDBManager.shared.fetchPastDrops { [weak self] remoteDrops in
+            guard let self = self else { return }
+            for remote in remoteDrops {
+                if !self.pastDrops.contains(where: { $0.date == remote.date && $0.activityName == remote.activityName }) {
+                    self.pastDrops.append(remote)
+                }
+            }
+            // Nach dem Merge nach Datum (neueste zuerst) sortieren.
+            self.pastDrops.sort { $0.date > $1.date }
+            self.saveAll()
+        }
         // Eingehende Freundschaftsanfragen — separater Observer
         friendRequestsObserverHandle = RealtimeDBManager.shared.observeIncomingFriendRequests { [weak self] requests in
             guard let self = self else { return }
@@ -3564,6 +3549,24 @@ class AppStore: ObservableObject {
             }
             self.friendRequestsObserverInitialized = true
         }
+    }
+
+    /// Online-Heartbeat-Timer — feuert alle 2 Minuten solange App im
+    /// Vordergrund ist. Hält Freund-Online-Status auch bei lang offener App
+    /// grün (Server-Window ist 5 min).
+    private var heartbeatTimer: Timer?
+
+    func startOnlineHeartbeatTimer() {
+        heartbeatTimer?.invalidate()
+        heartbeatTimer = Timer.scheduledTimer(withTimeInterval: 120, repeats: true) { [weak self] _ in
+            guard let self = self, self.isAuthenticated else { return }
+            RealtimeDBManager.shared.markOnlineHeartbeat(coordinate: self.currentUser.coordinate)
+        }
+    }
+
+    func stopOnlineHeartbeatTimer() {
+        heartbeatTimer?.invalidate()
+        heartbeatTimer = nil
     }
 
     func stopObservingFriends() {
@@ -3586,10 +3589,24 @@ class AppStore: ObservableObject {
     /// nicht deployed ist oder der User gerade die App offen hat, zeigen
     /// wir auch lokal einen Hinweis als Banner.)
     private func notifyFriendRequestReceived(from name: String) {
+        // In-App-Toast (sichtbar wenn App offen ist).
+        Task { @MainActor in
+            ToastCenter.shared.show(ToastItem(
+                title: tr("models.new_friend_request"),
+                message: tr("models.friend_wants_to_be").replacingOccurrences(of: "{name}", with: name),
+                symbol: "person.fill.badge.plus",
+                accent: .brandViolet,
+                route: .friends
+            ))
+        }
+        // Lokaler Push als Fallback (zieht nur wenn App im Background ist —
+        // willPresent im Foreground mapped auf Toast, hier doppelt zu
+        // vermeiden).
         let content = UNMutableNotificationContent()
         content.title = tr("models.new_friend_request")
         content.body  = tr("models.friend_wants_to_be").replacingOccurrences(of: "{name}", with: name)
         content.sound = .default
+        content.userInfo = ["type": "friend_request"]
         let request = UNNotificationRequest(
             identifier: "friendRequest_\(name)_\(Date().timeIntervalSince1970)",
             content: content,
@@ -3841,7 +3858,7 @@ class AppStore: ObservableObject {
                 }
             } else {
                 PushNotificationManager.shared.notifyIncomingJoinRequest(
-                    joinerName: "\(emoji) \(name)",
+                    joinerName: name,
                     activityName: self.activeDrops.first?.activity.name ?? "Plan"
                 )
             }
@@ -4234,6 +4251,28 @@ class AppStore: ObservableObject {
                 dropActivity: dropActivity
             )
         }
+
+        // Standort-Observer: wenn der Host den Treffpunkt verschiebt,
+        // kriegt der Joiner einen Toast. Startkoordinate ist die, mit
+        // der der Drop beim Join bekannt war (activeDropAnnotation).
+        if let coord = activeDropAnnotation?.coordinate {
+            joinedDropLocationHandle = RealtimeDBManager.shared.observeJoinedDropLocationChange(
+                dropID: id.uuidString,
+                initialLat: coord.latitude,
+                initialLng: coord.longitude
+            ) { [weak self] _ in
+                guard let self = self, self.activeJoinedDropID == id else { return }
+                Task { @MainActor in
+                    ToastCenter.shared.show(ToastItem(
+                        title: "Treffpunkt verschoben",
+                        message: "\(dropActivity) findet jetzt woanders statt — Karte prüfen",
+                        symbol: "mappin.and.ellipse",
+                        accent: .brandOrange,
+                        route: .map
+                    ))
+                }
+            }
+        }
     }
 
     func leaveActiveJoin() {
@@ -4287,6 +4326,13 @@ class AppStore: ObservableObject {
                     )
                     joinedDropEndHandle = nil
                 }
+                // Standort-Observer gleich mit — selber Lifecycle wie End-Handle.
+                if let handle = joinedDropLocationHandle {
+                    RealtimeDBManager.shared.removeJoinedDropEndObserver(
+                        handle, dropID: joinedID.uuidString
+                    )
+                    joinedDropLocationHandle = nil
+                }
             }
             activeJoinedDropID           = nil
             activeDropAnnotation         = nil
@@ -4336,9 +4382,17 @@ class AppStore: ObservableObject {
                 latitude:  annotation.realCoordinate?.latitude  ?? annotation.coordinate.latitude,
                 longitude: annotation.realCoordinate?.longitude ?? annotation.coordinate.longitude
             )
-            if !pastDrops.contains(where: { $0.date == past.date && $0.activityName == past.activityName }) {
+            // Spam-Gate (Joiner-Pfad): mind. 10 Min effektive Anwesenheit.
+            // Verhindert dass ein "schnell rein/raus"-Join eine zählbare
+            // vergangene Runde produziert.
+            let joinDuration = Date().timeIntervalSince(startedAt)
+            let gateOK = joinDuration >= 10 * 60
+            if gateOK, !pastDrops.contains(where: { $0.date == past.date && $0.activityName == past.activityName }) {
                 pastDrops.insert(past, at: 0)
                 saveAll()
+                // Zusätzlich in Firebase persistieren damit die Treffen-
+                // Liste nach Fresh-Install / Device-Wechsel erhalten bleibt.
+                RealtimeDBManager.shared.savePastDrop(past)
             }
         }
 
@@ -4681,7 +4735,7 @@ class AppStore: ObservableObject {
             }
             var ann = MapAnnotationItem(
                 id: drop.id,
-                name: "\(drop.activity.emoji) \(drop.activity.name)",
+                name: drop.activity.name,
                 emoji: drop.activity.emoji,
                 activity: drop.activity.name,
                 coordinate: drop.location.coordinate,
@@ -4712,9 +4766,9 @@ class AppStore: ObservableObject {
             let myUID = currentUser.firebaseUID ?? ""
             items += liveStrangerDrops
                 .filter { !blockedUserNames.contains($0.displayName) }
-                // Eigene aktive Drops nicht als Fremd-Pin zeigen — aber Ghost-Version
-                // (beendeter eigener Drop) soll auf Karte + im Feed sichtbar bleiben.
-                .filter { myUID.isEmpty || $0.ownerID != myUID || $0.isGhost }
+                // Eigene Drops (aktiv ODER Ghost) nicht als Fremd-Pin zeigen —
+                // die eigene Historie steht im Profil, hier wäre sie redundant.
+                .filter { myUID.isEmpty || $0.ownerID != myUID }
                 .map { drop in
                     // Stabile UUID aus dem Firebase-Key — damit joinRequests
                     // auch nach Map-Rerendering korrekt matchen.
@@ -4750,7 +4804,9 @@ class AppStore: ObservableObject {
                     ann.isGhost = drop.isGhost
                     ann.endedAt = drop.endedAt
                     ann.locationTitle = drop.locationTitle
+                    ann.hostProfileImageURL = drop.hostProfileImageURL
                     ann.isDemo = drop.isDemo
+                    ann.firebaseDropID = drop.id   // String-Key, nötig für dropins-Fetch
                     return ann
                 }
         }
@@ -4766,7 +4822,7 @@ class AppStore: ObservableObject {
                 id: note.id,
                 name: note.requesterName,
                 emoji: note.requesterEmoji,
-                activity: "→ \(note.dropEmoji) \(note.dropActivity)",
+                activity: "→ \(note.dropActivity)",
                 coordinate: currentUser.coordinate,   // Echter Standort statt Simulation
                 type: .joiner
             ))
@@ -4793,7 +4849,7 @@ class AppStore: ObservableObject {
                     id: id,
                     name: pinName,
                     emoji: pinEmoji,
-                    activity: "→ \(activeDrop.activity.emoji) \(activeDrop.activity.name)",
+                    activity: "→ \(activeDrop.activity.name)",
                     coordinate: info.coordinate,
                     type: .joiner,
                     creatorAge: creatorAge
@@ -5794,14 +5850,15 @@ class AppStore: ObservableObject {
             expiresAt: drop.expiresAt, scheduledTime: scheduledTime, hostGender: userGender,
             hostAge: userAge, hostReliabilityPoints: reliabilityScore.points,
             maxParticipants: drop.maxParticipants,
-            communityID: communityID
+            communityID: communityID,
+            hostProfileImageURL: profileImageURL
         )
         // Community-Drop → automatischer Push an alle Mitglieder via
         // communityPushQueue. Die Cloud Function fan-out'et das an die FCM-Tokens.
         if let cid = communityID {
             CommunityManager.shared.sendPush(
                 communityID: cid,
-                title: "\(activity.emoji) Neuer \(activity.name)-Plan",
+                title: "Neuer \(activity.name)-Plan",
                 body:  tr("models.community_drop_created").replacingOccurrences(of: "{name}", with: currentUser.name)
             ) { _ in /* fire-and-forget */ }
         }
@@ -5843,7 +5900,29 @@ class AppStore: ObservableObject {
         // auf confirmed=true geflippt obwohl BLE den Joiner ≥20s gesehen
         // hat. Genau das war der „BLE bestätigt nicht nach 15 min"-Bug.
         bluetoothMeetup.onMeetupConfirmed = { [weak self] partnerToken in
-            self?.autoConfirmBLEMeetup(partnerToken: partnerToken)
+            guard let self = self else { return }
+            self.autoConfirmBLEMeetup(partnerToken: partnerToken)
+            // Host-Toast: welcher Joiner gerade physisch angekommen ist.
+            // Token = uid.prefix(8) (siehe myBLEToken) — über alle aktiven
+            // Drops suchen und per Prefix matchen.
+            var found: User? = nil
+            for drop in self.activeDrops {
+                if let p = drop.participants.first(where: {
+                    ($0.firebaseUID ?? "").prefix(8) == partnerToken
+                }) { found = p; break }
+            }
+            if let joiner = found {
+                Task { @MainActor in
+                    ToastCenter.shared.show(ToastItem(
+                        title: "\(joiner.name) ist vor Ort",
+                        message: "Dein Gast ist angekommen",
+                        symbol: "checkmark.circle.fill",
+                        avatarURL: joiner.profileImageURL,
+                        accent: .onlineGreen,
+                        route: .live
+                    ))
+                }
+            }
         }
 
         saveAll()
@@ -5979,10 +6058,14 @@ class AppStore: ObservableObject {
                         profileImageURL: url
                     )
                 }
-                // Nur dann in den Verlauf, wenn nach Filterung mindestens
-                // ein Joiner übrig ist (d.h. Host war nicht alleine). Sonst
-                // war der Drop effektiv ein Cancel ohne Treffen.
-                if pastParticipants.contains(where: { !$0.wasHost }) {
+                // Spam-Gate: nur in den Verlauf, wenn
+                //   (a) mindestens ein Joiner tatsächlich dabei war UND
+                //   (b) der Drop mindestens 10 Min aktiv lief.
+                // Verhindert "erstellen → sofort schließen"-Noise und Fake-
+                // Treffen mit Zweit-Account, die nach Sekunden wieder gehen.
+                let elapsedSinceStart = Date().timeIntervalSince(drop.createdAt)
+                let hasJoiner    = pastParticipants.contains(where: { !$0.wasHost })
+                if hasJoiner && elapsedSinceStart >= 10 * 60 {
                     let past = PastDrop(
                         activityEmoji: drop.activity.emoji,
                         activityName: drop.activity.name,
@@ -5994,6 +6077,7 @@ class AppStore: ObservableObject {
                         longitude: drop.location.coordinate.longitude
                     )
                     pastDrops.insert(past, at: 0)
+                    RealtimeDBManager.shared.savePastDrop(past)
                     // Host-Feedback-Prompt: nur Joiner mit firebaseUID, die
                     // beim Cancel noch in dropins/ waren (= echte Anwesende).
                     let stillThere = drop.participants.filter { user in
@@ -6024,6 +6108,10 @@ class AppStore: ObservableObject {
             // (3) Sonst: clean cancel, keine Buchung — egal wie lange der Drop offen war.
         }
         activeDrops.removeAll { $0.id == id }
+        // Auch den (möglichen) Ghost-Eintrag aus dem Live-Stream rauswerfen —
+        // sonst bleibt der Pin solange sichtbar bis observeNearbyDrops wieder
+        // feuert (= Nutzer muss die Karte zoomen/pannen).
+        liveStrangerDrops.removeAll { $0.id == id.uuidString }
         currentUser.isAvailable = false
         currentUser.statusMessage = tr("models.status_unavailable")
         RealtimeDBManager.shared.cancelDrop(dropID: id.uuidString)

@@ -94,7 +94,7 @@ private struct LegalHeader: View {
         VStack(spacing: 10) {
             ZStack {
                 Circle().fill(color.opacity(0.12)).frame(width: 60, height: 60)
-                Image(systemName: icon)
+                DazuIcon(icon)
                     .font(.system(size: 26, weight: .semibold))
                     .foregroundColor(color)
             }
@@ -128,17 +128,17 @@ private struct PrivacyContent: View {
                 text: legalPick("""
 Verantwortlich für die Verarbeitung personenbezogener Daten im Sinne der DSGVO ist:
 
-Dennis Gundermann · Lissi-Kaeser-Str. 7, 80797 München · dazuapp.com
+Dennis Gundermann · Lechstr. 19, 80638 München · dazuapp.com
 
-Kontakt: contact@drops-app.de
+Kontakt: contact@dazuapp.com
 
 Bei Fragen zum Datenschutz kannst du uns jederzeit per E-Mail kontaktieren.
 """, """
 The controller responsible for the processing of personal data under the GDPR is:
 
-Dennis Gundermann · Lissi-Kaeser-Str. 7, 80797 Munich, Germany · dazuapp.com
+Dennis Gundermann · Lechstr. 19, 80638 Munich, Germany · dazuapp.com
 
-Contact: contact@drops-app.de
+Contact: contact@dazuapp.com
 
 For any questions about data protection, you can reach us anytime via email.
 """)
@@ -161,7 +161,7 @@ PROFIL
 
 NUTZUNG DER APP
 • Standortdaten (GPS, nur bei aktivem Plan – siehe Abschnitt 4)
-• Erstellte Pläne (Koordinaten, Emoji, Aktivitätsname, Ablaufzeit)
+• Erstellte Runden (Koordinaten, Emoji, Aktivitätsname, Ablaufzeit)
 • Beitritte, Beitrittsanfragen, aufgezeichnete Begegnungen
 • Freundschaftsbeziehungen (reine Verknüpfung, keine Inhalte)
 
@@ -537,7 +537,7 @@ Du hast das Recht auf:
 • Widerruf erteilter Einwilligungen (Art. 7 Abs. 3 DSGVO)
 • Beschwerde bei einer Aufsichtsbehörde (Art. 77 DSGVO)
 
-Zur Ausübung deiner Rechte: contact@drops-app.de
+Zur Ausübung deiner Rechte: contact@dazuapp.com
 
 Zuständige Aufsichtsbehörde: Bayerisches Landesamt für Datenschutzaufsicht (BayLDA), Promenade 18, 91522 Ansbach
 """, """
@@ -552,7 +552,7 @@ You have the right to:
 • Withdrawal of consent (Art. 7(3) GDPR)
 • Lodging a complaint with a supervisory authority (Art. 77 GDPR)
 
-To exercise your rights: contact@drops-app.de
+To exercise your rights: contact@dazuapp.com
 
 Competent supervisory authority: Bavarian State Office for Data Protection Supervision (BayLDA), Promenade 18, 91522 Ansbach, Germany
 """)
@@ -576,16 +576,16 @@ Competent supervisory authority: Bavarian State Office for Data Protection Super
             LegalSection(
                 title: legalPick("15. Minderjährige", "15. Minors"),
                 text: legalPick(
-                    "Dazu ist nicht für Personen unter 18 Jahren bestimmt. Bei der Registrierung wird das Geburtsdatum abgefragt und Accounts unter 18 werden blockiert. Falls du Kenntnis davon hast, dass eine minderjährige Person Dazu nutzt, wende dich bitte an contact@drops-app.de.",
-                    "Dazu is not intended for persons under 18 years of age. The date of birth is requested at registration and accounts under 18 are blocked. If you become aware that a minor is using Dazu, please contact contact@drops-app.de."
+                    "Dazu ist nicht für Personen unter 18 Jahren bestimmt. Bei der Registrierung wird das Geburtsdatum abgefragt und Accounts unter 18 werden blockiert. Falls du Kenntnis davon hast, dass eine minderjährige Person Dazu nutzt, wende dich bitte an contact@dazuapp.com.",
+                    "Dazu is not intended for persons under 18 years of age. The date of birth is requested at registration and accounts under 18 are blocked. If you become aware that a minor is using Dazu, please contact contact@dazuapp.com."
                 )
             )
 
             LegalSection(
                 title: legalPick("16. Änderungen dieser Erklärung", "16. Changes to This Policy"),
                 text: legalPick(
-                    "Wir behalten uns vor, diese Datenschutzerklärung anzupassen, um rechtliche oder technische Änderungen abzubilden. Bei wesentlichen Änderungen informieren wir dich per Push-Benachrichtigung oder beim nächsten App-Start. Maßgebend ist die jeweils aktuelle Version, die auf drops-app.de/datenschutz abrufbar ist. Das Datum der letzten Aktualisierung findest du oben.",
-                    "We reserve the right to update this privacy policy to reflect legal or technical changes. For material changes, we'll notify you via push notification or on the next app launch. The version currently published at drops-app.de/datenschutz is authoritative. The date of the last update is shown above."
+                    "Wir behalten uns vor, diese Datenschutzerklärung anzupassen, um rechtliche oder technische Änderungen abzubilden. Bei wesentlichen Änderungen informieren wir dich per Push-Benachrichtigung oder beim nächsten App-Start. Maßgebend ist die jeweils aktuelle Version, die auf dazuapp.com/datenschutz abrufbar ist. Das Datum der letzten Aktualisierung findest du oben.",
+                    "We reserve the right to update this privacy policy to reflect legal or technical changes. For material changes, we'll notify you via push notification or on the next app launch. The version currently published at dazuapp.com/datenschutz is authoritative. The date of the last update is shown above."
                 )
             )
         }
@@ -609,8 +609,8 @@ private struct ImpressumContent: View {
             LegalSection(
                 title: legalPick("Anbieter", "Provider"),
                 text: legalPick(
-                    "Dennis Gundermann\nLissi-Kaeser-Str. 7\n80797 München\n\nE-Mail: contact@drops-app.de\nWebsite: dazuapp.com\n\nDiese App wird von einer Privatperson entwickelt und betrieben. Es besteht keine Pflicht zur Umsatzsteuer-Identifikationsnummer.",
-                    "Dennis Gundermann\nLissi-Kaeser-Str. 7\n80797 Munich, Germany\n\nEmail: contact@drops-app.de\nWebsite: dazuapp.com\n\nThis app is developed and operated by a private individual. There is no obligation to provide a VAT identification number."
+                    "Dennis Gundermann\nLechstr. 19\n80638 München\n\nE-Mail: contact@dazuapp.com\nWebsite: dazuapp.com\n\nDiese App wird von einer Privatperson entwickelt und betrieben. Es besteht keine Pflicht zur Umsatzsteuer-Identifikationsnummer.",
+                    "Dennis Gundermann\nLechstr. 19\n80638 Munich, Germany\n\nEmail: contact@dazuapp.com\nWebsite: dazuapp.com\n\nThis app is developed and operated by a private individual. There is no obligation to provide a VAT identification number."
                 )
             )
 
@@ -790,8 +790,8 @@ The following activities are prohibited:
             LegalSection(
                 title: legalPick("13. Kontakt", "13. Contact"),
                 text: legalPick(
-                    "Bei Fragen zu diesen Nutzungsbedingungen wende dich an:\n\ncontact@drops-app.de\ndazuapp.com\n\nWir sind bemüht, deine Anfrage innerhalb von 5 Werktagen zu beantworten.",
-                    "For questions about these terms of use, contact us at:\n\ncontact@drops-app.de\ndazuapp.com\n\nWe aim to respond to your request within 5 business days."
+                    "Bei Fragen zu diesen Nutzungsbedingungen wende dich an:\n\ncontact@dazuapp.com\ndazuapp.com\n\nWir sind bemüht, deine Anfrage innerhalb von 5 Werktagen zu beantworten.",
+                    "For questions about these terms of use, contact us at:\n\ncontact@dazuapp.com\ndazuapp.com\n\nWe aim to respond to your request within 5 business days."
                 )
             )
         }

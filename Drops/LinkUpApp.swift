@@ -17,6 +17,12 @@ enum AppLinks {
     static let allowedHosts: Set<String> = ["dazuapp.com", "www.dazuapp.com", "drops-app.de", "www.drops-app.de"]
     static func dropShareURL(dropID: String) -> String { "\(baseURL)/drop/\(dropID)" }
     static func inviteShareURL(inviterUID: String) -> String { "\(baseURL)/invite/\(inviterUID)" }
+    /// Instagram-Name von dazu, ohne @. Leer = Instagram-Knöpfe ausgeblendet.
+    static let instagramHandle = "dazu.app"
+    /// Öffnet das Profil; ist Instagram installiert, springt iOS direkt in die App.
+    static var instagramURL: URL? {
+        instagramHandle.isEmpty ? nil : URL(string: "https://www.instagram.com/\(instagramHandle)/")
+    }
 }
 
 @main
@@ -26,6 +32,17 @@ struct LinkUpApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var delegate
 
     init() {
+        // Auto-Detect App-Sprache beim ersten Start: wenn der User die Sprache
+        // noch nie manuell gesetzt hat, mappen wir die System-Locale auf eine
+        // unserer unterstützten Sprachen (DE/EN/IT/FR/ES). Fallback = EN.
+        // Danach überschreibt der User die Wahl in Settings → Sprache.
+        if UserDefaults.standard.object(forKey: "appLanguage") == nil {
+            let systemLang = Locale.preferredLanguages.first ?? "en"
+            let twoChar = String(systemLang.prefix(2)).lowercased()
+            let mapped: String = ["de", "en", "it", "fr", "es"].contains(twoChar) ? twoChar : "en"
+            UserDefaults.standard.set(mapped, forKey: "appLanguage")
+        }
+
         // TipKit konfigurieren — .immediate damit Coach-Marks beim ersten
         // Start des CreateDropView sofort erscheinen (kein täglicher
         // Frequency-Filter). MaxDisplayCount(1) je Tip verhindert Wiederholung.
@@ -43,6 +60,11 @@ struct LinkUpApp: App {
     }()
     @AppStorage("mapStyleMode") private var mapStyleModeRaw = MapStyleMode.auto.rawValue
     @Environment(\.scenePhase) private var scenePhase
+    /// Die App selbst (Karte, Tabs) wird erst kurz nach dem ersten Bild
+    /// aufgebaut. So erscheint die Start-Animation sofort und dreht sich,
+    /// während im Hintergrund noch gebaut wird; sonst bliebe so lange das
+    /// stehende Startbild von iOS sichtbar.
+    @State private var showContent = false
 
     // Hält den CLLocationManager am Leben bis der Dialog bestätigt ist
     @State private var permLocManager: CLLocationManager? = nil
@@ -73,23 +95,27 @@ struct LinkUpApp: App {
     }
 
     // MARK: - Universal Link Handler
-    // Erwartet: https://(www.)drops-app.de/drop/{UUID}
-    //           https://(www.)drops-app.de/invite/{inviterUID}
-    //           drops://drop/{UUID}          ← custom scheme (Web-Fallback)
-    //           drops://invite/{inviterUID}
+    // Erwartet: https://(www.)dazu-app.de/drop/{UUID}
+    //           https://(www.)dazu-app.de/invite/{inviterUID}
+    //           dazu://drop/{UUID}          ← custom scheme (Web-Fallback)
+    //           dazu://invite/{inviterUID}
+    //           dazu://map | dazu://feed | dazu://friends     ← Widget-Taps
+    //           drops://…                   ← Legacy-Alias, auf alten Widgets
     private func handleUniversalLink(_ url: URL) {
         let section: String
         let param: String
 
-        if url.scheme == "drops" {
-            // Widget-Deep-Link ohne Parameter: drops://map → nur auf den
-            // Karten-Tab schalten, keine weitere Aktion. Wird vom
-            // Radar-Widget beim Tap ausgelöst.
-            if url.host == "map" {
-                store.selectedTab = .map
-                return
+        if url.scheme == "dazu" || url.scheme == "drops" {
+            // Widget-Deep-Link ohne Parameter: dazu://map / feed / friends /
+            // create → nur den entsprechenden Tab aktivieren.
+            switch url.host {
+            case "map":     store.selectedTab = .map; return
+            case "feed":    store.selectedTab = .feed; return
+            case "friends": store.selectedTab = .alerts; return
+            case "create":  store.selectedTab = .create; return
+            default: break
             }
-            // Custom URL scheme: drops://drop/<UUID> oder drops://invite/<UID>
+            // Custom URL scheme: dazu://drop/<UUID> oder dazu://invite/<UID>
             // host = "drop"/"invite", pathComponents = ["/", "<param>"]
             guard let host = url.host,
                   url.pathComponents.count >= 2 else { return }
@@ -129,37 +155,50 @@ struct LinkUpApp: App {
             // Altersschutz beim App-Start erzwingen (Schutz vor manipulierten Daten)
             let _ = store.enforceAgeGuard()
 
-            if store.isAuthenticated {
-                MainTabView()
-                    .environmentObject(store)
-                    .preferredColorScheme(preferredScheme)
-                    .reviewPromptHandler(store: store)
-                    .onOpenURL { url in handleUniversalLink(url) }
-                    .onAppear {
-                        // Nur für Bestandsuser (hasSeenWelcome = true) hier anfragen.
-                        // Neuuser bekommen die Permission-Dialoge erst nach dem
-                        // WelcomeSheet / First-Drop-Walkthrough — dann ist der
-                        // Kontext klar und die Akzeptanzrate höher.
-                        if UserDefaults.standard.bool(forKey: "hasSeenWelcome") {
-                            requestPermissionsIfNeeded()
-                        }
-                        // Cold-Start: scenePhase = .active feuert kein onChange.
-                        // Hier nochmal pollen falls AppDelegate ein Pending hat.
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                            if let pending = UserDefaults.standard.string(forKey: "ud_pendingQuickAction") {
-                                UserDefaults.standard.removeObject(forKey: "ud_pendingQuickAction")
-                                handlePendingQuickAction(pending)
+            ZStack {
+                if !showContent {
+                    Color("LaunchBackground").ignoresSafeArea()
+                } else if store.isAuthenticated {
+                    MainTabView()
+                        .environmentObject(store)
+                        .preferredColorScheme(preferredScheme)
+                        .reviewPromptHandler(store: store)
+                        .onAppear {
+                            // Nur für Bestandsuser (hasSeenWelcome = true) hier anfragen.
+                            // Neuuser bekommen die Permission-Dialoge erst nach dem
+                            // WelcomeSheet / First-Drop-Walkthrough — dann ist der
+                            // Kontext klar und die Akzeptanzrate höher.
+                            if UserDefaults.standard.bool(forKey: "hasSeenWelcome") {
+                                requestPermissionsIfNeeded()
+                            }
+                            // Cold-Start: scenePhase = .active feuert kein onChange.
+                            // Hier nochmal pollen falls AppDelegate ein Pending hat.
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                                if let pending = UserDefaults.standard.string(forKey: "ud_pendingQuickAction") {
+                                    UserDefaults.standard.removeObject(forKey: "ud_pendingQuickAction")
+                                    handlePendingQuickAction(pending)
+                                }
                             }
                         }
-                    }
-            } else {
-                OnboardingView()
-                    .environmentObject(store)
-                    .preferredColorScheme(preferredScheme)
-                    .onOpenURL { url in
-                        if GIDSignIn.sharedInstance.handle(url) { return }
-                        handleUniversalLink(url)
-                    }
+                } else {
+                    OnboardingView()
+                        .environmentObject(store)
+                        .preferredColorScheme(preferredScheme)
+                }
+                // Start-Animation: liegt beim Kaltstart kurz über der App.
+                // Dreht sich, bis die ersten Runden geladen sind (höchstens 3 s).
+                DazuSplashView(dataReady: !store.isAuthenticated || !store.activeDrops.isEmpty)
+            }
+            // Links hier statt an den Ansichten oben: die gibt es beim
+            // Kaltstart im ersten Moment noch nicht.
+            .onOpenURL { url in
+                if !store.isAuthenticated, GIDSignIn.sharedInstance.handle(url) { return }
+                handleUniversalLink(url)
+            }
+            .task {
+                // Ein Bild abwarten, dann die App aufbauen.
+                try? await Task.sleep(nanoseconds: 60_000_000)
+                showContent = true
             }
         }
         .onChange(of: scenePhase) { _, phase in
@@ -193,12 +232,12 @@ struct LinkUpApp: App {
                     if UserDefaults.standard.bool(forKey: "hasSeenWelcome") {
                         PushNotificationManager.shared.requestPermissionIfNeeded()
                     }
-                    // Power-Hour-Pushs als wiederkehrende lokale Notifications
-                    // anlegen / refreshen — iOS feuert sie dann jede Woche zur
-                    // konfigurierten Uhrzeit auch wenn die App nicht läuft.
-                    PushNotificationManager.shared.schedulePowerHourNotifications()
-                    // Daily Evening Re-Engagement — Mo/Di/Do 19:00
-                    // (Wochentage ohne Power-Hour, sonst Doppel-Push).
+                    // Power-Hour wurde entfernt — alte Scheduled-Requests
+                    // einmal cleanen (iOS behält sie sonst bis zum ersten
+                    // Reinstall), danach keine Neu-Planung mehr.
+                    PushNotificationManager.shared.cancelAllPowerHourNotifications()
+                    // Daily Evening Re-Engagement — jetzt Mo/Di/Mi/Do/Fr 19:00
+                    // (ohne Power-Hour-Ausschluss, siehe Scheduler).
                     PushNotificationManager.shared.scheduleDailyEveningPrompts()
                     // App-Version-Gate beim Foregrounding refreshen — falls
                     // der Server inzwischen Force-Update aktiviert hat, sieht
@@ -217,8 +256,12 @@ struct LinkUpApp: App {
                 RealtimeDBManager.shared.markOnlineHeartbeat(
                     coordinate: store.currentUser.coordinate
                 )
+                // Timer starten damit Freunde den User auch bei länger
+                // geöffneter App weiter als online sehen (Heartbeat läuft
+                // nach 5min aus).
+                store.startOnlineHeartbeatTimer()
             default:
-                break
+                store.stopOnlineHeartbeatTimer()
             }
         }
     }

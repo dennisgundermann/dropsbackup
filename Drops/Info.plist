@@ -37,15 +37,16 @@
 			<key>CFBundleTypeRole</key>
 			<string>Viewer</string>
 			<key>CFBundleURLName</key>
-			<string>de.drops-app</string>
+			<string>de.dazu-app</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
+				<string>dazu</string>
 				<string>drops</string>
 			</array>
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>15</string>
+	<string>16</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>NSBluetoothAlwaysUsageDescription</key>
@@ -68,9 +69,9 @@
 			<key>UIApplicationShortcutItemIconType</key>
 			<string>UIApplicationShortcutIconTypeAdd</string>
 			<key>UIApplicationShortcutItemSubtitle</key>
-			<string>Spontan was loslegen</string>
+			<string>Spontan was starten</string>
 			<key>UIApplicationShortcutItemTitle</key>
-			<string>Drop starten</string>
+			<string>Jetzt dazu</string>
 			<key>UIApplicationShortcutItemType</key>
 			<string>com.dennis.drops.shortcut.create</string>
 		</dict>
@@ -80,13 +81,13 @@
 			<key>UIApplicationShortcutItemSubtitle</key>
 			<string>Pläne in deiner Nähe</string>
 			<key>UIApplicationShortcutItemTitle</key>
-			<string>Karte öffnen</string>
+			<string>Karte</string>
 			<key>UIApplicationShortcutItemType</key>
 			<string>com.dennis.drops.shortcut.map</string>
 		</dict>
 		<dict>
 			<key>UIApplicationShortcutItemIconType</key>
-			<string>UIApplicationShortcutIconTypeBookmark</string>
+			<string>UIApplicationShortcutIconTypeSearch</string>
 			<key>UIApplicationShortcutItemSubtitle</key>
 			<string>Was gerade läuft</string>
 			<key>UIApplicationShortcutItemTitle</key>
@@ -96,13 +97,13 @@
 		</dict>
 		<dict>
 			<key>UIApplicationShortcutItemIconType</key>
-			<string>UIApplicationShortcutIconTypeContact</string>
+			<string>UIApplicationShortcutIconTypeFavorite</string>
 			<key>UIApplicationShortcutItemSubtitle</key>
-			<string>Score &amp; Freunde</string>
+			<string>Online &amp; Einladungen</string>
 			<key>UIApplicationShortcutItemTitle</key>
-			<string>Mein Profil</string>
+			<string>Freunde</string>
 			<key>UIApplicationShortcutItemType</key>
-			<string>com.dennis.drops.shortcut.profile</string>
+			<string>com.dennis.drops.shortcut.friends</string>
 		</dict>
 	</array>
 	<key>UIBackgroundModes</key>
@@ -115,6 +116,8 @@
 	<dict>
 		<key>UIColorName</key>
 		<string>LaunchBackground</string>
+		<key>UIImageName</key>
+		<string>LaunchMark</string>
 	</dict>
 	<key>UIRequiresFullScreen</key>
 	<true/>

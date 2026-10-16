@@ -4,6 +4,7 @@ import FirebaseAuth
 import FirebaseFirestore
 import FirebaseStorage
 import CoreLocation
+import CryptoKit
 
 extension Notification.Name {
     static let dropsPlusStatusChanged = Notification.Name("DropsPlusStatusChanged")
@@ -263,7 +264,8 @@ class RealtimeDBManager: ObservableObject {
         emoji: String? = nil,
         email: String? = nil,
         birthdate: Date? = nil,
-        gender: String? = nil
+        gender: String? = nil,
+        phone: String? = nil
     ) {
         guard let uid = Auth.auth().currentUser?.uid else { return }
 
@@ -272,9 +274,10 @@ class RealtimeDBManager: ObservableObject {
             "updatedAt": ServerValue.timestamp()
         ]
         if let emoji = emoji, !emoji.isEmpty   { payload["emoji"] = emoji }
-        if let email = email, !email.isEmpty  { payload["email"] = email }
+        if let email = email, !email.isEmpty  { payload["email"] = email.lowercased() }
         if let bd = birthdate                  { payload["birthdate"] = bd.timeIntervalSince1970 }
         if let gender = gender, !gender.isEmpty { payload["gender"] = gender }
+        if let phone = phone, !phone.isEmpty   { payload["phone"] = Self.normalizePhone(phone) }
 
         // Auto-Admin für Bootstrap-Credentials (siehe AdminConfig)
         let authEmail = (email ?? Auth.auth().currentUser?.email ?? "").lowercased()
@@ -284,6 +287,9 @@ class RealtimeDBManager: ObservableObject {
 
         // updateChildValues überschreibt nur die angegebenen Felder
         db.child("users").child(uid).updateChildValues(payload)
+        // Lookup-Indizes aktuell halten (für Dupe-Account-Prevention).
+        if let email = email, !email.isEmpty { claimEmailIndex(email) }
+        if let phone = phone, !phone.isEmpty { claimPhoneIndex(phone) }
         // createdAt nur setzen wenn noch nicht vorhanden — sonst würde ein
         // Re-Login einen frischen Timestamp setzen und das Beta-Badge-Flag
         // (cutoff vor 04.05.2026) wäre kaputt. setValue alleine überschreibt
@@ -297,6 +303,102 @@ class RealtimeDBManager: ObservableObject {
             if !snap.exists() || existing <= 0 {
                 createdRef.setValue(ServerValue.timestamp()) { _, _ in }
             }
+        }
+    }
+
+    /// Encodet eine E-Mail für den RTDB-Key (Firebase verbietet `.` + `/` in
+    /// Keys). Gleiche Konvention wie `registerInDiscoveryIndex` + `lookupContactsOnDrops`.
+    private static func emailIndexKey(_ email: String) -> String {
+        email.lowercased()
+            .replacingOccurrences(of: ".", with: ",")
+            .replacingOccurrences(of: "@", with: "-at-")
+    }
+
+    /// Lookup im `phoneIndex`. Payload-Schema: `{ uid, name }`.
+    /// Rückgabe: fremde UID (zum Collision-Check), nil wenn kein Match
+    /// oder nur eigene UID gefunden.
+    func findUserByPhone(_ phone: String, excluding uid: String? = nil,
+                         completion: @escaping (String?) -> Void) {
+        let normalized = Self.normalizePhone(phone)
+        guard !normalized.isEmpty else { completion(nil); return }
+        db.child("phoneIndex").child(normalized).observeSingleEvent(of: .value) { snap in
+            let dict = snap.value as? [String: Any]
+            let found = dict?["uid"] as? String
+            let match = (found?.isEmpty == false && found != uid) ? found : nil
+            DispatchQueue.main.async { completion(match) }
+        }
+    }
+
+    /// Pendant für `emailIndex` — gleiches Payload-Schema.
+    func findUserByEmail(_ email: String, excluding uid: String? = nil,
+                         completion: @escaping (String?) -> Void) {
+        let trimmed = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { completion(nil); return }
+        let key = Self.emailIndexKey(trimmed)
+        db.child("emailIndex").child(key).observeSingleEvent(of: .value) { snap in
+            let dict = snap.value as? [String: Any]
+            let found = dict?["uid"] as? String
+            let match = (found?.isEmpty == false && found != uid) ? found : nil
+            DispatchQueue.main.async { completion(match) }
+        }
+    }
+
+    /// Trägt die eigene UID in den `phoneIndex` (Schema `{uid, name}`).
+    /// Idempotent — Updates derselben Nummer sind unter den Rules erlaubt.
+    /// Vorsicht beim Namen: Phone-SignIn-User haben `displayName == nil`, ein
+    /// `setValue({name: ""})` würde den existierenden Namen in phoneIndex
+    /// überschreiben. Deshalb: wenn displayName leer, Fallback auf
+    /// users/{uid}/name — und wenn das auch leer, nur `uid` updaten
+    /// (updateChildValues statt setValue), damit der Name erhalten bleibt.
+    func claimPhoneIndex(_ phone: String) {
+        guard let uid = Auth.auth().currentUser?.uid else { return }
+        let normalized = Self.normalizePhone(phone)
+        guard !normalized.isEmpty else { return }
+        let ref = db.child("phoneIndex").child(normalized)
+        let displayName = Auth.auth().currentUser?.displayName ?? ""
+        if !displayName.isEmpty {
+            ref.setValue(["uid": uid, "name": displayName])
+            return
+        }
+        // displayName leer (Phone-SignIn) → users/{uid}/name als Fallback.
+        db.child("users").child(uid).child("name").observeSingleEvent(of: .value) { snap in
+            let profileName = (snap.value as? String) ?? ""
+            if !profileName.isEmpty {
+                ref.setValue(["uid": uid, "name": profileName])
+            } else {
+                // Beides leer: nur uid überschreiben, Name NICHT nullen.
+                ref.updateChildValues(["uid": uid])
+            }
+        }
+    }
+
+    /// Pendant für E-Mail-Index (Schema `{uid, name}`).
+    func claimEmailIndex(_ email: String) {
+        guard let uid = Auth.auth().currentUser?.uid else { return }
+        let trimmed = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let name = Auth.auth().currentUser?.displayName ?? ""
+        db.child("emailIndex").child(Self.emailIndexKey(trimmed))
+            .setValue(["uid": uid, "name": name])
+    }
+
+    /// Hängt eine Telefonnummer an den eigenen User-Node + trägt sie in den
+    /// Lookup-Index ein. Für die Phone-Link-Flow in Settings nach
+    /// `currentUser.link(with:)`.
+    func saveUserPhone(_ phone: String) {
+        guard let uid = Auth.auth().currentUser?.uid else { return }
+        let normalized = Self.normalizePhone(phone)
+        guard !normalized.isEmpty else { return }
+        db.child("users").child(uid).child("phone").setValue(normalized)
+        claimPhoneIndex(normalized)
+    }
+
+    /// Löscht den gesamten User-Node — nur für den Collision-Fallback
+    /// (frisch angelegte orphan UID, die wir sofort wieder entfernen,
+    /// weil die Nummer schon zu einem anderen Account gehört).
+    func deleteOrphanUserNode(uid: String, completion: (() -> Void)? = nil) {
+        db.child("users").child(uid).removeValue { _, _ in
+            DispatchQueue.main.async { completion?() }
         }
     }
 
@@ -695,7 +797,7 @@ class RealtimeDBManager: ObservableObject {
                      activityName: String, coordinate: CLLocationCoordinate2D, radius: Double,
                      expiresAt: Date, scheduledTime: String = "Jetzt", hostGender: String = "",
                      hostAge: Int? = nil, hostReliabilityPoints: Int? = nil, maxParticipants: Int = 10,
-                     communityID: String? = nil) {
+                     communityID: String? = nil, hostProfileImageURL: String? = nil) {
         let dropRef = db.child("drops").child(dropID)
         let createdAt = Date()
         let startAt = Self.parseDropStartAt(scheduledTime: scheduledTime, createdAt: createdAt)
@@ -724,6 +826,9 @@ class RealtimeDBManager: ObservableObject {
         if let age = hostAge            { payload["hostAge"]               = age }
         if let pts = hostReliabilityPoints { payload["hostReliabilityPoints"] = pts }
         if let cid = communityID, !cid.isEmpty { payload["communityID"]   = cid }
+        if let url = hostProfileImageURL, !url.isEmpty {
+            payload["hostProfileImageURL"] = url
+        }
 
         // Debug-Logs damit man in der Xcode-Console sieht ob Auth/Write klappt.
         let firebaseUID = Auth.auth().currentUser?.uid ?? "<NICHT AUTHENTIFIZIERT>"
@@ -790,6 +895,34 @@ class RealtimeDBManager: ObservableObject {
 
     func removeJoinedDropEndObserver(_ handle: DatabaseHandle, dropID: String) {
         db.child("drops").child(dropID).removeObserver(withHandle: handle)
+    }
+
+    /// Beobachtet Standort-Änderungen eines Drops (lat/lng), damit der Joiner
+    /// einen Toast kriegt wenn der Host den Treffpunkt verschiebt. `onChange`
+    /// feuert nur wenn tatsächlich eine neue Koordinate anders als die
+    /// initiale (`initialLat`/`initialLng`) ankommt — der erste Snapshot
+    /// (= bekannter Standort beim Join) wird geschluckt.
+    func observeJoinedDropLocationChange(dropID: String,
+                                         initialLat: Double,
+                                         initialLng: Double,
+                                         onChange: @escaping (CLLocationCoordinate2D) -> Void) -> DatabaseHandle {
+        var lastLat = initialLat
+        var lastLng = initialLng
+        let handle = db.child("drops").child(dropID).observe(.value) { snap in
+            guard let dict = snap.value as? [String: Any],
+                  let lat = dict["lat"] as? Double,
+                  let lng = dict["lng"] as? Double else { return }
+            // >50m-Delta — kleinere GPS-Jitter unterschlagen.
+            let dLat = (lat - lastLat) * 111_000  // ~m
+            let dLng = (lng - lastLng) * 85_000   // ~m bei 48°N
+            let dist = (dLat * dLat + dLng * dLng).squareRoot()
+            if dist > 50 {
+                lastLat = lat; lastLng = lng
+                let coord = CLLocationCoordinate2D(latitude: lat, longitude: lng)
+                DispatchQueue.main.async { onChange(coord) }
+            }
+        }
+        return handle
     }
 
     /// Prüft per Single-Event ob ein Drop in Firebase noch existiert.
@@ -883,11 +1016,20 @@ class RealtimeDBManager: ObservableObject {
                 let distance = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
                     .distance(from: CLLocation(latitude: lat, longitude: lng))
 
+                // Ghost-Spam-Gate: ein beendeter Drop ohne Joiner ist kein
+                // "hier war was los" — es war ein Cancel. Nur Ghosts mit
+                // ≥2 Teilnehmern (Host + mindestens 1 Joiner) weiter anzeigen.
+                // Aktive Drops bleiben unbeeinflusst (die sieht man auch wenn
+                // noch keiner gejointer hat — sonst wären eigene Runden sofort
+                // "unsichtbar" bis jemand kommt).
+                if isGhost && currentParticipants < 2 { continue }
+
                 // Aktive Drops: nur innerhalb Radius (Privacy + Relevanz).
                 // Ghosts: IMMER inkludieren — sie sind vorbei, kein Privacy-Issue.
                 // Effekt: Map zeigt Demo-Ghosts in allen 5 Städten egal wo der
                 // User ist, ohne dass aktive Drops global geleakt werden.
                 if isGhost || distance <= radiusKm * 1000 {
+                    let hostImgURL = dict["hostProfileImageURL"] as? String
                     result.append(StrangerDropData(
                         id: snap.key,
                         ownerID: ownerID,
@@ -906,7 +1048,8 @@ class RealtimeDBManager: ObservableObject {
                         isGhost: isGhost,
                         endedAt: endedAt ?? (isGhost ? expiresAt : nil),
                         locationTitle: locationTitle,
-                        isDemo: isDemo
+                        isDemo: isDemo,
+                        hostProfileImageURL: hostImgURL
                     ))
                 }
             }
@@ -1512,6 +1655,7 @@ class RealtimeDBManager: ObservableObject {
                    let lng = data["lastLng"] as? Double {
                     lastKnownCoord[uid] = (lat, lng)
                 }
+                let badges = data["badges"] as? [String: Any] ?? [:]
                 entries.append(AdminUserEntry(
                     id:           uid,
                     name:         data["name"]         as? String ?? "–",
@@ -1520,7 +1664,12 @@ class RealtimeDBManager: ObservableObject {
                     createdAt:    (data["createdAt"]   as? Double).map { Date(timeIntervalSince1970: $0 / 1000) },
                     isAdmin:      data["isAdmin"]      as? Bool ?? false,
                     isBanned:     data["isBanned"]     as? Bool ?? false,
-                    isPlusUser:   data["isPlusUser"]   as? Bool ?? false
+                    isPlusUser:   data["isPlusUser"]   as? Bool ?? false,
+                    hasBetaBadge:     badges["beta"]     as? Bool ?? false,
+                    hasTrustedBadge:  badges["trusted"]  as? Bool ?? false,
+                    hasFounderBadge:  badges["founder"]  as? Bool ?? false,
+                    hasVerifiedBadge: badges["verified"] as? Bool ?? false,
+                    hasHostBadge:     badges["host"]     as? Bool ?? false
                 ))
             }
             group.leave()
@@ -1558,7 +1707,7 @@ class RealtimeDBManager: ObservableObject {
                    now > Date(timeIntervalSince1970: expiresTs) { continue }
                 let emoji    = dict["emoji"]        as? String ?? ""
                 let activity = dict["activityName"] as? String ?? "Plan"
-                let label    = "\(emoji) \(activity)".trimmingCharacters(in: .whitespaces)
+                let label    = activity
                 activeDrops[uid] = (label: label, dropKey: snap.key)
             }
             group.leave()
@@ -1655,25 +1804,94 @@ class RealtimeDBManager: ObservableObject {
         }
     }
 
+    /// Snapshot der fünf Admin-Badge-Flags.
+    struct AdminBadges {
+        var beta: Bool
+        var trusted: Bool
+        var founder: Bool
+        var verified: Bool
+        var host: Bool
+    }
+
+    /// Beobachtet alle Admin-Badges des aktuellen Users unter
+    /// `users/{uid}/badges`. Ruft completion bei jeder Änderung.
+    func observeMyBadges(uid: String, completion: @escaping (AdminBadges) -> Void) {
+        db.child("users").child(uid).child("badges").observe(.value) { snapshot in
+            let dict = snapshot.value as? [String: Any] ?? [:]
+            let badges = AdminBadges(
+                beta:     dict["beta"]     as? Bool ?? false,
+                trusted:  dict["trusted"]  as? Bool ?? false,
+                founder:  dict["founder"]  as? Bool ?? false,
+                verified: dict["verified"] as? Bool ?? false,
+                host:     dict["host"]     as? Bool ?? false
+            )
+            DispatchQueue.main.async { completion(badges) }
+        }
+    }
+
+    /// Setzt ein manuelles Badge-Flag unter `users/{uid}/badges/{field}`.
+    /// field = "beta" | "trusted" | "community".
+    func adminSetBadge(uid: String, field: String, value: Bool, completion: (() -> Void)? = nil) {
+        db.child("users").child(uid).child("badges").child(field)
+            .setValue(value) { error, _ in
+                if let error = error {
+                    print("[AdminSetBadge] write failed for \(uid)/badges/\(field) = \(value): \(error.localizedDescription)")
+                } else {
+                    print("[AdminSetBadge] wrote \(uid)/badges/\(field) = \(value)")
+                }
+                completion?()
+            }
+    }
+
     /// User komplett aus DB löschen (Admin)
     func adminDeleteUser(uid: String, completion: (() -> Void)? = nil) {
-        // Hard delete versuchen; schlägt fehl wenn Rules es verbieten → Soft-Delete als Fallback
         let usersRef = db.child("users").child(uid)
-        usersRef.removeValue { error, _ in
-            if error == nil {
-                // Hard delete erfolgreich
-                DispatchQueue.main.async { completion?() }
-            } else {
-                // Fallback: Soft-Delete — wird im Fetch herausgefiltert.
-                // `usersRef` lokal gefangen, damit kein Zugriff auf den
-                // @MainActor-isolierten `self.db` aus dem Sendable-Closure.
-                usersRef.updateChildValues([
-                    "isBanned":  true,
-                    "isDeleted": true,
-                    "name":      "[Gelöscht]",
-                    "email":     ""
-                ]) { _, _ in
+        let phoneIndexRef = db.child("phoneIndex")
+        let emailIndexRef = db.child("emailIndex")
+
+        // Vorher Phone & Email des Users lesen damit wir die zugehörigen
+        // Index-Einträge mitlöschen können (sonst blockt phoneIndex nachher
+        // weiter — z.B. neuen Account mit derselben Nummer anlegen).
+        usersRef.observeSingleEvent(of: .value) { snap in
+            let dict = snap.value as? [String: Any] ?? [:]
+            let phoneRaw = dict["phone"] as? String ?? ""
+            let emailRaw = dict["email"] as? String ?? ""
+            let phoneKey = phoneRaw.filter { $0.isNumber }
+            let emailKey = emailRaw.lowercased()
+                .replacingOccurrences(of: ".", with: ",")
+
+            usersRef.removeValue { error, _ in
+                let cleanupIndexes = {
+                    // phoneIndex nur räumen wenn er auf genau diese UID zeigt
+                    // (nicht blind löschen falls jemand anderes die Nummer übernommen hat).
+                    if !phoneKey.isEmpty {
+                        phoneIndexRef.child(phoneKey).observeSingleEvent(of: .value) { ps in
+                            let hitUID = (ps.value as? [String: Any])?["uid"] as? String
+                            if hitUID == uid {
+                                phoneIndexRef.child(phoneKey).removeValue()
+                            }
+                        }
+                    }
+                    if !emailKey.isEmpty {
+                        emailIndexRef.child(emailKey).observeSingleEvent(of: .value) { es in
+                            let hitUID = (es.value as? [String: Any])?["uid"] as? String
+                            if hitUID == uid {
+                                emailIndexRef.child(emailKey).removeValue()
+                            }
+                        }
+                    }
                     DispatchQueue.main.async { completion?() }
+                }
+                if error == nil {
+                    cleanupIndexes()
+                } else {
+                    // Fallback: Soft-Delete — Rules verbieten Hard-Delete.
+                    usersRef.updateChildValues([
+                        "isBanned":  true,
+                        "isDeleted": true,
+                        "name":      "[Gelöscht]",
+                        "email":     ""
+                    ]) { _, _ in cleanupIndexes() }
                 }
             }
         }
@@ -1739,6 +1957,56 @@ class RealtimeDBManager: ObservableObject {
     func adminEndDrop(dropID: String, completion: (() -> Void)? = nil) {
         db.child("drops").child(dropID).updateChildValues(["active": false]) { _, _ in
             DispatchQueue.main.async { completion?() }
+        }
+    }
+
+    /// Löscht ALLE vergangenen Runden aus Firebase: sowohl die User-Historie
+    /// (`users/{uid}/pastDrops`) als auch bereits abgelaufene oder deaktivierte
+    /// Einträge im globalen `drops`-Baum. Nur für Admins — Button sitzt im
+    /// AdminPanel. `completion` liefert (gelöschtePastDropNodes, gelöschteDropNodes).
+    func adminWipeAllPastDrops(completion: @escaping (Int, Int) -> Void) {
+        let group = DispatchGroup()
+        var pastDeleted = 0
+        var dropsDeleted = 0
+
+        group.enter()
+        db.child("users").observeSingleEvent(of: .value) { snap in
+            let userGroup = DispatchGroup()
+            for case let child as DataSnapshot in snap.children {
+                let uid = child.key
+                if child.hasChild("pastDrops") {
+                    pastDeleted += 1
+                    userGroup.enter()
+                    self.db.child("users").child(uid).child("pastDrops").removeValue { _, _ in
+                        userGroup.leave()
+                    }
+                }
+            }
+            userGroup.notify(queue: .main) { group.leave() }
+        }
+
+        group.enter()
+        db.child("drops").observeSingleEvent(of: .value) { snap in
+            let now = Date().timeIntervalSince1970
+            let dropGroup = DispatchGroup()
+            for case let child as DataSnapshot in snap.children {
+                guard let data = child.value as? [String: Any] else { continue }
+                let expiresAt = (data["expiresAt"] as? TimeInterval) ?? 0
+                let active = (data["active"] as? Bool) ?? true
+                let isPast = !active || (expiresAt > 0 && expiresAt < now)
+                if isPast {
+                    dropsDeleted += 1
+                    dropGroup.enter()
+                    self.db.child("drops").child(child.key).removeValue { _, _ in
+                        dropGroup.leave()
+                    }
+                }
+            }
+            dropGroup.notify(queue: .main) { group.leave() }
+        }
+
+        group.notify(queue: .main) {
+            completion(pastDeleted, dropsDeleted)
         }
     }
 
@@ -2243,6 +2511,147 @@ class RealtimeDBManager: ObservableObject {
         }
     }
 
+    /// Aktualisiert die Koordinate einer bestehenden Runde — der Host kann
+    /// seinen Standort während der aktiven Runde ändern (z.B. „wir ziehen in
+    /// die andere Bar um"). Schreibt `locationChangedAt` als Marker damit
+    /// Joiner einen lokalen Hinweis-Toast zeigen können.
+    func updateDropLocation(dropID: String, coord: CLLocationCoordinate2D) {
+        var payload: [String: Any] = [
+            "lat": coord.latitude,
+            "lng": coord.longitude,
+            "locationChangedAt": ServerValue.timestamp()
+        ]
+        payload["locationChangeCount"] = ServerValue.increment(1 as NSNumber)
+        db.child("drops").child(dropID).updateChildValues(payload)
+    }
+
+    /// Holt den letzten `lastActiveAt`-Timestamp eines Users (einmaliger
+    /// Fetch, kein Observer). Für die „Zuletzt online"-Anzeige im
+    /// MiniProfileSheet. Gibt nil zurück wenn der User noch nie online war
+    /// oder der Wert nicht lesbar ist.
+    func fetchLastActive(uid: String, completion: @escaping (Date?) -> Void) {
+        guard !uid.isEmpty else { completion(nil); return }
+        db.child("users").child(uid).child("lastActiveAt").observeSingleEvent(of: .value) { snap in
+            // Kann als Milliseconds-Int oder Double kommen (ServerValue.timestamp).
+            let ms: TimeInterval?
+            if let v = snap.value as? TimeInterval, v > 1_000_000_000_000 { ms = v }
+            else if let i = snap.value as? Int, i > 1_000_000_000_000 { ms = TimeInterval(i) }
+            else { ms = nil }
+            let date = ms.map { Date(timeIntervalSince1970: $0 / 1000) }
+            DispatchQueue.main.async { completion(date) }
+        }
+    }
+
+    /// Persistiert einen vergangenen Drop unter `users/{uid}/pastDrops/{autoId}`
+    /// damit die Treffen-Liste auch nach Fresh-Install / Device-Wechsel
+    /// verfügbar bleibt. Minimale Felder — Teilnehmer werden als compact
+    /// Dictionary gespeichert.
+    func savePastDrop(_ drop: PastDrop) {
+        guard let uid = Auth.auth().currentUser?.uid else { return }
+        // Deterministischer Key = PastDrop.id.uuidString. Ermöglicht gezieltes
+        // Löschen von einzelnen Einträgen aus der App (siehe `deletePastDrop`).
+        let ref = db.child("users").child(uid).child("pastDrops").child(drop.id.uuidString)
+        var payload: [String: Any] = [
+            "activityEmoji": drop.activityEmoji,
+            "activityName":  drop.activityName,
+            "locationName":  drop.locationName,
+            "date":          drop.date.timeIntervalSince1970,
+            "wasHost":       drop.wasHost,
+            "participantCount": drop.participantCount
+        ]
+        if let lat = drop.latitude  { payload["latitude"]  = lat }
+        if let lng = drop.longitude { payload["longitude"] = lng }
+        // Legacy: Teilnehmer-Namen als flaches Array (alte App-Versionen lesen das).
+        payload["participantNames"] = drop.participants.map { $0.name }
+        // Volle Participant-Dicts — mit profileImageURL + emoji + wasHost,
+        // damit Avatare in der "Letzte Runden"-Liste geladen werden können.
+        payload["participants"] = drop.participants.map { p -> [String: Any] in
+            var d: [String: Any] = [
+                "name":              p.name,
+                "emoji":             p.emoji,
+                "reliabilityScore":  p.reliabilityScore,
+                "wasHost":           p.wasHost,
+                "didShowUp":         p.didShowUp
+            ]
+            if let url = p.profileImageURL, !url.isEmpty { d["profileImageURL"] = url }
+            return d
+        }
+        ref.setValue(payload)
+    }
+
+    /// Löscht einen einzelnen vergangenen Drop aus Firebase. Lokale Liste
+    /// wird vom AppStore getrennt gepflegt.
+    /// Löscht die komplette `pastDrops`-Historie eines Users in Firebase.
+    /// `completion` liefert `true` bei Erfolg. Für den Admin-Flow — der
+    /// eigene lokale `UserDefaults`-Cache wird separat vom AppStore geleert.
+    func wipePastDrops(forUID uid: String, completion: @escaping (Bool) -> Void) {
+        db.child("users").child(uid).child("pastDrops").removeValue { err, _ in
+            DispatchQueue.main.async { completion(err == nil) }
+        }
+    }
+
+    func deletePastDrop(id: UUID, completion: (() -> Void)? = nil) {
+        guard let uid = Auth.auth().currentUser?.uid else { completion?(); return }
+        db.child("users").child(uid).child("pastDrops").child(id.uuidString).removeValue { _, _ in
+            DispatchQueue.main.async { completion?() }
+        }
+    }
+
+    /// Holt alle Firebase-gespeicherten pastDrops des eingeloggten Users.
+    /// Rekonstruiert PastDrop-Objekte mit vereinfachten Participant-Stubs.
+    func fetchPastDrops(completion: @escaping ([PastDrop]) -> Void) {
+        guard let uid = Auth.auth().currentUser?.uid else { completion([]); return }
+        db.child("users").child(uid).child("pastDrops").observeSingleEvent(of: .value) { snap in
+            var drops: [PastDrop] = []
+            for case let child as DataSnapshot in snap.children {
+                guard let data = child.value as? [String: Any],
+                      let activityName = data["activityName"] as? String,
+                      let dateInterval = data["date"] as? Double else { continue }
+                let names = (data["participantNames"] as? [String]) ?? []
+                let count = (data["participantCount"] as? Int) ?? max(names.count, 1)
+                // Volle Participant-Dicts bevorzugen (haben profileImageURL),
+                // Fallback auf Legacy participantNames-only.
+                let participants: [PastDropParticipant]
+                if let full = data["participants"] as? [[String: Any]], !full.isEmpty {
+                    participants = full.map { d in
+                        PastDropParticipant(
+                            name:             (d["name"] as? String) ?? "?",
+                            emoji:            (d["emoji"] as? String) ?? "",
+                            reliabilityScore: (d["reliabilityScore"] as? Int) ?? 100,
+                            wasHost:          (d["wasHost"] as? Bool) ?? false,
+                            didShowUp:        (d["didShowUp"] as? Bool) ?? true,
+                            profileImageURL:  d["profileImageURL"] as? String
+                        )
+                    }
+                } else {
+                    participants = (0..<count).map { i in
+                        let name = i < names.count ? names[i] : "?"
+                        return PastDropParticipant(name: name, emoji: "",
+                                                   reliabilityScore: 100,
+                                                   wasHost: false, didShowUp: true)
+                    }
+                }
+                var drop = PastDrop(
+                    activityEmoji: (data["activityEmoji"] as? String) ?? "",
+                    activityName:  activityName,
+                    locationName:  (data["locationName"] as? String) ?? "",
+                    date:          Date(timeIntervalSince1970: dateInterval),
+                    wasHost:       (data["wasHost"] as? Bool) ?? false,
+                    participants:  participants,
+                    latitude:      data["latitude"]  as? Double,
+                    longitude:     data["longitude"] as? Double
+                )
+                // Firebase-Key (= uuidString) als lokale ID übernehmen, damit
+                // „einzeln löschen" später beide Seiten adressieren kann.
+                if let parsed = UUID(uuidString: child.key) {
+                    drop.id = parsed
+                }
+                drops.append(drop)
+            }
+            DispatchQueue.main.async { completion(drops) }
+        }
+    }
+
     /// Schreibt eine Nutzer-Meldung nach `reports/{autoID}`.
     /// Admin-Panel kann diese Liste auswerten (offene/bearbeitete Reports).
     func submitReport(reportedUID: String?, reportedName: String, reason: String, details: String) {
@@ -2396,6 +2805,12 @@ struct AdminUserEntry: Identifiable {
     /// nil = User hat noch keinen Drop erstellt → "—" in UI.
     var cityName: String?    = nil
     var activeDropID:       String? = nil   // Firebase-Key des laufenden Drops
+    /// Admin-gesetzte Badges (gelesen aus `users/{uid}/badges`).
+    var hasBetaBadge:       Bool    = false
+    var hasTrustedBadge:    Bool    = false
+    var hasFounderBadge:    Bool    = false
+    var hasVerifiedBadge:   Bool    = false
+    var hasHostBadge:       Bool    = false
 }
 
 // MARK: - Admin Drop Entry (Live-Monitoring)
@@ -2493,4 +2908,8 @@ struct StrangerDropData: Identifiable {
     /// App wie „echte" Drops aussehen wenn noch keine Community in der Stadt
     /// aktiv ist. Verschwindet nach 1h (kürzer als normale Ghost-TTL von 90min).
     let isDemo: Bool
+    /// Firebase-Storage URL des Host-Profilbildes. Beim publishDrop als
+    /// `hostProfileImageURL` eingefroren damit Avatar-Pins (auch Ghosts)
+    /// das Bild haben, ohne pro Pin eine zusätzliche RTDB-Query zu brauchen.
+    let hostProfileImageURL: String?
 }
