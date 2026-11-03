@@ -27,9 +27,14 @@ class MiniMapSnapshot extends StatelessWidget {
   /// werden. Für die Profil-Hotspots-Map.
   final List<(double, double)> markers;
 
-  // Firebase-Projekt-API-Key — identisch zum Dynamic-Maps-Key.
-  // „Maps Static API" muss im Google Cloud Console aktiviert sein.
-  static const _apiKey = 'AIzaSyAX4jDEXJCROkyzCDCZaPwy0h-grUSf0q8';
+  /// Google Static Maps API Key — kommt zur Build-Zeit via
+  /// `--dart-define=STATIC_MAPS_KEY=AIza…`. Nicht hardcoded damit
+  /// GitGuardian den String nicht als Secret im Source erkennt. Dieser
+  /// Key ist in Google Cloud ausschließlich auf
+  /// `static-maps-backend.googleapis.com` beschränkt (keine Firebase-
+  /// APIs) — bei Missbrauch nur harmlose Map-Image-Abfragen möglich.
+  static const _apiKey =
+      String.fromEnvironment('STATIC_MAPS_KEY', defaultValue: '');
 
   String get _url {
     final buf = StringBuffer('https://maps.googleapis.com/maps/api/staticmap');
@@ -56,6 +61,9 @@ class MiniMapSnapshot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Falls kein Key via --dart-define übergeben → Platzhalter statt
+    // kaputtes Image.network (sonst roter X auf grauem Grund).
+    if (_apiKey.isEmpty) return _placeholder();
     return Image.network(
       _url,
       fit: BoxFit.cover,
