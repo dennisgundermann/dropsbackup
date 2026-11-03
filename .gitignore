@@ -38,6 +38,11 @@ Carthage/Build/
 GoogleService-Info.plist
 google-services.json
 **/google-services.json
+# Flutter FlutterFire generiert dazu_flutter/lib/firebase_options.dart
+# mit allen API Keys. Google sagt Client-Keys sind by-design public,
+# aber GitGuardian alerted trotzdem. Lokal halten + per
+# `flutterfire configure` neu generieren wenn gebraucht.
+**/firebase_options.dart
 
 # Env / Keys
 *.env
